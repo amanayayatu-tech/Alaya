@@ -1,0 +1,20 @@
+{
+  "name": "alaya",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Alaya cognitive-compounding flywheel: TypeScript core plus Express/React local MVP.",
+  "scripts": {
+    "install:core": "npm --prefix alaya-core install",
+    "install:app": "npm --prefix alaya-app install",
+    "install:all": "npm run install:core && npm run install:app",
+    "test": "npm --prefix alaya-core test",
+    "flywheel": "npm --prefix alaya-core run flywheel",
+    "typecheck": "npm --prefix alaya-core run typecheck && npm --prefix alaya-app run check",
+    "build": "npm --prefix alaya-app run build",
+    "dev": "npm --prefix alaya-app run dev",
+    "start": "npm --prefix alaya-app run start"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

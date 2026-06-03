@@ -1,0 +1,26 @@
+node_modules/
+dist/
+.vite/
+
+# Local SQLite runtime state
+data.db
+data.db-shm
+data.db-wal
+data.db-journal
+alaya-app/data.db
+alaya-app/data.db-shm
+alaya-app/data.db-wal
+alaya-app/data.db-journal
+
+# Environment and local-only files
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+
+# Coverage / temporary output
+coverage/
+.nyc_output/
+tmp/
+temp/

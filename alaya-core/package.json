@@ -1,0 +1,17 @@
+{
+  "name": "alaya-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Alaya M1+M3 内核:四个纯函数 + 5 Agent mock 调度 + 3 轮飞轮数值模拟",
+  "type": "module",
+  "scripts": {
+    "test": "node --import tsx --test tests/*.test.ts",
+    "flywheel": "tsx src/sim/run_flywheel.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "@types/node": "^20.14.0"
+  }
+}
