@@ -76,6 +76,5 @@ Validated locally on 2026-06-03:
 
 Build warnings currently remaining:
 
-- Vite reports one large client chunk over 500 kB.
 - A PostCSS plugin warns that it did not pass the `from` option to
   `postcss.parse`.
