@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, ShieldCheck, LineChart, Library, ListChecks,
-  Moon, Sun, Menu, X, Settings, PlusCircle, Activity,
+  Moon, Sun, Menu, X, Settings, PlusCircle, Activity, BookOpenText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "./Logo";
@@ -33,6 +33,7 @@ const NAV = [
   { href: "/knowledge", label: "知识库", sub: "信念治理", icon: Library, testId: "link-nav-knowledge-base" },
   { href: "/review", label: "周期评审", sub: "复利证据", icon: ListChecks, testId: "link-nav-cycle-review" },
   { href: "/health", label: "健康证明", sub: "复利指标", icon: Activity, testId: "link-nav-flywheel-health" },
+  { href: "/guide", label: "使用说明", sub: "新手上手", icon: BookOpenText, testId: "link-nav-guide" },
   { href: "/project", label: "项目设置", sub: "红线预算", icon: Settings, testId: "link-nav-project-setup" },
 ];
 

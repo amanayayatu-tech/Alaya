@@ -13,6 +13,7 @@ import Knowledge from "@/pages/Knowledge";
 import Review from "@/pages/Review";
 import NewProject from "@/pages/NewProject";
 import ProjectSetup from "@/pages/ProjectSetup";
+import Guide from "@/pages/Guide";
 import FlywheelHealth from "@/FlywheelHealth";
 import NotFound from "@/pages/not-found";
 
@@ -31,6 +32,7 @@ function AppRouter() {
       <Route path="/knowledge" component={Knowledge} />
       <Route path="/review" component={Review} />
       <Route path="/health" component={FlywheelHealthRoute} />
+      <Route path="/guide" component={Guide} />
       <Route path="/project" component={ProjectSetup} />
       <Route path="/projects/new" component={NewProject} />
       <Route component={NotFound} />
