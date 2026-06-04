@@ -130,6 +130,49 @@ function GateCard({ gate, onAct }: { gate: HumanGate; onAct: (g: HumanGate, a: "
           {p.userQuote && (
             <blockquote className="mt-2 border-l-2 border-chart-3/50 pl-3 text-sm italic text-muted-foreground">“{p.userQuote}”</blockquote>
           )}
+          {(p.source || p.category || p.sentiment || p.topicKey) && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {p.source && <Tag className="border-chart-3/30 bg-chart-3/10 text-chart-3">{p.source}</Tag>}
+              {p.category && <Tag className="border-border bg-muted text-muted-foreground">{p.category}</Tag>}
+              {p.sentiment && <Tag className="border-border bg-muted text-muted-foreground">{p.sentiment}</Tag>}
+              {p.topicKey && <Tag className="border-border bg-muted text-muted-foreground">topic:{p.topicKey}</Tag>}
+            </div>
+          )}
+          {p.rollbackPlan && (
+            <div className="mt-3 rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2">
+              <div className="text-[11px] font-mono text-destructive mb-1">rollback-ready change package</div>
+              <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+                <div>risk: <span className="text-foreground">{p.rollbackPlan.riskLevel ?? "—"}</span></div>
+                <div>trigger: <span className="text-foreground">{p.rollbackTrigger ?? "—"}</span></div>
+              </div>
+              {p.rollbackPlan.modifiedObjects && p.rollbackPlan.modifiedObjects.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {p.rollbackPlan.modifiedObjects.map((item) => (
+                    <Tag key={item} className="border-destructive/30 bg-destructive/10 text-destructive">{item}</Tag>
+                  ))}
+                </div>
+              )}
+              {p.rollbackPlan.rollbackSteps && p.rollbackPlan.rollbackSteps.length > 0 && (
+                <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs text-muted-foreground">
+                  {p.rollbackPlan.rollbackSteps.map((step) => <li key={step}>{step}</li>)}
+                </ol>
+              )}
+            </div>
+          )}
+          {p.auditSummary && (
+            <div className="mt-3 rounded-md border border-primary/25 bg-primary/5 px-3 py-2">
+              <div className="text-[11px] font-mono text-primary mb-1">audit summary</div>
+              {p.auditSummary.whyNow && <p className="text-xs text-muted-foreground leading-relaxed">{p.auditSummary.whyNow}</p>}
+              {p.auditSummary.deltaFromCycle3 && <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{p.auditSummary.deltaFromCycle3}</p>}
+              {p.auditSummary.verificationConstraints && p.auditSummary.verificationConstraints.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {p.auditSummary.verificationConstraints.map((item) => (
+                    <Tag key={item} className="border-primary/30 bg-primary/10 text-primary">{item}</Tag>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {p.alternatives && p.alternatives.length > 0 && (
             <div className="mt-2">
               <div className="text-[11px] font-mono text-muted-foreground mb-1">被筛掉的备选</div>

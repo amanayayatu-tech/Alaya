@@ -125,7 +125,19 @@ export default function Review() {
                       : f.sentiment === "negative" ? "border-destructive/30 bg-destructive/10 text-destructive"
                       : "border-border bg-muted text-muted-foreground"
                     }>{f.category}</Tag>
-                    <span className="min-w-0 break-words">{f.text}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap gap-1.5">
+                        <Tag className="border-border bg-muted text-muted-foreground">{f.sourceType}</Tag>
+                        {f.sourceRef && <Tag className="border-border bg-muted text-muted-foreground">{f.sourceRef}</Tag>}
+                        {f.topicKey && <Tag className="border-border bg-muted text-muted-foreground">topic:{f.topicKey}</Tag>}
+                      </div>
+                      <div className="mt-1 break-words">{f.text}</div>
+                      {f.sourceUrl && (
+                        <a href={f.sourceUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block break-all font-mono text-[11px] text-primary hover:underline">
+                          {f.sourceUrl}
+                        </a>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

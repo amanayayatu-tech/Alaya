@@ -9,6 +9,7 @@ import type {
   Prediction,
   HumanGate,
 } from "../core/types.js";
+import type { LLMCallLog } from "../llm/provider.js";
 
 export interface Project {
   id: string;
@@ -54,6 +55,10 @@ export interface DecisionLogEntry {
   rationale: string;
 }
 
+export type LLMCallEntry = LLMCallLog & {
+  cycleIndex: number;
+};
+
 export class Store {
   project!: Project;
   cycles: Cycle[] = [];
@@ -63,6 +68,7 @@ export class Store {
   agentRuns: AgentRun[] = [];
   eventLog: EventLogEntry[] = [];
   decisionLog: DecisionLogEntry[] = [];
+  llmCalls: LLMCallEntry[] = [];
   /** 已被人类否决的方向,防止重复提出 (PRD 17.3) */
   rejectedDirections: Set<string> = new Set();
   /** 连续灰区计数,按知识 id (修复漏洞E) */
@@ -86,6 +92,11 @@ export class Store {
   recordAgentRun(run: AgentRun) {
     this.agentRuns.push(run);
     this.logEvent(run.cycleIndex, run.agent, "agent_runs", "insert", null, run);
+  }
+
+  recordLlmCall(cycleIndex: number, log: LLMCallLog) {
+    this.llmCalls.push({ ...log, cycleIndex });
+    this.logEvent(cycleIndex, log.agent, "llm_calls", "insert", null, log);
   }
 
   activeKnowledge(): KnowledgeItem[] {

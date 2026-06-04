@@ -1,8 +1,11 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { AlertTriangle, ArrowUpRight, Gauge } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, CircleDollarSign, Gauge, LoaderCircle, Play } from "lucide-react";
 import { useProject } from "@/components/Layout";
 import { PageHeader, Panel, PanelHeader, Stat, Tag, Empty, SkeletonRows } from "@/components/bits";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import {
   AGENT_ORDER, AGENT_LABEL, STATUS_TONE, CONFIDENCE_TONE, fmtNum,
   type Dashboard as DashboardData,
@@ -10,16 +13,39 @@ import {
 
 export default function Dashboard() {
   const { projectId } = useProject();
+  const { toast } = useToast();
+  const [advancing, setAdvancing] = useState(false);
+  const [lastSchedulerAction, setLastSchedulerAction] = useState<string | null>(null);
   const { data, isLoading } = useQuery<DashboardData>({
     queryKey: ["/api/projects", projectId, "dashboard"],
     enabled: !!projectId,
   });
+
+  async function advanceCycle() {
+    if (!projectId || advancing) return;
+    setAdvancing(true);
+    try {
+      const response = await apiRequest("POST", `/api/projects/${projectId}/scheduler/tick`, { syncFeedback: false });
+      const result = await response.json();
+      setLastSchedulerAction(result.action ?? "unknown");
+      await queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "dashboard"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/human-gates", projectId] });
+      toast({ title: "Cycle 已推进", description: result.note ?? result.action });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast({ title: "Cycle 推进失败", description: message });
+    } finally {
+      setAdvancing(false);
+    }
+  }
 
   if (!projectId) return <Empty>选择或创建一个项目</Empty>;
   if (isLoading || !data) return <SkeletonRows rows={6} />;
 
   const b = data.gateBudget;
   const usedPct = Math.min(100, Math.round((b.used / b.budget) * 100));
+  const llm = data.llmBudget;
+  const llmPct = Math.min(100, Math.round((llm.usedUsd / Math.max(llm.budgetUsd, 0.01)) * 100));
   const stage = data.flywheelStage;
 
   return (
@@ -27,12 +53,37 @@ export default function Dashboard() {
       <PageHeader
         title="Dashboard"
         sub={`${data.project.name} · ${data.cycleCount} 轮飞轮 · 当前 cycle #${data.currentCycle?.idx ?? "—"} (${data.currentCycle?.status ?? "—"})`}
+        right={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {lastSchedulerAction && (
+              <span data-testid="text-last-scheduler-action" className="rounded-md border border-border bg-card px-2.5 py-1.5 text-[11px] font-mono text-muted-foreground">
+                {lastSchedulerAction}
+              </span>
+            )}
+            <button
+              data-testid="button-advance-cycle"
+              onClick={advanceCycle}
+              disabled={advancing}
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover-elevate active-elevate-2 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {advancing ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              推进
+            </button>
+          </div>
+        }
       />
 
       {b.safetyMode && (
         <div className="mb-5 flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive" data-testid="banner-safety-mode">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           <span><span className="font-semibold">安全模式已触发</span> · 待处理 blocking 闸门 {b.pendingBlocking} 条 (&gt;3),已冻结新立项。</span>
+        </div>
+      )}
+
+      {llm.overBudget && llm.pendingBudgetGate && (
+        <div className="mb-5 flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive" data-testid="banner-llm-budget">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span><span className="font-semibold">LLM 成本预算已触发</span> · 本周 ${llm.usedUsd.toFixed(4)} / ${llm.budgetUsd.toFixed(2)}，已暂停自动推进。</span>
         </div>
       )}
 
@@ -45,7 +96,7 @@ export default function Dashboard() {
       </div>
 
       {/* flywheel + budget */}
-      <div className="mt-5 grid gap-4 lg:grid-cols-3">
+      <div className="mt-5 grid gap-4 lg:grid-cols-4">
         <Panel className="lg:col-span-2">
           <PanelHeader>飞轮阶段 · flywheel stage</PanelHeader>
           <div className="flex flex-wrap items-center gap-1.5 p-4">
@@ -101,6 +152,33 @@ export default function Dashboard() {
             </div>
             <div className="mt-3 text-xs text-muted-foreground">
               意义闸按主题合并 · 低风险候选批量展示以降噪。
+            </div>
+          </div>
+        </Panel>
+
+        <Panel>
+          <PanelHeader right={<CircleDollarSign className="h-3.5 w-3.5 text-muted-foreground" />}>
+            LLM 预算 · cost budget
+          </PanelHeader>
+          <div className="p-4">
+            <div className="flex items-baseline justify-between font-mono">
+              <span className={`text-2xl font-semibold tabular-nums ${llm.overBudget ? "text-destructive" : ""}`} data-testid="text-llm-budget-used">
+                ${llm.usedUsd.toFixed(4)}
+              </span>
+              <span className="text-sm text-muted-foreground">/ ${llm.budgetUsd.toFixed(2)}/周</span>
+            </div>
+            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className={`h-full rounded-full ${llm.overBudget || llmPct > 80 ? "bg-destructive" : "bg-chart-2"}`}
+                style={{ width: `${llmPct}%` }}
+              />
+            </div>
+            <div className="mt-2 flex justify-between text-[11px] font-mono text-muted-foreground">
+              <span>已用 {llmPct}%</span>
+              <span>剩余 ${(llm.remainingCents / 100).toFixed(2)}</span>
+            </div>
+            <div className="mt-3 text-xs text-muted-foreground">
+              超预算会进入 blocking risk gate，同周确认后不重复开闸。
             </div>
           </div>
         </Panel>

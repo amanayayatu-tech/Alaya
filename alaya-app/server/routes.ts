@@ -4,12 +4,13 @@ import type { Server } from "node:http";
 import { storage, now } from "./storage";
 import { onboardingSchema } from "@shared/schema";
 import { createProjectFromOnboarding } from "./onboarding";
-import { runFullCycle, SCENARIO } from "./flywheel";
+import { updateProjectConfig } from "./projectConfig";
+import { runFullCycle, scenarioForCycle } from "./flywheel";
+import { gateBudgetForProject, llmBudgetForProject, schedulerTickAllProjects, schedulerTickProject } from "./scheduler";
+import { ingestFormFeedback, syncConfiguredFeedbackForProject, syncGithubIssuesForSource, upsertGithubSource } from "./externalFeedback";
 import { seedDemo } from "./seed";
 import { applyEvidence } from "@shared/core/update_confidence.js";
 import { transitionState } from "@shared/core/transition_state.js";
-
-const WEEKLY_BUDGET_DEFAULT = 150;
 
 function parseJsonFields<T extends Record<string, any>>(obj: T, fields: string[]): T {
   const out: any = { ...obj };
@@ -21,21 +22,17 @@ function parseJsonFields<T extends Record<string, any>>(obj: T, fields: string[]
   return out;
 }
 
-function gateBudgetForProject(projectId: string) {
-  const project = storage.getProject(projectId);
-  const budget = project?.weeklyHumanMinutes ?? WEEKLY_BUDGET_DEFAULT;
-  const gates = storage.listGates(projectId);
-  const used = gates.filter((g) => g.status !== "pending").reduce((s, g) => s + g.estimatedMinutes, 0);
-  const pendingBlocking = gates.filter((g) => g.status === "pending" && g.blocking === 1);
-  // safety mode: >3 blocking pending OR oldest blocking pending > 5 cycles old (approx via count)
-  const safetyMode = pendingBlocking.length > 3;
-  return { budget, used, remaining: Math.max(0, budget - used), pendingBlocking: pendingBlocking.length, safetyMode };
+function feedbackSyncOptions(req: Request) {
+  return {
+    token: req.body?.token ?? req.body?.githubToken,
+    limit: req.body?.limit,
+  };
 }
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   // ---------------- seed demo ----------------
-  app.post("/api/seed-demo", (_req, res) => {
-    const r = seedDemo();
+  app.post("/api/seed-demo", async (_req, res) => {
+    const r = await seedDemo();
     res.json(r);
   });
 
@@ -48,16 +45,80 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!p) return res.status(404).json({ message: "not found" });
     res.json(parseJsonFields(p, ["redlines"]));
   });
-  app.post("/api/projects", (req, res) => {
+  app.post("/api/projects", async (req, res) => {
     const parsed = onboardingSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "invalid onboarding", errors: parsed.error.flatten() });
-    const project = createProjectFromOnboarding(parsed.data);
+    const project = await createProjectFromOnboarding(parsed.data);
     res.json(parseJsonFields(project, ["redlines"]));
   });
   app.patch("/api/projects/:id", (req, res) => {
-    const p = storage.updateProject(req.params.id, req.body);
+    const p = updateProjectConfig(req.params.id, req.body);
     if (!p) return res.status(404).json({ message: "not found" });
     res.json(parseJsonFields(p, ["redlines"]));
+  });
+
+  // ---------------- external feedback sources ----------------
+  app.get("/api/projects/:id/integrations", (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    res.json(storage.listExternalFeedbackSources(project.id).map((s) => parseJsonFields(s, ["config"])));
+  });
+  app.post("/api/projects/:id/integrations/github", async (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    const owner = String(req.body?.owner ?? "").trim();
+    const repo = String(req.body?.repo ?? "").trim();
+    if (!owner || !repo) return res.status(400).json({ message: "owner and repo are required" });
+    const source = upsertGithubSource(project.id, owner, repo);
+    const syncNow = req.body?.syncNow === true;
+    const cycle = storage.listCycles(project.id).find((c) => c.status !== "closed") ?? storage.listCycles(project.id).at(-1);
+    const sync = syncNow && cycle
+      ? await syncGithubIssuesForSource(source, cycle.id, { token: req.body?.token, limit: req.body?.limit })
+      : null;
+    res.json({ source: parseJsonFields(source, ["config"]), sync });
+  });
+  app.post("/api/projects/:id/integrations/github/issues/sync", async (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    const owner = String(req.body?.owner ?? "").trim();
+    const repo = String(req.body?.repo ?? "").trim();
+    if (!owner || !repo) return res.status(400).json({ message: "owner and repo are required" });
+    const source = upsertGithubSource(project.id, owner, repo);
+    const cycle = storage.listCycles(project.id).find((c) => c.status !== "closed") ?? storage.listCycles(project.id).at(-1);
+    if (!cycle) return res.status(409).json({ message: "project has no cycle to attach feedback" });
+    const sync = await syncGithubIssuesForSource(source, cycle.id, { token: req.body?.token, limit: req.body?.limit });
+    res.json({ source: parseJsonFields(storage.getExternalFeedbackSource(source.id) ?? source, ["config"]), sync });
+  });
+  app.post("/api/projects/:id/integrations/:sourceId/sync", async (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    const source = storage.getExternalFeedbackSource(req.params.sourceId);
+    if (!source || source.projectId !== project.id) return res.status(404).json({ message: "source not found" });
+    const cycle = storage.listCycles(project.id).find((c) => c.status !== "closed") ?? storage.listCycles(project.id).at(-1);
+    if (!cycle) return res.status(409).json({ message: "project has no cycle to attach feedback" });
+    if (source.kind !== "github_issues") return res.status(400).json({ message: `unsupported source kind ${source.kind}` });
+    const sync = await syncGithubIssuesForSource(source, cycle.id, { token: req.body?.token, limit: req.body?.limit });
+    res.json({ source: parseJsonFields(storage.getExternalFeedbackSource(source.id) ?? source, ["config"]), sync });
+  });
+  app.post("/api/projects/:id/feedback/form", async (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    try {
+      const result = await ingestFormFeedback(project.id, {
+        sourceName: String(req.body?.sourceName ?? "form"),
+        externalId: req.body?.externalId == null ? undefined : String(req.body.externalId),
+        title: req.body?.title == null ? undefined : String(req.body.title),
+        text: String(req.body?.text ?? ""),
+        url: req.body?.url == null ? undefined : String(req.body.url),
+      });
+      res.json({
+        ...result,
+        source: parseJsonFields(result.source, ["config"]),
+        gate: result.gate ? parseJsonFields(result.gate, ["payload"]) : null,
+      });
+    } catch (err) {
+      res.status(400).json({ message: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   // ---------------- dashboard summary ----------------
@@ -72,6 +133,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const gates = storage.listGates(projectId);
     const pendingGates = gates.filter((g) => g.status === "pending");
     const budget = gateBudgetForProject(projectId);
+    const llmBudget = llmBudgetForProject(projectId);
     const openPredictions = preds.filter((p) => p.status === "open").length;
     // flywheel stage: last agent run for current cycle
     const runs = currentCycle ? storage.listAgentRuns(currentCycle.id) : [];
@@ -86,6 +148,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       flywheelStage: lastStage,
       pendingHuman: pendingGates.length,
       gateBudget: budget,
+      llmBudget,
       openPredictions,
       blockingRisks,
       knowledgeCount: knowledge.length,
@@ -93,16 +156,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       recentKnowledge: recentKnowledge.map((k) => parseJsonFields(k, ["tags"])),
     });
   });
+  app.get("/api/projects/:id/gate-budget", (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    res.json(gateBudgetForProject(project.id));
+  });
 
   // ---------------- cycles ----------------
   app.post("/api/projects/:id/cycles", (req, res) => {
     const projectId = req.params.id;
     const cycles = storage.listCycles(projectId);
     const idx = cycles.length + 1;
-    const sc = SCENARIO.find((s) => s.index === idx);
+    const sc = scenarioForCycle(idx);
+    if (!sc) return res.status(409).json({ message: `cycle ${idx} has no explicit scenario configured` });
     const cyc = storage.createCycle({
       id: `cycle_${idx}_${projectId.slice(-4)}`, projectId, idx,
-      goal: sc?.proposedGoal ?? "", status: "planning", eCycle: null, worstClaimError: null, reasoning: "", version: 1,
+      goal: sc.proposedGoal, status: "planning", eCycle: null, worstClaimError: null, reasoning: "", version: 1,
     });
     storage.updateProject(projectId, { currentCycleIdx: idx });
     res.json(cyc);
@@ -127,11 +196,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ---------------- run-full ----------------
-  app.post("/api/cycles/:id/run-full", (req, res) => {
+  app.post("/api/cycles/:id/run-full", async (req, res) => {
     const cycle = storage.getCycle(req.params.id);
     if (!cycle) return res.status(404).json({ message: "not found" });
-    const r = runFullCycle(cycle.projectId, cycle.id);
+    const r = await runFullCycle(cycle.projectId, cycle.id);
     res.json(r);
+  });
+
+  // ---------------- scheduler ----------------
+  app.post("/api/projects/:id/scheduler/tick", async (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    const syncOptions = feedbackSyncOptions(req);
+    if (req.body?.syncFeedback !== false) await syncConfiguredFeedbackForProject(project.id, undefined, syncOptions);
+    res.json(await schedulerTickProject(project.id, { feedbackSync: syncOptions }));
+  });
+  app.post("/api/scheduler/tick", async (req, res) => {
+    const projectId = req.body?.projectId ?? req.query.projectId;
+    const syncOptions = feedbackSyncOptions(req);
+    if (projectId) {
+      const project = storage.getProject(String(projectId));
+      if (!project) return res.status(404).json({ message: "not found" });
+      if (req.body?.syncFeedback !== false) await syncConfiguredFeedbackForProject(project.id, undefined, syncOptions);
+      return res.json(await schedulerTickProject(project.id, { feedbackSync: syncOptions }));
+    }
+    if (req.body?.syncFeedback !== false) {
+      for (const project of storage.listProjects()) await syncConfiguredFeedbackForProject(project.id, undefined, syncOptions);
+    }
+    res.json(await schedulerTickAllProjects({ feedbackSync: syncOptions }));
   });
 
   // ---------------- cycle review ----------------

@@ -1,0 +1,58 @@
+# Alaya 宪法守卫 + 结构验收 — GitHub Actions
+# 每次 push / PR 时静态检查 PRINCIPLES.md 的可机检底线，并跑 core/app/scripts
+# 测试、类型检查、构建和四层升级结构审计。真实 live E2E 仍只在本机凭据存在时运行。
+name: Principles Guard
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install core dependencies
+        working-directory: alaya-core
+        run: npm ci
+
+      - name: Install app dependencies
+        working-directory: alaya-app
+        run: npm ci
+
+      # 1. 宪法静态守卫（底线 1/2/3/4/5/6 可机检部分）
+      - name: Constitution guard
+        run: node scripts/check-principles.mjs
+
+      # 2. 纯函数与 core agent 单测必须全过（底线 1 的动态保障）
+      - name: Core unit tests (alaya-core)
+        run: npm --prefix alaya-core test
+
+      # 3. 飞轮 4 轮叙事必须仍成立（PRD 17.3 + 第4轮 rollback/audit 复利延展）
+      - name: Flywheel regression
+        run: npm --prefix alaya-core run flywheel
+
+      # 4. App 集成测试：外部反馈、PII 脱敏、scheduler 自动推进、4 轮差异性
+      - name: App integration tests (alaya-app)
+        run: npm --prefix alaya-app test
+
+      # 5. Root scripts 测试：live readiness、GitHub target 推断、本机 secret check 不泄露值
+      - name: Script tests
+        run: node --test scripts/tests/*.test.mjs
+
+      # 6. 类型检查：core + app
+      - name: Typecheck
+        run: npm --prefix alaya-core run typecheck && npm --prefix alaya-app run check
+
+      # 7. 生产构建：确保 app 可构建
+      - name: Production build
+        run: npm --prefix alaya-app run build
+
+      # 8. 四层升级结构审计；没有 live secret 时允许 complete=false，但结构失败必须红
+      - name: Upgrade readiness audit
+        run: node scripts/audit-upgrade-readiness.mjs

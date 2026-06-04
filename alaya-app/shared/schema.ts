@@ -13,6 +13,10 @@ export const projects = sqliteTable("projects", {
   targetUser: text("target_user").notNull(),
   redlines: text("redlines").notNull().default("[]"), // JSON string[]
   weeklyHumanMinutes: integer("weekly_human_minutes").notNull().default(150),
+  weeklyLlmBudgetCents: integer("weekly_llm_budget_cents").notNull().default(100),
+  firstClaimMetric: text("first_claim_metric").notNull().default("activation_rate"),
+  firstClaimOperator: text("first_claim_operator").notNull().default(">="),
+  firstClaimTarget: real("first_claim_target").notNull().default(0.3),
   seedIdentity: text("seed_identity").notNull().default(""),
   worldModel: text("world_model").notNull().default(""),
   currentCycleIdx: integer("current_cycle_idx").notNull().default(0),
@@ -57,6 +61,12 @@ export const feedbackItems = sqliteTable("feedback_items", {
   text: text("text").notNull(),
   category: text("category").notNull(),
   sentiment: text("sentiment").notNull(),
+  sourceType: text("source_type").notNull().default("scenario"),
+  sourceRef: text("source_ref").notNull().default(""),
+  sourceUrl: text("source_url").notNull().default(""),
+  topicKey: text("topic_key").notNull().default(""),
+  summary: text("summary").notNull().default(""),
+  externalUpdatedAt: text("external_updated_at").notNull().default(""),
 });
 
 // ---------------- 6. predictions ----------------
@@ -178,6 +188,18 @@ export const agentRuns = sqliteTable("agent_runs", {
   ts: text("ts").notNull(),
 });
 
+// ---------------- externalFeedbackSources ----------------
+export const externalFeedbackSources = sqliteTable("external_feedback_sources", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull(),
+  kind: text("kind").notNull(),
+  config: text("config").notNull().default("{}"),
+  status: text("status").notNull().default("active"),
+  lastSyncedAt: text("last_synced_at"),
+  createdAt: text("created_at").notNull(),
+  version: integer("version").notNull().default(1),
+});
+
 // ---------------- Insert schemas & types ----------------
 export const insertProjectSchema = createInsertSchema(projects).omit({ id: true, version: true, currentCycleIdx: true, seedIdentity: true, worldModel: true });
 export type InsertProject = z.infer<typeof insertProjectSchema>;
@@ -195,6 +217,7 @@ export type DecisionLogItem = typeof decisionLog.$inferSelect;
 export type EventLogItem = typeof eventLog.$inferSelect;
 export type LlmCall = typeof llmCalls.$inferSelect;
 export type AgentRun = typeof agentRuns.$inferSelect;
+export type ExternalFeedbackSource = typeof externalFeedbackSources.$inferSelect;
 
 // onboarding interview payload (PRD 13.1)
 export const onboardingSchema = z.object({
@@ -207,7 +230,11 @@ export const onboardingSchema = z.object({
   founderPreference: z.string().default(""), // 创始人偏好
   competitors: z.string().default(""),       // 已知竞品
   feedbackSources: z.string().default(""),   // 反馈来源
-  weeklyHumanMinutes: z.number().default(150), // 每周预算
+  weeklyHumanMinutes: z.number().default(150), // 每周人工预算
+  weeklyLlmBudgetCents: z.number().default(100), // 每周 LLM 成本预算, cents
+  firstClaimMetric: z.string().default("activation_rate"), // 第一轮可观测指标
+  firstClaimOperator: z.enum([">=", "<=", "=="]).default(">="), // 第一轮 claim operator
+  firstClaimTarget: z.number().default(0.3), // 第一轮目标阈值
   firstSignal: z.string().min(1),    // 第一轮希望看到的信号
 });
 export type OnboardingInput = z.infer<typeof onboardingSchema>;

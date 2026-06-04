@@ -10,6 +10,8 @@ import Gates from "@/pages/Gates";
 import Ledger from "@/pages/Ledger";
 import Knowledge from "@/pages/Knowledge";
 import Review from "@/pages/Review";
+import NewProject from "@/pages/NewProject";
+import ProjectSetup from "@/pages/ProjectSetup";
 import NotFound from "@/pages/not-found";
 
 function AppRouter() {
@@ -20,6 +22,8 @@ function AppRouter() {
       <Route path="/ledger" component={Ledger} />
       <Route path="/knowledge" component={Knowledge} />
       <Route path="/review" component={Review} />
+      <Route path="/project" component={ProjectSetup} />
+      <Route path="/projects/new" component={NewProject} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -1,5 +1,5 @@
 /**
- * 确定性 3 轮飞轮场景 (PRD 17.3)。
+ * 确定性 4 轮飞轮场景 (PRD 17.3 + 第4轮复利延展)。
  * 设计目标:让第 3 轮能真实复用前两轮知识并改变决策,而非形式引用。
  *
  * 叙事:一个"一键发布"产品的冷启动。
@@ -11,6 +11,8 @@
  *   => 提炼知识 K2:可逆/可预览显著降低高风险动作的使用门槛。
  * - 第3轮:Orchestrator 生成新目标时,必须引用 K1+K2,主动避开"再加一个自动化但不可预览"的方向,
  *   转而提出"为删除操作也加预览"。这就是复利:决策被前两轮知识改变。
+ * - 第4轮:不复用第3轮模板,而是把"看到将改什么"升级为可回滚变更包 + 审计摘要,
+ *   并由 Distiller 沉淀一条新的高风险动作治理原则。
  */
 
 export interface FeedbackItem {
@@ -87,6 +89,23 @@ export const SCENARIO: CycleScenario[] = [
     activationTarget: 0.3,
     feedback: [
       { id: "f5", text: "删除前的预览太贴心了,这正是我担心的", category: "metric_signal", sentiment: "positive" },
+    ],
+    buildSuccess: true,
+    perceptionOk: true,
+    humanValueMismatch: false,
+  },
+  {
+    index: 4,
+    proposedGoal: "(由系统基于 strong/active 知识继续生成)",
+    alternativeGoals: ["直接开放批量删除", "先做视觉主题与模板"],
+    belief: "(由系统生成)",
+    prediction: "(由系统生成)",
+    action: "(由系统生成)",
+    activationObserved: 0.48,
+    activationTarget: 0.45,
+    feedback: [
+      { id: "f6", text: "现在有预览和回滚记录,我愿意让它处理更多发布前检查", category: "metric_signal", sentiment: "positive" },
+      { id: "f7", text: "如果每次自动操作都有审计摘要,我可以拿给同事复盘", category: "feature_request", sentiment: "positive" },
     ],
     buildSuccess: true,
     perceptionOk: true,

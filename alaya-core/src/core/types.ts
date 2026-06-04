@@ -32,7 +32,12 @@ export interface Claim {
   /** 容差尺度,修复漏洞B:必须为正 */
   scale?: number;
   weight: number; // 关键预测应 >=3 (修复漏洞C)
+  /** 预测编码闭环契约:没有这些字段,预测无法作为可靠学习信号。 */
+  expectedObservation?: string;
   timeWindow?: string;
+  successThreshold?: string;
+  failureThreshold?: string;
+  uncertainty?: number; // 0..1,越高代表越不确定
   error?: number | null; // 单 claim 归一化误差 [0,1]
 }
 

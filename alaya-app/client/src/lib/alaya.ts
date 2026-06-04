@@ -2,8 +2,9 @@
 
 export interface Project {
   id: string; name: string; direction: string; targetUser: string;
-  redlines: string[]; weeklyHumanMinutes: number; seedIdentity: string;
-  worldModel: string; currentCycleIdx: number; version: number;
+  redlines: string[]; weeklyHumanMinutes: number; weeklyLlmBudgetCents: number;
+  firstClaimMetric: string; firstClaimOperator: string; firstClaimTarget: number;
+  seedIdentity: string; worldModel: string; currentCycleIdx: number; version: number;
 }
 export interface Cycle {
   id: string; projectId: string; idx: number; goal: string;
@@ -23,6 +24,8 @@ export interface KnowledgeItem {
 export interface Claim {
   id: string; type: string; metric?: string; operator?: string; target?: number;
   observed?: number | null; weight: number; error?: number | null;
+  expectedObservation?: string; timeWindow?: string; successThreshold?: string;
+  failureThreshold?: string; uncertainty?: number;
 }
 export interface Prediction {
   id: string; cycleId: string; belief: string; prediction: string; action: string;
@@ -33,7 +36,32 @@ export interface Prediction {
 export interface HumanGate {
   id: string; cycleId: string; type: "direction" | "meaning" | "risk";
   blocking: number; title: string;
-  payload: { recommended?: string; alternatives?: string[]; knowledgeRefs?: string[]; reasoning?: string; userQuote?: string; mergedCount?: number };
+  payload: {
+    recommended?: string;
+    alternatives?: string[];
+    knowledgeRefs?: string[];
+    reasoning?: string;
+    userQuote?: string;
+    mergedCount?: number;
+    source?: string;
+    category?: string;
+    sentiment?: string;
+    topicKey?: string;
+    summary?: string;
+    rollbackTrigger?: string;
+    rollbackPlan?: {
+      packageType?: string;
+      modifiedObjects?: string[];
+      rollbackSteps?: string[];
+      riskLevel?: string;
+    };
+    auditSummary?: {
+      stage?: string;
+      whyNow?: string;
+      deltaFromCycle3?: string;
+      verificationConstraints?: string[];
+    };
+  };
   status: string; estimatedMinutes: number; decision: string | null; version: number;
 }
 export interface AgentRun {
@@ -43,20 +71,50 @@ export interface AgentRun {
 export interface Dashboard {
   project: Project; currentCycle: Cycle; cycleCount: number; flywheelStage: string;
   pendingHuman: number;
-  gateBudget: { budget: number; used: number; remaining: number; pendingBlocking: number; safetyMode: boolean };
+  gateBudget: {
+    budget: number;
+    used: number;
+    remaining: number;
+    pendingBlocking: number;
+    pendingNonBlocking: number;
+    oldestBlockingAgeDays: number;
+    safetyMode: boolean;
+  };
+  llmBudget: {
+    budgetCents: number;
+    usedCents: number;
+    remainingCents: number;
+    usedUsd: number;
+    budgetUsd: number;
+    weeklyWindowStart: string;
+    overBudget: boolean;
+    pendingBudgetGate: boolean;
+    acknowledgedThisWeek: boolean;
+  };
   openPredictions: number; blockingRisks: number; knowledgeCount: number; strongCount: number;
   recentKnowledge: KnowledgeItem[];
 }
 export interface CycleReview {
   cycle: Cycle;
-  feedback: { id: string; text: string; category: string; sentiment: string }[];
+  feedback: {
+    id: string;
+    text: string;
+    category: string;
+    sentiment: string;
+    sourceType: string;
+    sourceRef: string;
+    sourceUrl: string;
+    topicKey: string;
+    summary: string;
+    externalUpdatedAt: string;
+  }[];
   predictions: Prediction[];
   tasks: { id: string; agent: string; kind: string; status: string; spec: string }[];
   agentRuns: AgentRun[];
   decisions: { id: string; gateType: string; decision: string; rationale: string }[];
   referencedKnowledge: KnowledgeItem[];
   knowledgeUpdated: KnowledgeItem[];
-  bugs: { id: string; text: string }[];
+  bugs: { id: string; text: string; sourceType: string; sourceRef: string }[];
 }
 
 export const AGENT_ORDER = ["orchestrator", "sensor", "builder", "distiller", "librarian"];

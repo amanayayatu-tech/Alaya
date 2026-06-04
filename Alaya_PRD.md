@@ -891,12 +891,14 @@ Onboarding interview 至少覆盖：
 - 当前可用反馈来源。
 - 每周人工预算。
 - 第一轮希望看到的外部信号。
+- 第一轮可观测 claim 配置：metric、operator、target。
 
 系统输出：
 
 - seed identity。
 - 初始 world_model。
 - 第一轮候选目标。
+- 第一轮 prediction ledger 的默认 measurable claim 配置。
 
 ### 13.2 开始一轮飞轮
 
@@ -1132,16 +1134,21 @@ MVP 完成时，系统必须能：
 
 ### 17.3 飞轮验收
 
-至少跑通 3 轮模拟飞轮：
+至少跑通 4 轮模拟飞轮：
 
 - 第 1 轮：冷启动项目。
 - 第 2 轮：根据反馈修正 world_model。
 - 第 3 轮：复用前两轮知识生成更好的计划。
+- 第 4 轮：把第 3 轮的“看到将改什么”升级为 rollback-ready change package + audit summary。
 
 通过标准：
 
 - 第 3 轮建议中能明确引用前两轮的知识。
 - 第 3 轮建议必须说明被引用知识如何改变了建议，而不是只形式引用知识 ID。
+- 第 4 轮必须使用独立命名的 gate/prediction/action,不得复用第 3 轮模板。
+- 第 4 轮的 direction gate 或 Builder task spec 必须包含 rollbackPlan、rollbackTrigger、rollbackSteps、riskLevel 与 auditSummary。
+- 第 4 轮必须由 Distiller 生成至少一条 `knowledge_items.type = "principle"` 且 `createdByCycle = 4` 的知识,内容指向“高风险动作必须具备可回滚路径与审计摘要”。
+- 未显式定义的第 5 轮及以后不得自动回退到第 3 或第 4 轮模板。
 - 系统不会重复提出已被否决的方向，除非提供新证据。
 - 人类 pending 队列不会无限膨胀。
 - 5 个 Agent 均必须留下本轮运行记录，即使其中某些 Agent 只执行 mock 或 adapter 行为。
@@ -1229,7 +1236,7 @@ Builder Adapter 在 MVP 阶段不得自动执行破坏性命令。涉及代码�
 - `update_confidence` 纯函数。
 - 知识状态迁移函数。
 - 5 Agent 顺序调度 mock。
-- 3 轮飞轮数值模拟。
+- 4 轮飞轮数值模拟,其中第 4 轮验证可回滚变更包、审计摘要和新治理原则。
 
 约束：Phase 0.5 不是砍掉 5 Agent，而是在不接真实外部工具前，先让五个 Agent 以 mock/adapter 形态跑完整飞轮。
 
@@ -1288,7 +1295,7 @@ Builder Adapter 在 MVP 阶段不得自动执行破坏性命令。涉及代码�
 5. 实现 5 Agent 的顺序调度骨架：Orchestrator、Sensor、Builder Adapter、Distiller、Librarian。
 6. 实现 project/cycle/human_gate/prediction/knowledge 的 CRUD。
 7. 实现 onboarding interview 和 seed identity/world_model 写入。
-8. 跑通 3 轮 mock 飞轮，每轮五个 Agent 都必须写运行记录。
+8. 跑通 4 轮 mock 飞轮，每轮五个 Agent 都必须写运行记录；第 4 轮必须产出可回滚变更包、审计摘要和 `createdByCycle=4` 的 principle。
 9. 实现前端 Dashboard、Human Gates、Prediction Ledger、Knowledge Base、Cycle Review。
 10. 接入 OpenAI API，并加 schema 校验、retry、降级、调用日志、成本统计。
 11. 实现 gate budget、意义闸合并、pending_human 安全模式。
@@ -1470,7 +1477,7 @@ Alaya 的工程实现可行，不代表产品经济性成立。
 | 真实反馈导入 | 外部数据混乱、缺失、噪声 | 先手动录入，再接 GitHub/form |
 | Builder 安全 | 代码修改风险 | Adapter 模式，不内建自动执行 |
 | Prompt 版本管理 | prompt 改动会改变系统行为 | prompt_version 落盘 |
-| 测试策略 | 飞轮系统难写单测 | 纯函数单测 + 3 轮模拟 + event replay |
+| 测试策略 | 飞轮系统难写单测 | 纯函数单测 + 4 轮模拟 + event replay |
 
 ### 22.5 必须设置的失败阈值
 
@@ -1498,3 +1505,134 @@ Alaya 进入正确轨道的信号不是“Agent 输出更多”，而是：
 - 系统能主动说“我不知道，需要人类判断”。
 
 如果这些信号没有出现，即使功能完整，也应视为飞轮没有真正转起来。
+
+### 22.7 风险分层矩阵
+
+以下风险不应被理解为“上线后再观察”的普通风险，而应作为 Alaya 的架构约束。第一版必须让这些风险可见、可记录、可降级，否则系统越自动化，误差越容易被包装成进步。
+
+| 层级 | 风险类型 | 典型表现 | 最坏后果 | 第一版必须具备的缓解机制 |
+|---|---|---|---|---|
+| P0 | 价值方向误判 | 系统持续推进一个指标好但意义错的方向 | 飞轮越转越偏，用户信任崩溃 | blocking direction gate、identity 冲突检测、人工否决记录 |
+| P0 | 预测误差定义失败 | prediction_error 无法判断，或被系统随意解释 | 学习信号失真，系统无法真正改进 | 每条 prediction 必须声明观测口径、时间窗、成功阈值 |
+| P0 | 知识污染 | 错误经验被写成 strong knowledge 并反复调用 | 后续 Agent 以错误知识为前提持续决策 | knowledge source、confidence、review_status、stale/conflict 审计 |
+| P1 | 人类闸门淹没 | pending gate 过多，人类不再认真判断 | 人类变成橡皮图章，系统失去价值校准 | gate budget、合并同类项、低价值闸门自动降级 |
+| P1 | 多 Agent 责任空洞 | 每个 Agent 都“合理”，整体结果却错误 | 难以追责，无法定位修正点 | event_log、agent trace、输入输出版本化 |
+| P1 | 外部反馈噪声 | issue、社群、表单反馈大量重复或情绪化 | Sensor 被噪声牵引，方向频繁摇摆 | 去重、来源权重、反馈分类、meaning gate |
+| P2 | 成本失控 | LLM 调用量随知识库和周期增长 | 私人工具经济性消失 | token budget、缓存、增量摘要、模型分层 |
+| P2 | 工具链不稳定 | Codex/GitHub/表单/API 中断或格式变化 | 自动化链路频繁卡死 | adapter 隔离、失败重试、人工 fallback |
+| P2 | 迁移性不足 | 只有创建者本人能理解和使用 | 难以产品化，但不一定影响私用价值 | onboarding interview、project identity、world_model 显性化 |
+
+### 22.8 预测编码闭环的核心断点
+
+Alaya 的理论核心接近“预测编码式大脑”：系统基于当前 belief/world_model 生成 prediction，通过外部 observation 修正 belief，再推动下一轮 action。这个设计有价值，但它最难的地方不是生成 prediction，而是防止 prediction_error 被错误定义。
+
+最可能出现的断点：
+
+- 观测信号不干净：用户反馈、开发进度、社群反应、收入数据往往混在一起，无法像模型训练 loss 那样直接作为奖励函数。
+- 反馈严重延迟：一个产品方向可能 2 周后才有用户反馈，3 个月后才体现商业价值，短周期飞轮容易过早否定正确方向。
+- 系统会追逐可测指标：一旦某些指标更容易被观测，Agent 可能倾向于优化它们，而不是优化真正重要但难测的价值。
+- 预测会自我实现：系统预测某方向重要，于是 Builder 投入更多资源，最后该方向有更多结果，看起来像预测正确，但其实是资源倾斜造成的。
+- 预测会自我保护：Agent 可能把失败解释成外部噪声、执行不足、时间不够，而不是承认 belief 错误。
+- 价值误差不等于事实误差：事实预测可以被数据修正，但“该不该做”“值不值得做”“是否符合身份”这类判断不能完全交给数据。
+
+第一版必须采用的设计原则：
+
+- prediction 必须包含 `claim`、`expected_observation`、`time_window`、`success_threshold`、`failure_threshold`、`uncertainty`。
+- observation 必须记录来源、采集方式、时间、是否经过人工解释。
+- prediction_error 只能分为 `confirmed`、`partially_confirmed`、`disconfirmed`、`inconclusive`，不得强行把不确定解释成成功。
+- belief 更新必须说明“哪条 observation 改变了哪条 belief”，不能只生成新的总结。
+- 对于价值类预测，默认进入 meaning gate，而不是自动更新 world_model。
+- 连续 2 次 inconclusive 的预测必须降级，不得继续作为强依据。
+
+极难克服点：真实世界产品系统没有天然的、即时的、无争议的误差信号。Alaya 只能把 prediction_error 管得更透明，不能把价值判断完全数学化。
+
+### 22.9 知识飞轮的核心断点
+
+Alaya 的长期价值取决于知识库是否越用越准，而不是越用越大。知识管理最难的地方在于：显性知识可以存储，但隐性知识只能被部分外化；显性知识可以检索，但“什么时候该调用哪条知识”依然高度依赖语境。
+
+可能出现的问题：
+
+- 知识库变成文档垃圾场：所有 cycle 都沉淀内容，但没有淘汰、合并、冲突处理。
+- 隐性知识外化失真：人类的真实判断被 Distiller 简化成漂亮但空泛的原则。
+- 旧知识继续影响新决策：市场、产品、用户、模型能力变化后，旧结论没有过期机制。
+- Agent 调用知识时断章取义：某条知识在原语境成立，但被用于完全不同的场景。
+- 强知识过早形成：一次成功经验被提升为 strong，导致后续系统过度相信。
+- 知识来源权重不清：用户反馈、创始人判断、LLM 推断、数据指标混在一起，系统无法区分可信度。
+- 反例沉淀不足：系统喜欢记录“做成了什么”，但不记录“为什么不该做什么”。
+- 权限与责任不清：多个 Agent 都能写知识时，错误知识的 owner、reviewer、修订责任会模糊。
+
+第一版知识库必须坚持：
+
+- 每条知识都要有 `source_event_id` 或 `source_cycle_id`。
+- 每条知识都要有 `knowledge_type`：fact、principle、heuristic、decision、anti_pattern、open_question。
+- 每条知识都要有 `confidence`，且 strong 必须来自多轮证据或人工确认。
+- 每条知识都要有 `scope`，说明适用边界。
+- 每次被 Agent 调用都要记录 `retrieval_reason`。
+- Librarian 必须能标记 `stale`、`conflict`、`duplicate`、`overgeneralized`。
+- 反例和否决原因必须作为一等知识保存。
+
+极难克服点：知识调用不是检索问题，而是语境判断问题。RAG 可以找到相似文本，但不能保证它知道“这条经验现在是否仍然该用”。
+
+### 22.10 5 Agent 飞轮的核心断点
+
+5 Agent 不可以砍掉，因为它们对应飞轮中的五种不同职责。但保留 5 Agent 的代价是：系统会出现局部理性、全局失真的问题。
+
+关键断点：
+
+- Orchestrator 可能过度规划，生成看似完整但不可执行的 cycle。
+- Sensor 可能被高噪声反馈牵引，误把声音最大的人当成最重要的用户。
+- Builder 可能把模糊策略转成过度具体的任务，导致外部 Codex 执行偏航。
+- Distiller 可能把一次偶然结果总结成稳定原则。
+- Librarian 可能过度保守，保留太多知识；也可能过度清理，删除有价值的弱信号。
+- Agent 之间可能互相确认错误：前一个 Agent 的错误输出被后一个 Agent 当成事实。
+- Agent prompt 改动可能改变整个系统行为，但这种变化不容易被测试覆盖。
+
+第一版必须约束：
+
+- 5 Agent 可以顺序运行，但不能共享未经版本化的隐式上下文。
+- 每个 Agent 的输入必须明确列出：cycle、retrieved_knowledge、human_decisions、observations。
+- 每个 Agent 的输出必须落盘，且带 prompt_version。
+- 后续 Agent 引用前序 Agent 输出时，必须保留引用关系。
+- 任何跨 Agent 的关键结论，都必须能从 event_log 回放。
+- 如果某个 Agent 输出 schema 失败，不允许静默跳过，只能降级为 human gate 或 fallback draft。
+
+极难克服点：多 Agent 系统的失败常常不是单个 Agent 犯错，而是多个看似合理的中间结果组合成错误方向。这类问题只能通过 trace、回放和闸门降低伤害，无法靠一次 prompt 优化根治。
+
+### 22.11 第一版不应试图根治的问题
+
+为了避免 MVP 被“理论正确性”拖死，以下问题第一版只做承认、记录、降级，不做彻底解决：
+
+- 不追求全自动价值判断：意义判断必须保留人类最终责任。
+- 不追求完美预测模型：只要求 prediction 可观察、可回放、可修正。
+- 不追求完整隐性知识捕获：只捕获被决策、反馈、否决暴露出来的部分。
+- 不追求复杂多 Agent 并发：先顺序调度，确保 trace 清晰。
+- 不追求通用 SaaS：先服务一个真实使用者的私有生产杠杆。
+- 不追求所有外部工具接入：优先 GitHub Issues / 表单 / 手动反馈。
+- 不追求知识库自动自治：strong knowledge 必须有人类确认或多轮证据。
+- 不追求“节省第一周时间”：前 3 轮应被视为训练和校准系统。
+
+### 22.12 最应该警惕的伪成功
+
+Alaya 最危险的不是做不出来，而是看起来做出来了。
+
+伪成功包括：
+
+- Agent 每轮都能产出报告，但报告没有改变下一轮行动。
+- 知识库越来越大，但很少被正确调用。
+- Dashboard 指标越来越多，但人类更难判断方向。
+- 预测都被标记为成功，但缺少清晰观测依据。
+- 每个 Agent 输出都很流畅，但没有一个 Agent 愿意说“不知道”。
+- 人类闸门数量下降，是因为系统绕过了人类，而不是因为问题变少。
+- Builder 任务越来越多，但真正可发布、可反馈、可学习的产出没有增加。
+- 系统形成“解释一切”的能力，却没有形成“承认错误”的能力。
+
+因此，第一版验收时不能只看功能是否跑通，还必须看：
+
+- 是否出现了真实 prediction_error。
+- 是否有 belief 被 prediction_error 改写。
+- 是否有知识被删除、降级或标记冲突。
+- 是否有 Agent 主动触发 human gate。
+- 是否有下一轮 action 明确引用上一轮学习。
+- 是否能从 event_log 解释一次完整决策链。
+
+如果这些都没有发生，Alaya 只是一个多 Agent 工作流工具，还不是一个会学习的私有生产飞轮。

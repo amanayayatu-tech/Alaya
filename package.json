@@ -7,7 +7,21 @@
     "install:core": "npm --prefix alaya-core install",
     "install:app": "npm --prefix alaya-app install",
     "install:all": "npm run install:core && npm run install:app",
+    "guard": "node scripts/check-principles.mjs",
+    "audit:upgrade": "node scripts/audit-upgrade-readiness.mjs",
+    "setup:secrets": "node scripts/setup-local-secrets.mjs",
+    "setup:secrets:check": "node scripts/setup-local-secrets.mjs --check",
     "test": "npm --prefix alaya-core test",
+    "test:app": "npm --prefix alaya-app test",
+    "test:scripts": "node --test scripts/tests/*.test.mjs",
+    "test:all": "npm test && npm run test:app && npm run test:scripts",
+    "e2e:llm": "npm --prefix alaya-core run e2e:llm",
+    "e2e:llm-flywheel": "npm --prefix alaya-core run e2e:llm-flywheel",
+    "e2e:github": "node scripts/e2e-github-issue-sensor.mjs",
+    "e2e:github-autonomous": "node scripts/e2e-github-autonomous-sensor.mjs",
+    "e2e:live": "node scripts/e2e-live-upgrade.mjs",
+    "e2e:ui-onboarding": "node scripts/e2e-ui-onboarding-cycle.mjs",
+    "e2e:scheduler": "node scripts/e2e-autonomous-scheduler.mjs",
     "flywheel": "npm --prefix alaya-core run flywheel",
     "typecheck": "npm --prefix alaya-core run typecheck && npm --prefix alaya-app run check",
     "build": "npm --prefix alaya-app run build",
@@ -16,5 +30,8 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "playwright": "^1.59.1"
   }
 }

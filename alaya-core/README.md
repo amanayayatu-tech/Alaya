@@ -1,16 +1,16 @@
 # Alaya Core (M1 + M3)
 
-Alaya PRD v0.2 的内核实现：**四个纯函数（修复 PRD 8 个规格漏洞） + 5 Agent 顺序调度 mock + 3 轮飞轮数值模拟**。全程 mock LLM，零外部 API 依赖。
+Alaya PRD v0.2 的内核实现：**四个纯函数（修复 PRD 8 个规格漏洞） + 5 Agent 顺序调度 + 4 轮飞轮数值模拟**。默认 mock LLM，设置 OpenAI-compatible 环境变量后可跑真实 LLM E2E。
 
-这一版的目标是回答一个问题：**飞轮到底转不转得起来？** —— 即第 3 轮决策能否真实复用前两轮知识并被其改变，而不是形式引用。
+这一版的目标是回答两个问题：**飞轮到底转不转得起来？** —— 即第 3 轮决策能否真实复用前两轮知识并被其改变，而不是形式引用；以及第 4 轮能否从“看到将改什么”升级为可回滚、可审计的变更资产。
 
 ## 快速开始
 
 ```bash
 cd alaya-core
 npm install
-npm test         # 运行 34 个单元测试(覆盖 8 个漏洞场景)
-npm run flywheel # 运行 3 轮飞轮数值模拟,打印验收结果
+npm test         # 运行 38 个单元测试(覆盖 8 个漏洞场景 + LLM/provider/output/flywheel)
+npm run flywheel # 运行 4 轮飞轮数值模拟,打印验收结果
 npm run typecheck
 ```
 
@@ -27,12 +27,12 @@ src/
     update_confidence.ts # 证据计数置信度 + 灰区弱累加 + 衰减(修复漏洞E/F)
     transition_state.ts  # 知识状态机(PRD 8.6)
   state/store.ts         # 内存状态 + event_log + 字段 owner(模拟 PRD 12.2)
-  llm/provider.ts        # LLMProvider 接口 + MockLLM(切真实 API 零改动)
+  llm/provider.ts        # LLMProvider 接口 + MockLLM + OpenAI-compatible provider
   agents/agents.ts       # 5 Agent:Orchestrator/Sensor/Builder/Distiller/Librarian
   sim/
-    scenario.ts          # 确定性 3 轮场景(一键发布产品冷启动)
-    run_flywheel.ts      # 飞轮主程序 + 7 项验收
-tests/                   # compute_error / confidence / classify_error
+    scenario.ts          # 确定性 4 轮场景(一键发布产品冷启动)
+    run_flywheel.ts      # 飞轮主程序 + 8 项验收
+tests/                   # compute_error / confidence / classify_error / LLM/provider/output/flywheel
 ```
 
 ## 修复的 8 个 PRD 漏洞
@@ -50,7 +50,7 @@ tests/                   # compute_error / confidence / classify_error
 
 每个漏洞都有对应单元测试,见 `tests/`。
 
-## 3 轮飞轮叙事(确定性场景)
+## 4 轮飞轮叙事(确定性场景)
 
 一个"一键发布"产品的冷启动：
 
@@ -60,10 +60,11 @@ tests/                   # compute_error / confidence / classify_error
 2. **第2轮**：基于 K1 改做"发布预览+确认"。预测 activation>=0.3。
    现实升到 0.34（达标）。K1 被强化,提炼 K2：可预览降低高风险动作门槛。
 3. **第3轮**：Orchestrator **引用 K1+K2,主动避开"新增不可预览自动化",改为把预览模式迁移到删除操作**。这就是复利——决策被前两轮知识改变。K2 晋级 strong。
+4. **第4轮**：不复用第3轮模板,而是把"看到将改什么"升级成 rollback-ready change package + audit summary。Builder 输出可回滚变更包,Distiller 新增 `createdByCycle=4` 的治理 principle。
 
 ## 飞轮验收(全部通过)
 
-运行 `npm run flywheel` 会检查 PRD 17.3 的 7 项标准：
+运行 `npm run flywheel` 会检查 PRD 17.3 及第 4 轮复利延展的 8 项标准：
 
 - ✓ 第3轮建议引用了前两轮知识
 - ✓ 说明了知识如何改变决策（非形式引用）
@@ -72,10 +73,11 @@ tests/                   # compute_error / confidence / classify_error
 - ✓ 5 个 Agent 每轮都有运行记录
 - ✓ 知识开始晋级 strong（而非只增）
 - ✓ 预测误差驱动修正
+- ✓ 第4轮不是第3轮拷贝,而是产出可回滚变更包、审计摘要和新 principle
 
 ## 与 Phase 1 的衔接
 
-- `LLMProvider` 接口已就绪,切真实 OpenAI 只换 `MockLLM` 实现,业务逻辑零改动。
+- `LLMProvider` 接口已就绪,默认 mock,真实 OpenAI-compatible provider 通过 `OPENAI_*` 环境变量启用。
 - `Store` 的接口(version/owner/event_log)按 SQLite 可平移设计,Phase 1 替换为 SQLite + FTS5。
 - 四个纯函数与状态机可直接复用,无需重写。
 

@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, ShieldCheck, LineChart, Library, ListChecks,
-  Moon, Sun, Menu, X,
+  Moon, Sun, Menu, X, Settings, PlusCircle,
 } from "lucide-react";
 import { Logo } from "./Logo";
 import type { Project } from "@/lib/alaya";
@@ -31,6 +31,7 @@ const NAV = [
   { href: "/ledger", label: "Prediction Ledger", icon: LineChart },
   { href: "/knowledge", label: "Knowledge Base", icon: Library },
   { href: "/review", label: "Cycle Review", icon: ListChecks },
+  { href: "/project", label: "Project Setup", icon: Settings },
 ];
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -92,6 +93,14 @@ export function Layout({ children }: { children: ReactNode }) {
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
+        <Link
+          href="/projects/new"
+          data-testid="link-new-project"
+          className="flex w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground hover-elevate"
+        >
+          <PlusCircle className="h-3.5 w-3.5" />
+          New Project
+        </Link>
         <button
           data-testid="button-theme-toggle"
           onClick={toggle}

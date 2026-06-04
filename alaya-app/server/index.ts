@@ -4,6 +4,7 @@ import type { Request } from 'express';
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "node:http";
+import { startCycleScheduler } from "./scheduler";
 
 const app = express();
 const httpServer = createServer(app);
@@ -68,7 +69,7 @@ app.use((req, res, next) => {
   try {
     const { seedDemo, demoExists } = await import("./seed");
     if (!demoExists()) {
-      seedDemo();
+      await seedDemo();
       log("seeded demo project (3 flywheel cycles)");
     }
   } catch (e) {
@@ -110,4 +111,10 @@ app.use((req, res, next) => {
   httpServer.listen(listenOptions, () => {
     log(`serving on ${host}:${port}`);
   });
+
+  if (process.env.ALAYA_SCHEDULER !== "false") {
+    const scheduler = startCycleScheduler();
+    scheduler.unref?.();
+    log(`cycle scheduler enabled (${process.env.ALAYA_SCHEDULER_INTERVAL_MS ?? 60_000}ms)`, "scheduler");
+  }
 })();

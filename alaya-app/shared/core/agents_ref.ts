@@ -186,6 +186,11 @@ export function evaluatePrediction(
     observed: sc.activationObserved,
     scale: sc.activationTarget,
     weight: 3, // 关键预测高权重 (修复漏洞C)
+    expectedObservation: `activation_rate >= ${sc.activationTarget}`,
+    timeWindow: `cycle_${sc.index}_feedback_window`,
+    successThreshold: `activation_rate >= ${sc.activationTarget}`,
+    failureThreshold: `activation_rate < ${sc.activationTarget}`,
+    uncertainty: sc.index === 1 ? 0.42 : sc.index === 4 ? 0.28 : 0.32,
   };
   claim.error = computeClaimError(claim);
   const cycleErr = computeCycleError([claim]);

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
 export function PageHeader({ title, sub, right }: { title: string; sub?: string; right?: ReactNode }) {
   return (
@@ -12,9 +12,9 @@ export function PageHeader({ title, sub, right }: { title: string; sub?: string;
   );
 }
 
-export function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
+export function Panel({ children, className = "", ...props }: HTMLAttributes<HTMLDivElement> & { children: ReactNode }) {
   return (
-    <div className={`rounded-lg border border-card-border bg-card ${className}`}>{children}</div>
+    <div {...props} className={`rounded-lg border border-card-border bg-card ${className}`}>{children}</div>
   );
 }
 

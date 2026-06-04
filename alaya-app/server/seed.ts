@@ -13,12 +13,12 @@ export function demoExists(): boolean {
   return storage.listProjects().some((p) => p.name === DEMO_NAME);
 }
 
-export function seedDemo(): { projectId: string } {
+export async function seedDemo(): Promise<{ projectId: string }> {
   // idempotent: if exists, return it
   const existing = storage.listProjects().find((p) => p.name === DEMO_NAME);
   if (existing) return { projectId: existing.id };
 
-  const project = createProjectFromOnboarding({
+  const project = await createProjectFromOnboarding({
     name: DEMO_NAME,
     oneLiner: "让创作者一键把作品发布到所有渠道",
     targetUser: "独立创作者与小团队",
@@ -29,6 +29,10 @@ export function seedDemo(): { projectId: string } {
     competitors: "Buffer、Hootsuite",
     feedbackSources: "应用内反馈、用户访谈",
     weeklyHumanMinutes: 150,
+    weeklyLlmBudgetCents: 100,
+    firstClaimMetric: "activation_rate",
+    firstClaimOperator: ">=",
+    firstClaimTarget: 0.3,
     firstSignal: "activation_rate(尝试一键发布的活跃用户比例)",
   });
 
@@ -37,7 +41,7 @@ export function seedDemo(): { projectId: string } {
   // cycle 1 already exists from onboarding (idx=1). Run it, then create + run 2 & 3.
   const cycles = storage.listCycles(projectId);
   const c1 = cycles.find((c) => c.idx === 1)!;
-  runFullCycle(projectId, c1.id);
+  await runFullCycle(projectId, c1.id);
 
   for (let idx = 2; idx <= SCENARIO.length; idx++) {
     const sc = SCENARIO.find((s) => s.index === idx)!;
@@ -47,7 +51,7 @@ export function seedDemo(): { projectId: string } {
       reasoning: "", version: 1,
     });
     storage.updateProject(projectId, { currentCycleIdx: idx });
-    runFullCycle(projectId, cyc.id);
+    await runFullCycle(projectId, cyc.id);
   }
 
   return { projectId };

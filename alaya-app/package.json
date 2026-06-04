@@ -7,8 +7,10 @@
     "dev": "NODE_ENV=development tsx server/index.ts",
     "build": "tsx script/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
+    "test": "node --import tsx --test tests/*.test.ts",
     "check": "tsc",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "guard": "node ../scripts/check-principles.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

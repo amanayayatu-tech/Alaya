@@ -1,6 +1,6 @@
 # Alaya Phase 1 MVP 构建规格
 
-把已验证的飞轮内核接上 SQLite + FTS5 持久化和 5 个前端页面。内核逻辑已在 `/home/user/workspace/alaya-core` 验证通过(34 测试 + 3 轮飞轮验收全过),**不要重新发明算法**,直接复用 `shared/core/` 下的纯函数。
+把已验证的飞轮内核接上 SQLite + FTS5 持久化和 5 个前端页面。内核逻辑已在 `/home/user/workspace/alaya-core` 验证通过(单测 + 4 轮飞轮验收全过),**不要重新发明算法**,直接复用 `shared/core/` 下的纯函数。
 
 ## 已就绪的核心文件(在 shared/core/)
 - `compute_error.ts` —— 误差量化 + E_cycle(已修复漏洞A/B/C/G)
@@ -8,14 +8,14 @@
 - `update_confidence.ts` —— 证据计数置信度 + 灰区弱累加 + 衰减(已修复漏洞E/F)
 - `transition_state.ts` —— 知识状态机
 - `types.ts` —— 核心类型 + evidenceCount(已修复漏洞D)
-- `agents_ref.ts` / `scenario_ref.ts` —— 5 Agent 逻辑与 3 轮场景参考(移植用)
+- `agents_ref.ts` / `scenario_ref.ts` —— 5 Agent 逻辑与 4 轮场景参考(移植用)
 
 这些文件可被后端直接 import。它们是纯 TS、无副作用。
 
 ## 数据模型 (shared/schema.ts) — PRD 13.2 的 11 张核心表
 用 Drizzle sqliteTable 定义。SQLite 不支持数组列,列表存 JSON text。每张状态表带 `version` integer 列(乐观并发,PRD 12.2)。
 
-1. projects: id, name, direction, targetUser, redlines(JSON), weeklyHumanMinutes, seedIdentity(text), worldModel(text), version
+1. projects: id, name, direction, targetUser, redlines(JSON), weeklyHumanMinutes, weeklyLlmBudgetCents, firstClaimMetric, firstClaimOperator, firstClaimTarget, seedIdentity(text), worldModel(text), version
 2. cycles: id, projectId, idx, goal, status(planning/running/closed), eCycle(real), worstClaimError(real), reasoning(text), version
 3. agents: id, projectId, name, role —— 5 个固定角色
 4. tasks: id, cycleId, agent, kind, status, spec(JSON)
@@ -43,7 +43,7 @@
 所有写操作记 eventLog(actor=对应 Agent 或 "human")。Agent run 复用 agents_ref.ts 的逻辑但写入 SQLite。
 
 ## onboarding interview (PRD 13.1)
-创建项目时收集:产品一句话、目标用户、当前假设、绝不做什么、高风险红线、创始人偏好、已知竞品、反馈来源、每周预算、第一轮希望看到的信号。据此生成 seed identity + 初始 world_model + 第一轮候选目标。mock LLM 可用确定性模板生成。
+创建项目时收集:产品一句话、目标用户、当前假设、绝不做什么、高风险红线、创始人偏好、已知竞品、反馈来源、每周预算、第一轮希望看到的信号,以及第一轮 claim metric/operator/target。据此生成 seed identity + 初始 world_model + 第一轮候选目标。mock LLM 可用确定性模板生成。
 
 ## gate budget + 降噪 (PRD 11.4)
 weekly_human_minutes=150。同主题意义闸合并。低风险知识候选批量展示。blocking 闸>3条或>5天进安全模式(冻结新立项)。Dashboard 显示本周已用人工时间。
@@ -60,8 +60,9 @@ weekly_human_minutes=150。同主题意义闸合并。低风险知识候选批�
 
 ## 验收(本地跑通)
 - 创建项目走完 onboarding
-- 用 run-full 跑通 3 轮飞轮(可复用 scenario_ref 的确定性场景做种子数据,或让用户手动录入反馈)
+- 用 run-full 跑通 4 轮飞轮(可复用 scenario_ref 的确定性场景做种子数据,或让用户手动录入反馈)
 - 第3轮 cycle review 能显示引用了前两轮知识并改变决策
+- 第4轮 direction gate / builder task spec 必须包含 rollback-ready change package 与 audit summary,并新增 `createdByCycle=4` 的 principle
 - 知识从 draft 晋级到 strong
 - Human Gates 可批准/否决,decision 进 decisionLog
 - FTS5 搜索知识可用
