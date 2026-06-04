@@ -171,12 +171,11 @@ async function verifyGateInUi(projectName, gate, issueNumber) {
     await page.getByTestId("select-project").selectOption({ label: projectName });
     const gateCard = page.getByTestId(`gate-${gate.id}`);
     await gateCard.waitFor({ timeout: timeoutMs });
-    await gateCard.getByText("github_issues").waitFor({ timeout: timeoutMs });
-    await gateCard.getByText(`[redacted-email]`).waitFor({ timeout: timeoutMs });
-    await gateCard.getByText(`[redacted-token]`).waitFor({ timeout: timeoutMs });
-    await gateCard.getByText(`#${issueNumber}`).waitFor({ timeout: timeoutMs });
-
     const visibleText = await gateCard.textContent();
+    assert(visibleText.includes("github_issues"), "github_issues source was not visible in the Human Gates UI");
+    assert(visibleText.includes("[redacted-email]"), "redacted email marker was not visible in the Human Gates UI");
+    assert(visibleText.includes("[redacted-token]"), "redacted token marker was not visible in the Human Gates UI");
+    assert(visibleText.includes(`#${issueNumber}`), "issue number was not visible in the Human Gates UI");
     assert(!visibleText.includes("alaya-autonomous@example.com"), "email was visible in the Human Gates UI");
     assert(!visibleText.includes("sk-cp-abcdefghijklmnopqrstuvwxyz123456"), "token was visible in the Human Gates UI");
   } finally {

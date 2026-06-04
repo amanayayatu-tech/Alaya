@@ -112,6 +112,7 @@ function sanitizeAgentContext(request: AgentContext): AgentContext {
     context: sanitizeValue(request.context) as Record<string, unknown>,
     knowledgeSummary: request.knowledgeSummary ? redactSensitiveText(request.knowledgeSummary) : request.knowledgeSummary,
     prohibited: request.prohibited?.map(redactSensitiveText),
+    mockData: request.mockData ? sanitizeValue(request.mockData) as Record<string, unknown> : request.mockData,
   };
 }
 
@@ -222,6 +223,7 @@ export interface OpenAIProviderOptions {
   maxRetries?: number;
   temperature?: number;
   timeoutMs?: number;
+  maxOutputTokens?: number;
 }
 
 function readSecretFile(path: string | undefined): string {
@@ -254,6 +256,7 @@ export class OpenAIProvider implements LLMProvider {
   private maxRetries: number;
   private temperature: number;
   private timeoutMs: number;
+  private maxOutputTokens: number;
 
   constructor(options: OpenAIProviderOptions = {}) {
     this.apiKey = resolveOpenAIApiKey(options.apiKey);
@@ -263,6 +266,7 @@ export class OpenAIProvider implements LLMProvider {
     this.maxRetries = options.maxRetries ?? 1;
     this.temperature = options.temperature ?? 0.2;
     this.timeoutMs = resolveRequestTimeoutMs(options.timeoutMs);
+    this.maxOutputTokens = resolveMaxOutputTokens(options.maxOutputTokens);
   }
 
   async call(request: AgentContext): Promise<LLMResponse> {
@@ -314,8 +318,30 @@ export class OpenAIProvider implements LLMProvider {
       const simpleData = await this.callStructuredApi(safeRequest, simpleSchema, redactSensitiveText(lastError));
       const simpleValid = validateJsonSchema(simpleData, simpleSchema);
       if (simpleValid) {
+        const usage = (simpleData.__usage ?? {}) as { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+        const originalSchemaErrors = jsonSchemaErrors(simpleData, request.schema);
         const latencyMs = Date.now() - started;
         delete simpleData.__usage;
+        if (originalSchemaErrors.length === 0) {
+          const inputTokens = usage.inputTokens ?? countTokensApprox(stableStringify(safeRequest));
+          const outputTokens = usage.outputTokens ?? countTokensApprox(stableStringify(sanitizeValue(simpleData)));
+          return {
+            schemaValid: true,
+            retryCount: retryCount + 1,
+            data: simpleData,
+            log: makeLog(
+              this.name,
+              safeRequest,
+              simpleData,
+              true,
+              retryCount + 1,
+              latencyMs,
+              usage.totalTokens ?? inputTokens + outputTokens,
+              estimateCost(this.model, inputTokens, outputTokens),
+            ),
+            degradedToHumanGate: false,
+          };
+        }
         return {
           schemaValid: false,
           retryCount: retryCount + 1,
@@ -400,8 +426,11 @@ export class OpenAIProvider implements LLMProvider {
       body: JSON.stringify({
         model: this.model,
         temperature: this.temperature,
+        max_output_tokens: this.maxOutputTokens,
         instructions:
-          "You are an Alaya agent. Return only JSON matching the supplied schema. " +
+          "You are an Alaya agent. Return concise JSON only. " +
+          "Match the supplied schema exactly, using [] for empty arrays. " +
+          "If draft_output already satisfies the schema, copy its key names exactly and adapt content only when evidence requires it. " +
           "Do not decide knowledge confidence; provide evidence and summaries only.",
         input: [
           {
@@ -416,6 +445,7 @@ export class OpenAIProvider implements LLMProvider {
                   knowledge_summary: request.knowledgeSummary ?? "",
                   prohibited: request.prohibited ?? [],
                   context: request.context,
+                  draft_output: request.mockData ?? {},
                   previous_error: previousError,
                 }),
               },
@@ -464,12 +494,16 @@ export class OpenAIProvider implements LLMProvider {
       body: JSON.stringify({
         model: this.model,
         temperature: this.temperature,
+        max_tokens: this.maxOutputTokens,
         response_format: { type: "json_object" },
+        ...providerChatExtras(this.model, this.endpoint),
         messages: [
           {
             role: "system",
             content:
-              "You are an Alaya agent. Return only JSON matching the supplied schema. " +
+              "You are an Alaya agent. Return concise JSON only. " +
+              "Match the supplied schema exactly, using [] for empty arrays. " +
+              "If draft_output already satisfies the schema, copy its key names exactly and adapt content only when evidence requires it. " +
               "Do not decide knowledge confidence; provide evidence and summaries only.",
           },
           {
@@ -481,6 +515,7 @@ export class OpenAIProvider implements LLMProvider {
               knowledge_summary: request.knowledgeSummary ?? "",
               prohibited: request.prohibited ?? [],
               context: request.context,
+              draft_output: request.mockData ?? {},
               previous_error: previousError,
               output_schema: schema,
             }),
@@ -545,6 +580,19 @@ function resolveRequestTimeoutMs(explicit?: number): number {
   return Number.isFinite(raw) ? Math.max(0, raw) : 90_000;
 }
 
+function resolveMaxOutputTokens(explicit?: number): number {
+  const raw = explicit ?? Number(process.env.OPENAI_MAX_OUTPUT_TOKENS ?? 512);
+  return Number.isFinite(raw) ? Math.max(64, Math.floor(raw)) : 512;
+}
+
+function providerChatExtras(model: string, endpoint: string): Record<string, unknown> {
+  const target = `${model} ${endpoint}`.toLowerCase();
+  if (!target.includes("minimax")) return {};
+  const raw = (process.env.MINIMAX_THINKING ?? process.env.OPENAI_THINKING ?? "disabled").toLowerCase();
+  const type = raw === "adaptive" ? "adaptive" : "disabled";
+  return { thinking: { type } };
+}
+
 function chatCompletionsEndpoint(baseUrl: string): string {
   const clean = baseUrl.replace(/\/+$/, "");
   const minimaxAlias = minimaxChatEndpointAlias(clean);
@@ -594,20 +642,40 @@ function extractChatOutputText(json: any): string {
 
 function parseJsonObjectText(text: string, source: string): Record<string, unknown> {
   const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
-  try {
-    return JSON.parse(trimmed) as Record<string, unknown>;
-  } catch {
-    const start = trimmed.indexOf("{");
-    const end = trimmed.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      try {
-        return JSON.parse(trimmed.slice(start, end + 1)) as Record<string, unknown>;
-      } catch {
-        // Fall through to the readable error below.
-      }
-    }
-    throw new Error(`${source} response was not parseable JSON: ${text.slice(0, 300)}`);
+  for (const candidate of [stripThinkingBlocks(trimmed), trimmed]) {
+    const parsed = tryParseJsonObject(candidate);
+    if (parsed) return parsed;
   }
+  throw new Error(`${source} response was not parseable JSON: ${text.slice(0, 300)}`);
+}
+
+function stripThinkingBlocks(text: string): string {
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+}
+
+function tryParseJsonObject(text: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+  } catch {
+    // Try extracting a final JSON object from provider-specific wrapper text.
+  }
+
+  const end = text.lastIndexOf("}");
+  if (end < 0) return null;
+  const starts: number[] = [];
+  for (let index = text.indexOf("{"); index >= 0; index = text.indexOf("{", index + 1)) {
+    starts.push(index);
+  }
+  for (let i = starts.length - 1; i >= 0; i--) {
+    try {
+      const parsed = JSON.parse(text.slice(starts[i], end + 1)) as unknown;
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+    } catch {
+      // Continue searching for the root object.
+    }
+  }
+  return null;
 }
 
 export function createLLMProvider(): LLMProvider {

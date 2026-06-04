@@ -179,6 +179,58 @@ function knowledgeCandidate(llmData: Record<string, unknown>, index: number): Re
   return objects.find((item) => Number(item.createdByCycle) === index) ?? objects[0] ?? {};
 }
 
+function distillerDraftOutput(sc: CycleScenario, claimError: number): Record<string, unknown> {
+  if (sc.index === 1) {
+    return {
+      summary: `cycle 1 distillation, claim_error=${claimError.toFixed(3)}`,
+      knowledgeCandidates: [{
+        type: "world_model",
+        title: "用户对不可预期的自动操作有恐惧",
+        content: "早期用户不敢用一键发布,因为不知道会改动什么。恐惧而非能力是采用门槛。",
+        sourceType: "feedback",
+        sourceRef: "f1,f2",
+        tags: ["user_fear", "adoption"],
+        notes: "由第1轮预测失败 + 两条负面反馈提炼",
+        createdByCycle: 1,
+      }],
+    };
+  }
+  if (sc.index === 2) {
+    return {
+      summary: `cycle 2 distillation, claim_error=${claimError.toFixed(3)}`,
+      knowledgeCandidates: [{
+        type: "principle",
+        title: "可预览/可逆显著降低高风险动作使用门槛",
+        content: "为发布加 dry-run 预览后 activation 达标。预览把不可逆恐惧转为可控。",
+        sourceType: "metric",
+        sourceRef: "claim_2,f3,f4",
+        tags: ["preview", "principle", "high_risk"],
+        notes: "由第2轮预测成功 + 正面反馈提炼",
+        createdByCycle: 2,
+      }],
+    };
+  }
+  if (sc.index === 4) {
+    return {
+      summary: `cycle 4 distillation, claim_error=${claimError.toFixed(3)}`,
+      knowledgeCandidates: [{
+        type: "principle",
+        title: "高风险动作进入执行前必须具备可回滚路径与审计摘要",
+        content: "第4轮把第3轮的 dry-run 预览升级为 rollback-ready change package: 高风险动作在进入执行前必须声明拟修改对象、回滚触发条件、回滚步骤、风险级别,并生成 audit summary 供 owner 复盘。",
+        sourceType: "metric",
+        sourceRef: "claim_4,f6,f7",
+        tags: ["rollback", "auditability", "principle", "high_risk"],
+        notes: "由第4轮预测成功 + 正向复盘反馈提炼",
+        createdByCycle: 4,
+      }],
+    };
+  }
+  return {
+    summary: `cycle ${sc.index} distillation, claim_error=${claimError.toFixed(3)}`,
+    knowledgeCandidates: [],
+  };
+}
+
 async function callAgentLlm(
   store: Store,
   cycleIndex: number,
@@ -540,10 +592,7 @@ async function runDistillerInner(
       claimError,
       decisionLog: store.decisionLog,
     },
-    mockData: {
-      summary: `cycle ${sc.index} distillation`,
-      knowledgeCandidates: [],
-    },
+    mockData: distillerDraftOutput(sc, claimError),
   });
   const candidate = knowledgeCandidate(llmData, sc.index);
   const created: string[] = [];

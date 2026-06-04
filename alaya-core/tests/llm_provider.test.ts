@@ -199,3 +199,109 @@ test("OpenAIProvider falls back to simplified schema after full schema validatio
     globalThis.fetch = originalFetch;
   }
 });
+
+test("OpenAIProvider promotes simplified retry when it satisfies the original schema", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (async (_url: string | URL | Request, _init?: RequestInit) => {
+    calls++;
+    const content = calls === 1
+      ? { summary: "missing required goal" }
+      : { summary: "simplified retry returned full data", goal: "ship with rollback" };
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify(content) } }],
+      usage: { prompt_tokens: 10, completion_tokens: 6, total_tokens: 16 },
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+
+  try {
+    const provider = new OpenAIProvider({
+      apiKey: "test-key-not-real",
+      apiMode: "chat",
+      endpoint: "https://llm.example.test/v1/chat/completions",
+      model: "MiniMax-M3",
+      maxRetries: 0,
+    });
+    const response = await provider.call({
+      role: "orchestrator",
+      task: "plan_cycle",
+      promptVersion: "plan_cycle@v1",
+      context: { cycleIndex: 1 },
+      schema: {
+        type: "object",
+        required: ["summary", "goal"],
+        additionalProperties: true,
+        properties: {
+          summary: { type: "string" },
+          goal: { type: "string" },
+        },
+      },
+      simplifiedSchema: {
+        type: "object",
+        required: ["summary"],
+        additionalProperties: true,
+        properties: { summary: { type: "string" } },
+      },
+    });
+
+    assert.equal(calls, 2);
+    assert.equal(response.schemaValid, true);
+    assert.equal(response.degradedToHumanGate, false);
+    assert.equal(response.data.goal, "ship with rollback");
+    assert.equal(response.log.schemaValid, true);
+    assert.equal(response.log.retryCount, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("OpenAIProvider disables MiniMax thinking and parses JSON after thinking blocks", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody = "";
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    requestBody = String(init?.body ?? "");
+    return new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: '<think>{"draft":"not the answer"}</think>\n{"summary":"ok","goal":"ship safely"}',
+        },
+      }],
+      usage: { prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 },
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+
+  try {
+    const provider = new OpenAIProvider({
+      apiKey: "test-key-not-real",
+      apiMode: "chat",
+      endpoint: "https://api.minimax.io/v1/chat/completions",
+      model: "MiniMax-M3",
+      maxRetries: 0,
+    });
+    const response = await provider.call({
+      role: "orchestrator",
+      task: "minimax_thinking_test",
+      promptVersion: "minimax_thinking_test@v1",
+      context: { cycleIndex: 1 },
+      mockData: { summary: "draft", goal: "safe draft" },
+      schema: {
+        type: "object",
+        required: ["summary", "goal"],
+        additionalProperties: true,
+        properties: {
+          summary: { type: "string" },
+          goal: { type: "string" },
+        },
+      },
+    });
+
+    assert.equal(response.schemaValid, true);
+    assert.equal(response.data.goal, "ship safely");
+    const body = JSON.parse(requestBody) as Record<string, unknown>;
+    assert.deepEqual(body.thinking, { type: "disabled" });
+    assert.equal(body.max_tokens, 512);
+    assert.match(requestBody, /draft_output/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

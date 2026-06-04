@@ -16,7 +16,7 @@ Alaya 是一个本地优先的「认知复利」MVP：每一轮产品/运营动�
 这版代码把 Phase 1 mock MVP 沿 PRD 的 Phase 2 -> 4 路线推进到「真实 LLM + 自动化运转 + 人工闸门 + 外部 Sensor」的可审计本地系统。主要迭代如下：
 
 1. **治理约束落地**：新增 `PRINCIPLES.md`、`scripts/check-principles.mjs`、GitHub Actions 和 pre-commit 接线，机检纯函数无副作用、人类闸门、灰区弱累加、脏知识隔离、LLM SDK 边界和数据库审计写路径；补齐「底线 3 - 审计旁路」检查，禁止业务代码绕过 `storage.ts` 裸写数据库。
-2. **真实 LLM Provider**：`alaya-core/src/llm/provider.ts` 和 `alaya-app/server/llm.ts` 支持 OpenAI-compatible / MiniMax endpoint；每次 Agent 调用携带 `promptVersion`、结构化上下文、JSON Schema、知识摘要和禁止事项；输出按 retry、具体 schema diagnostics、simplified schema、non-blocking human gate 降级，并记录 latency/token/cost。
+2. **真实 LLM Provider**：`alaya-core/src/llm/provider.ts` 和 `alaya-app/server/llm.ts` 支持 OpenAI-compatible / MiniMax endpoint；每次 Agent 调用携带 `promptVersion`、结构化上下文、JSON Schema、知识摘要、draft output 和禁止事项；输出按 retry、具体 schema diagnostics、simplified schema、原 schema 回升校验、non-blocking human gate 降级，并记录 latency/token/cost。
 3. **Secret 安全与 live readiness**：新增 `npm run setup:secrets` 隐藏输入，本地写 `/private/tmp/alaya-minimax-key` 与 `/private/tmp/alaya-github-token`，权限 `0600`；所有 live 子命令支持默认 key file、空 env fallback、宽权限失败关闭和 secret 扫描。
 4. **Onboarding / Project Setup**：新增 New Project 和 Project Setup 页面；Onboarding Interview 覆盖 PRD 13.1 的核心维度，并把 `seedIdentity`、`worldModel`、redlines、预算和第一轮 claim 配置写入数据库；Project Setup 的人工修改会同步 seed knowledge items。
 5. **自动 Scheduler 与 Gate Budget**：新增后台 scheduler，可自动开方向闸、等待 blocking gate、同步反馈窗口、关闭 cycle 并创建下一轮方向闸；支持 meaning gate 合并、重复高批准率自动通过 + 抽样复核、人类注意力过载、Builder 超时降级、LLM 成本预算闸。
@@ -24,27 +24,28 @@ Alaya 是一个本地优先的「认知复利」MVP：每一轮产品/运营动�
 7. **第 4 轮复利资产**：飞轮从 3 轮扩展为显式 4 轮，并禁止 `>=4` 复用第 3 轮模板；第 4 轮产出 rollback-ready change package、audit summary 和 `createdByCycle=4` 的 principle。
 8. **PRD 22.5 失败阈值**：实现并测试 LLM 成本超预算、pending_human 过载、每周人工时间超 5 小时、blocking gate 超 3 条、blocking gate 超 5 天、飞轮空转、预测不可测、知识成熟停滞、Librarian stale/conflict 审计失败、Builder 偏航、外部反馈同步失败等停机路径。
 9. **端到端验收脚本**：新增真实 LLM preflight、真实 LLM 4 轮飞轮、UI onboarding、后台 scheduler、真实 GitHub Issue Sensor、GitHub autonomous Sensor 和一键 live runner。
+10. **宪法守卫自测加固**：修复底线 3 审计旁路检查的非确定性误报风险，新增元测试覆盖正则状态污染、方法体花括号解析、cwd 无关探测、纯函数违规注入和 `createKnowledge()` 审计缺失反向验证。
 
 当前事实状态：
 
 - `npm run audit:upgrade` 在本机 key file 存在时为 `complete:true`，表示结构和 live 前置齐备。
 - mock / 本地非 live 流程已通过测试与 E2E。
-- 真实 MiniMax provider preflight 已通过 schema-valid JSON 验证。
-- 完整 `npm run e2e:live` 已能进入真实 MiniMax 4 轮飞轮，但最新一次在 `cycle 1 distiller` 真实模型调用上触发 `ALAYA_REAL_LLM_STEP_TIMEOUT_MS=180000` 超时。下一步需要继续优化真实 LLM 飞轮调用的 prompt/schema/重试或并发策略，直到 live runner 完整跑到真实 GitHub autonomous Sensor 和最终 audit。
+- 真实 MiniMax provider preflight 已通过 schema-valid JSON 验证，真实 MiniMax 4 轮飞轮已跑通 20 次 Agent 调用并通过 PRD 17.3 + 第 4 轮 rollback/audit 验收。
+- 完整 `npm run e2e:live` 已通过：真实 LLM preflight、真实 LLM 4 轮飞轮、UI onboarding、后台 scheduler、真实 GitHub autonomous Sensor E2E 和最终 `audit:upgrade` 均完成。
 
 ## 项目状态
 
 | 模块 | 状态 | 说明 |
 | --- | --- | --- |
-| `alaya-core` | 可运行 | 42 个单元测试覆盖误差计算、归因、置信度、知识状态机、LLM key file、timeout、LLM 输出消费和 4 轮飞轮 |
-| `alaya-app` | 可运行 | 31 个集成测试覆盖 Dashboard、Human Gates、Prediction Ledger、Knowledge Base、Cycle Review、New Project、Project Setup、Scheduler 和 Sensor |
-| `scripts` | 可运行 | 7 个脚本测试覆盖 GitHub target 推断、本地 secret readiness、权限失败关闭和 live runner 前置保护 |
+| `alaya-core` | 可运行 | 44 个单元测试覆盖误差计算、归因、置信度、知识状态机、LLM key file、timeout、LLM 输出消费、MiniMax thinking-block 解析、schema 回升和 4 轮飞轮 |
+| `alaya-app` | 可运行 | 33 个集成测试覆盖 Dashboard、Human Gates、Prediction Ledger、Knowledge Base、Cycle Review、New Project、Project Setup、Scheduler、Sensor、MiniMax thinking-block 解析和 schema 回升 |
+| `scripts` | 可运行 | 13 个脚本测试覆盖 GitHub target 推断、本地 secret readiness、权限失败关闭、live runner 前置保护和宪法守卫元测试 |
 | 数据库 | 本地 SQLite | 首次启动自动 seed 一键发布演示项目 |
 | 搜索 | FTS5 | 知识库支持中文全文检索 |
-| LLM | mock / OpenAI-compatible | 结构化 JSON schema、具体 schema diagnostics、retry、简化 schema、降级 human gate、请求 timeout、调用日志和成本统计 |
+| LLM | mock / OpenAI-compatible | 结构化 JSON schema、具体 schema diagnostics、retry、简化 schema、原 schema 回升、MiniMax thinking-block 解析、降级 human gate、请求 timeout、调用日志和成本统计 |
 | Scheduler | 可运行 | 自动开方向闸、等待 blocking gate、同步反馈窗口、Builder 超时降级、LLM 成本预算闸 |
 | Sensor | 可运行 | GitHub Issues 同步、表单反馈 POST、PII 脱敏、来源元数据、模糊信号进意义闸 |
-| Live E2E | 部分通过 | 本机 secret readiness 与真实 MiniMax preflight 通过；完整 live runner 当前卡在真实 LLM 4 轮飞轮的 MiniMax 慢响应 timeout |
+| Live E2E | 通过 | 本机 secret readiness、真实 MiniMax preflight、真实 MiniMax 4 轮飞轮、UI onboarding、后台 scheduler、真实 GitHub autonomous Sensor 和最终 audit 均通过 |
 
 ## 目录
 
@@ -236,19 +237,19 @@ npm run build
 
 当前本地验证快照：
 
-- `npm run test:all`: core 42/42、app 31/31、scripts 7/7 通过；覆盖纯函数、4 轮飞轮、LLM provider、Onboarding、Scheduler、Sensor、secret readiness 和 live runner 前置保护。
+- `npm run test:all`: core 44/44、app 33/33、scripts 13/13 通过；覆盖纯函数、4 轮飞轮、LLM provider、MiniMax thinking-block 解析、schema 回升、Onboarding、Scheduler、Sensor、secret readiness、live runner 前置保护和宪法守卫元测试。
 - `npm run guard`: 宪法守卫通过；包含底线 1/2/3/4/5/6，其中「底线 3 - 审计旁路」会扫描 `alaya-app/server/**/*.ts`，禁止非 `storage.ts` 裸写数据库，并要求统一写路径伴随 `event_log` 审计。
 - `npm run flywheel`: PRD 17.3 飞轮验收通过；第 4 轮不复用第 3 轮模板，包含 rollback-ready change package、audit summary 和 `createdByCycle=4` principle。
 - `npm run typecheck`: core + app 类型检查通过。
 - `npm run build`: app 生产构建通过后可用于部署或本机 smoke test。
 - `npm run audit:upgrade`: 机检四层升级结构与真实外部 E2E 凭据 readiness；本机 key file 存在时输出 `complete:true`，缺真实 key/token 会标为 `liveMissing`。
 - `npm run e2e:llm`: 真实 OpenAI-compatible provider schema/logging preflight；本机 MiniMax-M3 preflight 已返回 schema-valid JSON。
-- `npm run e2e:llm-flywheel`: 目标是在真实 provider 下跑 4 轮 core flywheel，并机检 PRD 17.3 与第 4 轮 rollback/audit 复利；当前完整 live runner 的真实模型路径仍在稳定性调优中。
+- `npm run e2e:llm-flywheel`: 在真实 provider 下跑 4 轮 core flywheel，并机检 PRD 17.3 与第 4 轮 rollback/audit 复利；本机 MiniMax-M3 已完成 20 次真实 Agent 调用且全部 `schemaValid=true`。
 - `npm run e2e:ui-onboarding`: 浏览器创建新项目、批准方向闸，并跑通第一轮飞轮。
 - `npm run e2e:scheduler`: 不调用 `/scheduler/tick`，由后台 scheduler 自动打开方向闸、关闭首轮并创建下一轮方向闸。
 - `npm run e2e:github`: 真实 GitHub Issue 通过 Sensor 同步进入 meaning gate，并在 Human Gates UI 可见；无 GitHub owner/repo/token 时 skip。
 - `npm run e2e:github-autonomous`: 不调用 `/scheduler/tick`，真实 GitHub Issue 由后台 scheduler 自动同步进入 meaning gate，并在 Human Gates UI 可见；无 GitHub owner/repo/token 时 skip。
-- `npm run e2e:live`: 最终 live runner，读取本机 key file 后依次跑真实 LLM preflight、真实 LLM 4 轮飞轮、真实 GitHub autonomous Sensor E2E，并自动启动/清理临时 app 服务；当前最新 live 进度已通过真实 MiniMax preflight，并进入 4 轮飞轮，卡点是 `cycle 1 distiller` 的真实模型慢响应 timeout。
+- `npm run e2e:live`: 最终 live runner，读取本机 key file 后依次跑真实 LLM preflight、真实 LLM 4 轮飞轮、UI onboarding、后台 scheduler、真实 GitHub autonomous Sensor E2E，并自动启动/清理临时 app 服务；本机 MiniMax-M3 + GitHub token file 已完整通过，并以最终完成审计收尾。
 
 最终交付审计可用强制模式：
 
@@ -498,7 +499,7 @@ ALAYA_E2E_ALLOW_SKIP=true npm run e2e:llm-flywheel
 
 ## 路线图
 
-- 优先修复真实 MiniMax 4 轮飞轮的稳定性:收窄每个 Agent prompt、降低 schema 复杂度、增加 distiller 专用降级路径，并让 `npm run e2e:live` 完整跑到真实 GitHub autonomous Sensor 与最终 audit。
+- 继续降低真实模型慢响应波动:保留当前 MiniMax schema/draft-output 稳定路径，增加 provider canary、分 agent latency 报表和更细的失败恢复策略。
 - 为 Builder 接入真实 Codex/Codex CLI 变更包 adapter，让第 4 轮 rollback-ready change package 不只停留在 task/gate payload，而能产出可执行、可回滚、可审计的变更资产。
 - 为知识库增加更强的冲突检测、过期提醒和复核任务，把 stale/conflict/quarantined 从守卫规则推进到日常知识管理工作流。
 - 把 SQLite schema 迁移管理从启动时 DDL 升级为显式 migration，降低未来字段演进时的本地数据风险。

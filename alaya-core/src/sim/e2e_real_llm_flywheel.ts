@@ -143,7 +143,7 @@ function assertLlmCallsHealthy(store: Store) {
   const expectedCalls = SCENARIO.length * 5;
   assert(store.llmCalls.length === expectedCalls, `expected ${expectedCalls} LLM calls, got ${store.llmCalls.length}`);
   const invalid = store.llmCalls.filter((call) => !call.schemaValid);
-  assert(invalid.length === 0, `real LLM schema validation failed for: ${invalid.map((call) => `${call.cycleIndex}:${call.agent}:${call.promptVersion}`).join(", ")}`);
+  assert(invalid.length === 0, `real LLM schema validation failed for: ${invalid.map((call) => `${call.cycleIndex}:${call.agent}:${call.promptVersion} output=${call.outputSummary}`).join(", ")}`);
 
   const degraded = store.gates.filter((gate) => gate.id.startsWith("gate_llm_"));
   assert(degraded.length === 0, `real LLM degraded gates were created: ${degraded.map((gate) => gate.id).join(", ")}`);
@@ -173,7 +173,11 @@ async function main() {
   }
 
   const store = makeStore();
-  const llm = new OpenAIProvider({ maxRetries: 1 });
+  const llm = new OpenAIProvider({
+    maxRetries: Number(process.env.ALAYA_REAL_LLM_MAX_RETRIES ?? 0),
+    temperature: Number(process.env.OPENAI_TEMPERATURE ?? 0),
+    maxOutputTokens: Number(process.env.OPENAI_MAX_OUTPUT_TOKENS ?? 512),
+  });
 
   for (const scenario of SCENARIO) {
     progress(`cycle ${scenario.index} begin`);

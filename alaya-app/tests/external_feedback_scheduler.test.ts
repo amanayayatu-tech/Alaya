@@ -227,6 +227,71 @@ test("LLM boundary redacts PII before provider request and call logging", async 
   assert.equal(call.schemaValid, 1);
 });
 
+test("app LLM disables MiniMax thinking and parses JSON after thinking blocks", async () => {
+  const projectId = "proj_llm_minimax_130";
+  createProject(projectId);
+  const cycle = storage.listCycles(projectId)[0];
+  const previousProvider = process.env.ALAYA_LLM_PROVIDER;
+  const previousApiKey = process.env.OPENAI_API_KEY;
+  const previousBaseUrl = process.env.OPENAI_BASE_URL;
+  const previousModel = process.env.OPENAI_MODEL;
+  const originalFetch = globalThis.fetch;
+  let requestBody = "";
+
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    requestBody = String(init?.body ?? "");
+    return new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: '<think>{"draft":"not the answer"}</think>\n{"summary":"ok","category":"unclear_signal"}',
+        },
+      }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+
+  try {
+    process.env.ALAYA_LLM_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "test-api-key-not-a-real-secret";
+    process.env.OPENAI_BASE_URL = "https://api.minimax.io/openai";
+    process.env.OPENAI_MODEL = "MiniMax-M3";
+
+    const output = await callLlm({
+      cycleId: cycle.id,
+      agent: "sensor",
+      promptName: "minimax_thinking_parse_test",
+      inputSummary: "parse MiniMax thinking wrapper",
+      mockOutput: { summary: "draft", category: "unclear_signal" },
+      schema: {
+        type: "object",
+        required: ["summary", "category"],
+        additionalProperties: true,
+        properties: {
+          summary: { type: "string" },
+          category: { type: "string" },
+        },
+      },
+    });
+
+    assert.equal(output.category, "unclear_signal");
+    const body = JSON.parse(requestBody) as Record<string, unknown>;
+    assert.deepEqual(body.thinking, { type: "disabled" });
+    assert.equal(body.max_tokens, 512);
+    assert.match(requestBody, /draft_output/);
+    const call = storage.listLlmCalls().find((item) => item.cycleId === cycle.id && item.promptVersion === "minimax_thinking_parse_test@v1");
+    assert.equal(call?.schemaValid, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousProvider == null) delete process.env.ALAYA_LLM_PROVIDER;
+    else process.env.ALAYA_LLM_PROVIDER = previousProvider;
+    if (previousApiKey == null) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousApiKey;
+    if (previousBaseUrl == null) delete process.env.OPENAI_BASE_URL;
+    else process.env.OPENAI_BASE_URL = previousBaseUrl;
+    if (previousModel == null) delete process.env.OPENAI_MODEL;
+    else process.env.OPENAI_MODEL = previousModel;
+  }
+});
+
 test("app LLM reads the local key file when OPENAI_API_KEY is an empty env var", async () => {
   const projectId = "proj_llm_file_121";
   createProject(projectId);
@@ -425,6 +490,70 @@ test("app LLM falls back to simplified schema before opening a non-blocking gate
   assert.equal(gate.blocking, 0);
   assert.equal(gate.status, "pending");
   assert.match(JSON.parse(gate.payload).reason, /simplified schema/);
+});
+
+test("app LLM promotes simplified retry when it satisfies the original schema", async () => {
+  const projectId = "proj_llm_promote_131";
+  createProject(projectId);
+  const cycle = storage.listCycles(projectId)[0];
+  const previousProvider = process.env.ALAYA_LLM_PROVIDER;
+  const previousApiKey = process.env.OPENAI_API_KEY;
+  const previousBaseUrl = process.env.OPENAI_BASE_URL;
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+
+  globalThis.fetch = (async (_url: string | URL | Request, _init?: RequestInit) => {
+    calls++;
+    const content = calls < 3
+      ? { summary: "full schema missing required fields" }
+      : { summary: "simplified retry returned full data", category: "unclear_signal", sentiment: "neutral", topicKey: "setup" };
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify(content) } }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+
+  let result: Record<string, unknown>;
+  try {
+    process.env.ALAYA_LLM_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "test-api-key-not-a-real-secret";
+    process.env.OPENAI_BASE_URL = "https://llm.example.test/v1";
+
+    result = await callLlm({
+      cycleId: cycle.id,
+      agent: "sensor",
+      promptName: "promote_simplified_schema_test",
+      inputSummary: "classify noisy external feedback",
+      schema: {
+        type: "object",
+        required: ["summary", "category", "sentiment", "topicKey"],
+        additionalProperties: true,
+        properties: {
+          summary: { type: "string" },
+          category: { type: "string" },
+          sentiment: { type: "string" },
+          topicKey: { type: "string" },
+        },
+      },
+      mockOutput: { summary: "mock", category: "unclear_signal", sentiment: "neutral", topicKey: "mock" },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousProvider == null) delete process.env.ALAYA_LLM_PROVIDER;
+    else process.env.ALAYA_LLM_PROVIDER = previousProvider;
+    if (previousApiKey == null) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousApiKey;
+    if (previousBaseUrl == null) delete process.env.OPENAI_BASE_URL;
+    else process.env.OPENAI_BASE_URL = previousBaseUrl;
+  }
+
+  assert.equal(calls, 3);
+  assert.equal(result!.category, "unclear_signal");
+  const call = storage.listLlmCalls().find((item) => item.cycleId === cycle.id && item.promptVersion === "promote_simplified_schema_test@v1");
+  assert.ok(call);
+  assert.equal(call.schemaValid, 1);
+  assert.equal(call.retryCount, 2);
+  const gate = storage.listGates(projectId).find((item) => item.cycleId === cycle.id && item.id.startsWith("gate_llm_sensor_"));
+  assert.equal(gate, undefined);
 });
 
 test("GitHub Issues sync redacts feedback before storage and creates a meaning gate", async () => {

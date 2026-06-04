@@ -10,7 +10,8 @@
  * 退出码：0 = 全部通过；1 = 至少一条底线被违反；2 = 脚本自身错误（如找不到纯函数文件）。
  */
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
-import { join, resolve, relative } from "node:path";
+import { join, resolve, relative, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // ---------- 配置 ----------
 // 纯函数文件名（不含目录），底线 1 检查对象
@@ -37,8 +38,10 @@ const FORBIDDEN_IN_PURE = [
 const LLM_SDK_IMPORT = /\bfrom\s+["'](?:openai|anthropic|@anthropic-ai\/.*)["']|\brequire\(\s*["'](?:openai|anthropic)["']/;
 
 // 底线 3：写权限审计不可旁路。server/ 中只有统一数据访问层可裸写数据库。
-const RAW_DB_WRITE = /\brawDb\s*\.\s*prepare\s*\([\s\S]*?\)\s*\.\s*run\s*\(/g;
-const DRIZZLE_WRITE = /(?:^|[^\w.])db\s*\.\s*(?:insert|update|delete)\s*\(/g;
+// 注意：用于 .test() 的正则一律不加 g 标志。带 g 的正则在 .test() 之间会推进
+// lastIndex，造成有状态、跨调用 true/false 跳变。
+const RAW_DB_WRITE = /\brawDb\s*\.\s*prepare\s*\([\s\S]*?\)\s*\.\s*run\s*\(/;
+const DRIZZLE_WRITE = /(?:^|[^\w.])db\s*\.\s*(?:insert|update|delete)\s*\(/;
 const AUDIT_CALL = /\bthis\.(?:auditWrite|recordAudit)\s*\(/;
 
 // ---------- 工具 ----------
@@ -65,8 +68,6 @@ function stripComments(src) {
 }
 
 function hasDbWrite(code) {
-  RAW_DB_WRITE.lastIndex = 0;
-  DRIZZLE_WRITE.lastIndex = 0;
   return RAW_DB_WRITE.test(code) || DRIZZLE_WRITE.test(code);
 }
 
@@ -76,10 +77,50 @@ function lineForIndex(code, idx) {
 
 function findMatchingBrace(code, openIdx) {
   let depth = 0;
+  let inStr = null; // "'", '"', or "`"
+  let inLineComment = false;
+  let inBlockComment = false;
   for (let i = openIdx; i < code.length; i++) {
     const ch = code[i];
+    const next = code[i + 1];
+
+    if (inLineComment) {
+      if (ch === "\n") inLineComment = false;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        i++;
+      }
+      continue;
+    }
+    if (inStr) {
+      if (ch === "\\") {
+        i++;
+        continue;
+      }
+      if (ch === inStr) inStr = null;
+      continue;
+    }
+
+    if (ch === "/" && next === "/") {
+      inLineComment = true;
+      i++;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      inStr = ch;
+      continue;
+    }
+
     if (ch === "{") depth++;
-    if (ch === "}") {
+    else if (ch === "}") {
       depth--;
       if (depth === 0) return i;
     }
@@ -279,11 +320,12 @@ function checkProject(root) {
 function detectRoots() {
   const explicit = process.argv.slice(2);
   if (explicit.length) return explicit.map((p) => resolve(p));
-  // 自动探测：当前目录、./alaya-app、./alaya-core、../alaya-app、../alaya-core
-  const cands = [".", "alaya-app", "alaya-core", "../alaya-app", "../alaya-core"];
+  // 以脚本自身所在仓库根为锚点，只探测仓库内项目。不要依赖 cwd，也不要向上
+  // 跨越仓库根，避免误扫父目录里的旧副本。
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  const cands = [".", "alaya-app", "alaya-core"].map((c) => join(repoRoot, c));
   const roots = [];
-  for (const c of cands) {
-    const r = resolve(c);
+  for (const r of cands) {
     if (PURE_FN_DIRS.some((d) => existsSync(join(r, d)))) roots.push(r);
   }
   return [...new Set(roots)];

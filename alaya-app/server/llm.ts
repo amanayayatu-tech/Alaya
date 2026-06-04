@@ -68,6 +68,7 @@ function sanitizeInput(input: LlmCallInput): LlmCallInput {
   return {
     ...input,
     inputSummary: redactSensitiveText(input.inputSummary),
+    mockOutput: sanitizeValue(input.mockOutput) as Record<string, unknown>,
     context: sanitizeValue(input.context ?? {}) as Record<string, unknown>,
     knowledgeSummary: input.knowledgeSummary ? redactSensitiveText(input.knowledgeSummary) : input.knowledgeSummary,
     prohibited: input.prohibited?.map(redactSensitiveText),
@@ -85,6 +86,11 @@ function estimateCost(tokens: number): number {
 function requestTimeoutMs(): number {
   const raw = Number(process.env.OPENAI_REQUEST_TIMEOUT_MS ?? 90_000);
   return Number.isFinite(raw) ? Math.max(0, raw) : 90_000;
+}
+
+function maxOutputTokens(): number {
+  const raw = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS ?? 512);
+  return Number.isFinite(raw) ? Math.max(64, Math.floor(raw)) : 512;
 }
 
 function readSecretFile(path: string | undefined): string {
@@ -215,6 +221,11 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
       apiKey,
     );
     if (validate(simpleData, simpleSchema)) {
+      const originalErrors = validationErrors(simpleData, schema);
+      if (originalErrors.length === 0) {
+        record(safeInput, simpleData, true, 2, Date.now() - started, approxTokens({ input: safeInput, simpleData }));
+        return simpleData;
+      }
       record(safeInput, simpleData, false, 2, Date.now() - started, approxTokens({ input: safeInput, simpleData }));
       createDegradedGate(safeInput, `degraded to simplified schema after: ${lastError || "schema validation failed"}`);
       return simpleData;
@@ -278,7 +289,10 @@ async function callResponses(input: LlmCallInput, schema: JsonSchema, previousEr
     body: JSON.stringify({
       model,
       temperature: 0.2,
-      instructions: "You are an Alaya agent. Return only JSON matching the provided schema.",
+      max_output_tokens: maxOutputTokens(),
+      instructions:
+        "You are an Alaya agent. Return concise JSON only. Match the supplied schema exactly, using [] for empty arrays. " +
+        "If draft_output already satisfies the schema, copy its key names exactly and adapt content only when evidence requires it.",
       input: [{
         role: "user",
         content: [{
@@ -290,6 +304,7 @@ async function callResponses(input: LlmCallInput, schema: JsonSchema, previousEr
             context: input.context ?? {},
             knowledge_summary: input.knowledgeSummary ?? "",
             prohibited: input.prohibited ?? [],
+            draft_output: input.mockOutput,
             previous_error: previousError,
           }),
         }],
@@ -325,11 +340,15 @@ async function callChatCompletions(input: LlmCallInput, schema: JsonSchema, prev
     body: JSON.stringify({
       model,
       temperature: 0.2,
+      max_tokens: maxOutputTokens(),
       response_format: { type: "json_object" },
+      ...providerChatExtras(model, endpoint),
       messages: [
         {
           role: "system",
-          content: "You are an Alaya agent. Return only JSON matching the supplied schema.",
+          content:
+            "You are an Alaya agent. Return concise JSON only. Match the supplied schema exactly, using [] for empty arrays. " +
+            "If draft_output already satisfies the schema, copy its key names exactly and adapt content only when evidence requires it.",
         },
         {
           role: "user",
@@ -340,6 +359,7 @@ async function callChatCompletions(input: LlmCallInput, schema: JsonSchema, prev
             context: input.context ?? {},
             knowledge_summary: input.knowledgeSummary ?? "",
             prohibited: input.prohibited ?? [],
+            draft_output: input.mockOutput,
             previous_error: previousError,
             output_schema: schema,
           }),
@@ -353,6 +373,14 @@ async function callChatCompletions(input: LlmCallInput, schema: JsonSchema, prev
   const json = await response.json() as any;
   const text = extractChatOutputText(json);
   return parseJsonObjectText(text, "OpenAI-compatible chat");
+}
+
+function providerChatExtras(model: string, endpoint: string): Record<string, unknown> {
+  const target = `${model} ${endpoint}`.toLowerCase();
+  if (!target.includes("minimax")) return {};
+  const raw = (process.env.MINIMAX_THINKING ?? process.env.OPENAI_THINKING ?? "disabled").toLowerCase();
+  const type = raw === "adaptive" ? "adaptive" : "disabled";
+  return { thinking: { type } };
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
@@ -399,18 +427,38 @@ function extractChatOutputText(json: any): string {
 
 function parseJsonObjectText(text: string, source: string): Record<string, unknown> {
   const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
-  try {
-    return JSON.parse(trimmed) as Record<string, unknown>;
-  } catch {
-    const start = trimmed.indexOf("{");
-    const end = trimmed.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      try {
-        return JSON.parse(trimmed.slice(start, end + 1)) as Record<string, unknown>;
-      } catch {
-        // Fall through to the readable error below.
-      }
-    }
-    throw new Error(`${source} response was not parseable JSON: ${text.slice(0, 300)}`);
+  for (const candidate of [stripThinkingBlocks(trimmed), trimmed]) {
+    const parsed = tryParseJsonObject(candidate);
+    if (parsed) return parsed;
   }
+  throw new Error(`${source} response was not parseable JSON: ${text.slice(0, 300)}`);
+}
+
+function stripThinkingBlocks(text: string): string {
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+}
+
+function tryParseJsonObject(text: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+  } catch {
+    // Try extracting a final JSON object from provider-specific wrapper text.
+  }
+
+  const end = text.lastIndexOf("}");
+  if (end < 0) return null;
+  const starts: number[] = [];
+  for (let index = text.indexOf("{"); index >= 0; index = text.indexOf("{", index + 1)) {
+    starts.push(index);
+  }
+  for (let i = starts.length - 1; i >= 0; i--) {
+    try {
+      const parsed = JSON.parse(text.slice(starts[i], end + 1)) as unknown;
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+    } catch {
+      // Continue searching for the root object.
+    }
+  }
+  return null;
 }
