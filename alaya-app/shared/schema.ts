@@ -121,6 +121,8 @@ export const knowledgeItems = sqliteTable("knowledge_items", {
   usageCount: integer("usage_count").notNull().default(0),
   tags: text("tags").notNull().default("[]"), // JSON string[]
   notes: text("notes").notNull().default(""),
+  supersededBy: text("superseded_by"),
+  semanticKey: text("semantic_key").notNull().default(""),
   version: integer("version").notNull().default(1),
 });
 
@@ -211,7 +213,11 @@ export type Task = typeof tasks.$inferSelect;
 export type FeedbackItem = typeof feedbackItems.$inferSelect;
 export type Prediction = typeof predictions.$inferSelect;
 export type Observation = typeof observations.$inferSelect;
-export type KnowledgeItem = typeof knowledgeItems.$inferSelect;
+type KnowledgeItemRow = typeof knowledgeItems.$inferSelect;
+export type KnowledgeItem = Omit<KnowledgeItemRow, "supersededBy" | "semanticKey"> & {
+  supersededBy?: string | null;
+  semanticKey?: string;
+};
 export type HumanGateItem = typeof humanGateItems.$inferSelect;
 export type DecisionLogItem = typeof decisionLog.$inferSelect;
 export type EventLogItem = typeof eventLog.$inferSelect;

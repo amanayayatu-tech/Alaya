@@ -124,6 +124,10 @@ export interface KnowledgeItem {
   usageCount: number;
   tags: string[];
   notes: string;
+  /** 熵减合并后指向主知识；保留原条目，不物理删除。 */
+  supersededBy?: string | null;
+  /** server/agent 层生成的近义聚类稳定指纹；纯函数不读取外部知识。 */
+  semanticKey?: string;
 }
 
 /** evidence_count 口径:修复漏洞D,剔除 Beta 先验后的真实证据条数 */

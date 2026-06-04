@@ -56,6 +56,7 @@ function upsertSeedKnowledge(project: Project, type: "identity" | "world_model",
       sourceType: "human_decision",
       sourceRef: "onboarding",
       approvedBy: "owner",
+      actor: "human",
       lastValidatedCycle: project.currentCycleIdx,
       notes: "project setup 人工校准同步",
     });

@@ -69,7 +69,8 @@ function migrate() {
     last_validated_cycle INTEGER NOT NULL DEFAULT 0, created_by_cycle INTEGER NOT NULL DEFAULT 0,
     created_by TEXT NOT NULL DEFAULT 'distiller', approved_by TEXT,
     usage_count INTEGER NOT NULL DEFAULT 0, tags TEXT NOT NULL DEFAULT '[]',
-    notes TEXT NOT NULL DEFAULT '', version INTEGER NOT NULL DEFAULT 1
+    notes TEXT NOT NULL DEFAULT '', superseded_by TEXT, semantic_key TEXT NOT NULL DEFAULT '',
+    version INTEGER NOT NULL DEFAULT 1
   );
   CREATE TABLE IF NOT EXISTS human_gate_items (
     id TEXT PRIMARY KEY, cycle_id TEXT NOT NULL, type TEXT NOT NULL,
@@ -129,6 +130,15 @@ function migrate() {
   ];
   for (const [name, spec] of feedbackColumnSpecs) {
     if (!feedbackColumns.has(name)) sqlite.exec(`ALTER TABLE feedback_items ADD COLUMN ${name} ${spec}`);
+  }
+
+  const knowledgeColumns = new Set((sqlite.prepare(`PRAGMA table_info(knowledge_items)`).all() as Array<{ name: string }>).map((c) => c.name));
+  const knowledgeColumnSpecs: Array<[string, string]> = [
+    ["superseded_by", "TEXT"],
+    ["semantic_key", "TEXT NOT NULL DEFAULT ''"],
+  ];
+  for (const [name, spec] of knowledgeColumnSpecs) {
+    if (!knowledgeColumns.has(name)) sqlite.exec(`ALTER TABLE knowledge_items ADD COLUMN ${name} ${spec}`);
   }
 
   // FTS5 virtual table mirroring knowledge_items + sync triggers
@@ -218,7 +228,9 @@ function rowToKnowledge(r: any): KnowledgeItem {
     status: r.status, humanApprovedCount: r.human_approved_count, externalVerifiedCount: r.external_verified_count,
     validFrom: r.valid_from, validUntil: r.valid_until, lastValidatedCycle: r.last_validated_cycle,
     createdByCycle: r.created_by_cycle, createdBy: r.created_by, approvedBy: r.approved_by,
-    usageCount: r.usage_count, tags: r.tags, notes: r.notes, version: r.version,
+    usageCount: r.usage_count, tags: r.tags, notes: r.notes,
+    supersededBy: r.superseded_by ?? null, semanticKey: r.semantic_key ?? "",
+    version: r.version,
   };
 }
 function rowToPrediction(r: any): Prediction {
@@ -312,7 +324,7 @@ export interface IStorage {
   createKnowledge(k: KnowledgeItem): KnowledgeItem;
   getKnowledge(id: string): KnowledgeItem | undefined;
   listKnowledge(projectId: string): KnowledgeItem[];
-  updateKnowledge(id: string, patch: Partial<KnowledgeItem>): KnowledgeItem | undefined;
+  updateKnowledge(id: string, patch: Partial<KnowledgeItem> & { actor?: string }): KnowledgeItem | undefined;
   searchKnowledge(projectId: string, query: string): KnowledgeItem[];
   // gates
   createGate(g: HumanGateItem): HumanGateItem;
@@ -506,18 +518,20 @@ export class DatabaseStorage implements IStorage {
   }
   // ---- knowledge ----
   createKnowledge(k: KnowledgeItem): KnowledgeItem {
-    rawDb.prepare(`INSERT INTO knowledge_items (id,project_id,type,title,content,source_type,source_ref,evidence_alpha,evidence_beta,confidence_score,confidence_level,status,human_approved_count,external_verified_count,valid_from,valid_until,last_validated_cycle,created_by_cycle,created_by,approved_by,usage_count,tags,notes,version)
-      VALUES (@id,@project_id,@type,@title,@content,@source_type,@source_ref,@evidence_alpha,@evidence_beta,@confidence_score,@confidence_level,@status,@human_approved_count,@external_verified_count,@valid_from,@valid_until,@last_validated_cycle,@created_by_cycle,@created_by,@approved_by,@usage_count,@tags,@notes,@version)`).run({
+    const n = { ...k, supersededBy: k.supersededBy ?? null, semanticKey: k.semanticKey ?? "" };
+    rawDb.prepare(`INSERT INTO knowledge_items (id,project_id,type,title,content,source_type,source_ref,evidence_alpha,evidence_beta,confidence_score,confidence_level,status,human_approved_count,external_verified_count,valid_from,valid_until,last_validated_cycle,created_by_cycle,created_by,approved_by,usage_count,tags,notes,superseded_by,semantic_key,version)
+      VALUES (@id,@project_id,@type,@title,@content,@source_type,@source_ref,@evidence_alpha,@evidence_beta,@confidence_score,@confidence_level,@status,@human_approved_count,@external_verified_count,@valid_from,@valid_until,@last_validated_cycle,@created_by_cycle,@created_by,@approved_by,@usage_count,@tags,@notes,@superseded_by,@semantic_key,@version)`).run({
       id: k.id, project_id: k.projectId, type: k.type, title: k.title, content: k.content,
       source_type: k.sourceType, source_ref: k.sourceRef, evidence_alpha: k.evidenceAlpha, evidence_beta: k.evidenceBeta,
       confidence_score: k.confidenceScore, confidence_level: k.confidenceLevel, status: k.status,
       human_approved_count: k.humanApprovedCount, external_verified_count: k.externalVerifiedCount,
       valid_from: k.validFrom, valid_until: k.validUntil, last_validated_cycle: k.lastValidatedCycle,
       created_by_cycle: k.createdByCycle, created_by: k.createdBy, approved_by: k.approvedBy,
-      usage_count: k.usageCount, tags: k.tags, notes: k.notes, version: k.version,
+      usage_count: k.usageCount, tags: k.tags, notes: k.notes,
+      superseded_by: n.supersededBy, semantic_key: n.semanticKey, version: k.version,
     });
-    this.auditWrite(k.createdBy || "distiller", "knowledge_items", "insert", null, k, k.createdByCycle);
-    return k;
+    this.auditWrite(k.createdBy || "distiller", "knowledge_items", "insert", null, n, k.createdByCycle);
+    return n;
   }
   getKnowledge(id: string): KnowledgeItem | undefined {
     const r = rawDb.prepare(`SELECT * FROM knowledge_items WHERE id=?`).get(id);
@@ -526,19 +540,27 @@ export class DatabaseStorage implements IStorage {
   listKnowledge(projectId: string): KnowledgeItem[] {
     return rawDb.prepare(`SELECT * FROM knowledge_items WHERE project_id=? ORDER BY created_by_cycle ASC, id ASC`).all(projectId).map(rowToKnowledge);
   }
-  updateKnowledge(id: string, patch: Partial<KnowledgeItem>): KnowledgeItem | undefined {
+  updateKnowledge(id: string, patch: Partial<KnowledgeItem> & { actor?: string }): KnowledgeItem | undefined {
     const cur = this.getKnowledge(id);
     if (!cur) return undefined;
-    const n = { ...cur, ...patch, version: cur.version + 1 };
-    rawDb.prepare(`UPDATE knowledge_items SET type=@type,title=@title,content=@content,source_type=@source_type,source_ref=@source_ref,evidence_alpha=@evidence_alpha,evidence_beta=@evidence_beta,confidence_score=@confidence_score,confidence_level=@confidence_level,status=@status,human_approved_count=@human_approved_count,external_verified_count=@external_verified_count,valid_from=@valid_from,valid_until=@valid_until,last_validated_cycle=@last_validated_cycle,created_by_cycle=@created_by_cycle,created_by=@created_by,approved_by=@approved_by,usage_count=@usage_count,tags=@tags,notes=@notes,version=@version WHERE id=@id`).run({
+    const { actor: actorHint, ...rawPatch } = patch;
+    const n = {
+      ...cur,
+      ...rawPatch,
+      supersededBy: rawPatch.supersededBy ?? cur.supersededBy ?? null,
+      semanticKey: rawPatch.semanticKey ?? cur.semanticKey ?? "",
+      version: cur.version + 1,
+    };
+    rawDb.prepare(`UPDATE knowledge_items SET type=@type,title=@title,content=@content,source_type=@source_type,source_ref=@source_ref,evidence_alpha=@evidence_alpha,evidence_beta=@evidence_beta,confidence_score=@confidence_score,confidence_level=@confidence_level,status=@status,human_approved_count=@human_approved_count,external_verified_count=@external_verified_count,valid_from=@valid_from,valid_until=@valid_until,last_validated_cycle=@last_validated_cycle,created_by_cycle=@created_by_cycle,created_by=@created_by,approved_by=@approved_by,usage_count=@usage_count,tags=@tags,notes=@notes,superseded_by=@superseded_by,semantic_key=@semantic_key,version=@version WHERE id=@id`).run({
       id, type: n.type, title: n.title, content: n.content, source_type: n.sourceType, source_ref: n.sourceRef,
       evidence_alpha: n.evidenceAlpha, evidence_beta: n.evidenceBeta, confidence_score: n.confidenceScore,
       confidence_level: n.confidenceLevel, status: n.status, human_approved_count: n.humanApprovedCount,
       external_verified_count: n.externalVerifiedCount, valid_from: n.validFrom, valid_until: n.validUntil,
       last_validated_cycle: n.lastValidatedCycle, created_by_cycle: n.createdByCycle, created_by: n.createdBy,
-      approved_by: n.approvedBy, usage_count: n.usageCount, tags: n.tags, notes: n.notes, version: n.version,
+      approved_by: n.approvedBy, usage_count: n.usageCount, tags: n.tags, notes: n.notes,
+      superseded_by: n.supersededBy, semantic_key: n.semanticKey, version: n.version,
     });
-    const actor = patch.approvedBy ? "human" : "librarian";
+    const actor = actorHint ?? (rawPatch.approvedBy ? "human" : "librarian");
     this.auditWrite(actor, "knowledge_items", "update", cur, n, n.lastValidatedCycle || n.createdByCycle);
     return n;
   }
@@ -553,6 +575,7 @@ export class DatabaseStorage implements IStorage {
         SELECT k.* FROM knowledge_fts f
         JOIN knowledge_items k ON k.rowid = f.rowid
         WHERE knowledge_fts MATCH ? AND k.project_id = ?
+          AND (k.superseded_by IS NULL OR k.superseded_by = '')
         ORDER BY rank
       `).all(match, projectId);
       return rows.map(rowToKnowledge).filter((k) => !HIGH_RISK_EXCLUDED.includes(k.status));

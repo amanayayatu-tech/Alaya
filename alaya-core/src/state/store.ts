@@ -101,11 +101,11 @@ export class Store {
 
   activeKnowledge(): KnowledgeItem[] {
     return [...this.knowledge.values()].filter((k) =>
-      ["active", "strong"].includes(k.status),
+      !k.supersededBy && ["active", "strong"].includes(k.status),
     );
   }
 
   strongKnowledge(): KnowledgeItem[] {
-    return [...this.knowledge.values()].filter((k) => k.status === "strong");
+    return [...this.knowledge.values()].filter((k) => !k.supersededBy && k.status === "strong");
   }
 }

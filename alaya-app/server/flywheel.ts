@@ -6,11 +6,13 @@
  */
 import { storage, now } from "./storage";
 import { callLlm } from "./llm";
+import { generateNextGoal, type NextGoalDraft, type NextGoalInput } from "./autonomousGoal";
+import { computeSemanticKey, isContradiction, isSemanticDuplicate } from "./knowledgeSimilarity";
 import { computeClaimError, computeCycleError } from "@shared/core/compute_error.js";
 import { classifyError, routeError } from "@shared/core/classify_error.js";
 import { applyEvidence } from "@shared/core/update_confidence.js";
-import { transitionState } from "@shared/core/transition_state.js";
-import type { Claim, AttributionContext, Operator } from "@shared/core/types.js";
+import { eligibleForHighRisk, transitionState } from "@shared/core/transition_state.js";
+import { evidenceCount, type Claim, type AttributionContext, type Operator } from "@shared/core/types.js";
 import type { KnowledgeItem } from "@shared/schema";
 
 type LlmCaller = typeof callLlm;
@@ -30,6 +32,11 @@ export interface ScenarioRound {
   buildSuccess: boolean;
   perceptionOk: boolean;
   humanValueMismatch: boolean;
+  predictionMetric?: string;
+  predictionOperator?: Operator;
+  predictionTarget?: number;
+  knowledgeRefs?: string[];
+  reasoningHowKnowledgeChangedDecision?: string;
 }
 
 export const SCENARIO: ScenarioRound[] = [
@@ -191,7 +198,9 @@ function auditSummaryForCycle4(refs: string[]) {
 }
 
 function activeKnowledge(projectId: string): KnowledgeItem[] {
-  return storage.listKnowledge(projectId).filter((k) => ["active", "strong", "draft", "provisional"].includes(k.status));
+  return storage.listKnowledge(projectId)
+    .filter((k) => !k.supersededBy)
+    .filter((k) => ["active", "strong", "draft", "provisional"].includes(k.status));
 }
 
 // Convert core KnowledgeItem (tags: string[]) <-> DB KnowledgeItem (tags: json text)
@@ -330,6 +339,16 @@ function failureThreshold(metric: string, operator: Operator, target: number): s
 
 function claimConfigForCycle(projectId: string, sc: ScenarioRound) {
   const project = storage.getProject(projectId);
+  if (sc.predictionMetric && sc.predictionTarget != null) {
+    const operator = sc.predictionOperator ?? ">=";
+    return {
+      metric: sc.predictionMetric,
+      operator,
+      target: sc.predictionTarget,
+      observed: sc.activationObserved,
+      scale: Math.max(Math.abs(sc.predictionTarget), 1),
+    };
+  }
   if (sc.index !== 1 || !project) {
     return {
       metric: "activation_rate",
@@ -351,6 +370,248 @@ function claimConfigForCycle(projectId: string, sc: ScenarioRound) {
   };
 }
 
+function lastClosedCycle(projectId: string, beforeIdx: number) {
+  return storage.listCycles(projectId)
+    .filter((cycle) => cycle.idx < beforeIdx && cycle.status === "closed")
+    .sort((a, b) => b.idx - a.idx)[0];
+}
+
+function goalsAlreadyUsed(projectId: string, beforeIdx: number): string[] {
+  const cycles = storage.listCycles(projectId)
+    .filter((cycle) => cycle.idx < beforeIdx)
+    .map((cycle) => cycle.goal)
+    .filter((goal) => goal.trim().length > 0);
+  const gateGoals = storage.listGates(projectId)
+    .filter((gate) => {
+      const cycle = storage.getCycle(gate.cycleId);
+      return !cycle || cycle.idx < beforeIdx;
+    })
+    .flatMap((gate) => {
+      try {
+        const payload = JSON.parse(gate.payload) as Record<string, unknown>;
+        const alternatives = Array.isArray(payload.alternatives)
+          ? payload.alternatives.filter((item): item is string => typeof item === "string")
+          : [];
+        const recommended = typeof payload.recommended === "string" ? [payload.recommended] : [];
+        return [...recommended, ...alternatives];
+      } catch {
+        return [];
+      }
+    });
+  return Array.from(new Set([...cycles, ...gateGoals]));
+}
+
+export function buildNextGoalInput(projectId: string, cycleIndex: number, cycleId: string): NextGoalInput {
+  const project = storage.getProject(projectId);
+  const previous = lastClosedCycle(projectId, cycleIndex);
+  const previousFeedback = previous ? storage.listFeedback(previous.id).map((item) => item.summary || item.text) : [];
+  const eligibleKnowledge = storage.listKnowledge(projectId)
+    .filter((item) => !item.supersededBy)
+    .filter((item) => ["active", "strong"].includes(item.status))
+    .filter((item) => eligibleForHighRisk(coreFromDb(item)))
+    .map((item) => ({
+      id: item.id,
+      title: item.title,
+      content: item.content,
+      type: item.type,
+      confidenceScore: item.confidenceScore,
+      status: item.status,
+    }));
+
+  return {
+    cycleId,
+    cycleIndex,
+    identity: project?.seedIdentity || project?.direction || "Alaya autonomous project",
+    worldModel: project?.worldModel || "",
+    eligibleKnowledge,
+    lastCyclePredictionError: {
+      eCycle: previous?.eCycle ?? null,
+      worstClaimError: previous?.worstClaimError ?? null,
+    },
+    recentFeedback: previousFeedback.slice(-8),
+    rejectedGoals: goalsAlreadyUsed(projectId, cycleIndex),
+  };
+}
+
+function scenarioFromGoalDraft(index: number, draft: NextGoalDraft): ScenarioRound {
+  const target = draft.prediction.target;
+  const observed = Math.min(0.95, +(target + 0.015 + (index % 3) * 0.005).toFixed(3));
+  return {
+    index,
+    proposedGoal: draft.proposedGoal,
+    alternativeGoals: draft.alternativeGoals,
+    belief: draft.belief,
+    prediction: draft.prediction.statement,
+    action: draft.action,
+    activationObserved: observed,
+    activationTarget: target,
+    feedback: [
+      {
+        id: `auto_f${index}`,
+        text: `第${index}轮用户反馈: ${draft.proposedGoal} 让高风险动作更可预览、可回滚、可审计。`,
+        category: "metric_signal",
+        sentiment: "positive",
+      },
+    ],
+    buildSuccess: true,
+    perceptionOk: true,
+    humanValueMismatch: false,
+    predictionMetric: draft.prediction.metric,
+    predictionOperator: draft.prediction.operator,
+    predictionTarget: target,
+    knowledgeRefs: draft.referencedKnowledgeIds,
+    reasoningHowKnowledgeChangedDecision: draft.reasoningHowKnowledgeChangedDecision,
+  };
+}
+
+export async function resolveCycleStimulus(projectId: string, index: number, cycleId = `cycle_${index}_${projectId.slice(-4)}`): Promise<ScenarioRound> {
+  const scripted = scenarioForCycle(index);
+  if (scripted) return scripted;
+  const draft = await generateNextGoal(buildNextGoalInput(projectId, index, cycleId));
+  return scenarioFromGoalDraft(index, draft);
+}
+
+type PersistedDirectionScenario = {
+  index: number;
+  proposedGoal: string;
+  alternativeGoals: string[];
+  belief: string;
+  prediction: string;
+  action: string;
+  activationObserved: number;
+  activationTarget: number;
+  feedback: { id: string; text: string; category: string; sentiment: string }[];
+  buildSuccess: boolean;
+  perceptionOk: boolean;
+  humanValueMismatch: boolean;
+  predictionMetric?: string;
+  predictionOperator?: Operator;
+  predictionTarget?: number;
+  knowledgeRefs?: string[];
+  reasoningHowKnowledgeChangedDecision?: string;
+};
+
+function persistDirectionScenario(sc: ScenarioRound, finalRefs: string[]): PersistedDirectionScenario {
+  return {
+    index: sc.index,
+    proposedGoal: sc.proposedGoal,
+    alternativeGoals: sc.alternativeGoals,
+    belief: sc.belief,
+    prediction: sc.prediction,
+    action: sc.action,
+    activationObserved: sc.activationObserved,
+    activationTarget: sc.activationTarget,
+    feedback: sc.feedback,
+    buildSuccess: sc.buildSuccess,
+    perceptionOk: sc.perceptionOk,
+    humanValueMismatch: sc.humanValueMismatch,
+    predictionMetric: sc.predictionMetric,
+    predictionOperator: sc.predictionOperator,
+    predictionTarget: sc.predictionTarget,
+    knowledgeRefs: finalRefs,
+    reasoningHowKnowledgeChangedDecision: sc.reasoningHowKnowledgeChangedDecision,
+  };
+}
+
+function toDirectionScenario(candidate: unknown): ScenarioRound | undefined {
+  if (!candidate || typeof candidate !== "object") return undefined;
+  const raw = candidate as Record<string, unknown>;
+  const idx = typeof raw.index === "number" ? raw.index : Number.NaN;
+  const proposedGoal = typeof raw.proposedGoal === "string" ? raw.proposedGoal : "";
+  if (!Number.isFinite(idx) || idx <= 0 || !proposedGoal) return undefined;
+  if (!Array.isArray(raw.feedback)) return undefined;
+  const feedback = raw.feedback.filter((item): item is { id: string; text: string; category: string; sentiment: string } => {
+    return (
+      item !== null && typeof item === "object" &&
+      typeof (item as Record<string, unknown>).id === "string" &&
+      typeof (item as Record<string, unknown>).text === "string" &&
+      typeof (item as Record<string, unknown>).category === "string" &&
+      typeof (item as Record<string, unknown>).sentiment === "string"
+    );
+  });
+  const alternativeGoals = Array.isArray(raw.alternativeGoals) ? raw.alternativeGoals.filter((item): item is string => typeof item === "string") : [];
+  const resolveRefs = Array.isArray(raw.knowledgeRefs)
+    ? raw.knowledgeRefs.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+  return {
+    index: idx,
+    proposedGoal,
+    alternativeGoals,
+    belief: typeof raw.belief === "string" ? raw.belief : "",
+    prediction: typeof raw.prediction === "string" ? raw.prediction : "",
+    action: typeof raw.action === "string" ? raw.action : "",
+    activationObserved: typeof raw.activationObserved === "number" ? raw.activationObserved : 0,
+    activationTarget: typeof raw.activationTarget === "number" ? raw.activationTarget : 0,
+    feedback,
+    buildSuccess: raw.buildSuccess === true,
+    perceptionOk: raw.perceptionOk !== false,
+    humanValueMismatch: raw.humanValueMismatch === true,
+    predictionMetric: typeof raw.predictionMetric === "string" ? raw.predictionMetric : undefined,
+    predictionOperator: raw.predictionOperator === "<=" || raw.predictionOperator === "==" || raw.predictionOperator === ">="
+      ? raw.predictionOperator
+      : undefined,
+    predictionTarget: typeof raw.predictionTarget === "number" ? raw.predictionTarget : undefined,
+    knowledgeRefs: resolveRefs,
+    reasoningHowKnowledgeChangedDecision: typeof raw.reasoningHowKnowledgeChangedDecision === "string" ? raw.reasoningHowKnowledgeChangedDecision : undefined,
+  };
+}
+
+function directionScenarioFromGate(cycleId: string): ScenarioRound | undefined {
+  const gate = storage.listGates().find((item) => item.cycleId === cycleId && item.type === "direction");
+  if (!gate) return undefined;
+  try {
+    const parsed = JSON.parse(gate.payload) as {
+      scenario?: unknown;
+      recommended?: string;
+      belief?: string;
+      prediction?: string;
+      action?: string;
+      alternatives?: string[];
+      knowledgeRefs?: string[];
+    };
+    const fromStored = toDirectionScenario(parsed.scenario);
+    if (fromStored) return fromStored;
+    const fallback: ScenarioRound = {
+      index: storage.getCycle(cycleId)?.idx ?? 1,
+      proposedGoal: typeof parsed.recommended === "string" ? parsed.recommended : "",
+      alternativeGoals: Array.isArray(parsed.alternatives)
+        ? parsed.alternatives.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        : [],
+      belief: typeof parsed.belief === "string" ? parsed.belief : "",
+      prediction: typeof parsed.prediction === "string" ? parsed.prediction : "",
+      action: typeof parsed.action === "string" ? parsed.action : "",
+      activationObserved: 0,
+      activationTarget: 0,
+      feedback: [],
+      buildSuccess: true,
+      perceptionOk: true,
+      humanValueMismatch: false,
+      knowledgeRefs: Array.isArray(parsed.knowledgeRefs) ? parsed.knowledgeRefs.filter((item): item is string => typeof item === "string") : [],
+    };
+    return fallback.proposedGoal ? fallback : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function buildDirectionScenarioFallback(sc: ScenarioRound, refs: string[], finalSc: {
+  goal: string;
+  belief: string;
+  prediction: string;
+  action: string;
+  reasoning: string;
+}): ScenarioRound {
+  return {
+    ...sc,
+    proposedGoal: finalSc.goal,
+    belief: finalSc.belief,
+    prediction: finalSc.prediction,
+    action: finalSc.action,
+    knowledgeRefs: refs,
+    reasoningHowKnowledgeChangedDecision: finalSc.reasoning,
+  };
+}
+
 // ---------------- Agents ----------------
 export async function runOrchestrator(projectId: string, cycleId: string, sc: ScenarioRound, llmCaller: LlmCaller = callLlm) {
   let goal = sc.proposedGoal, belief = sc.belief, prediction = sc.prediction, action = sc.action;
@@ -361,6 +622,10 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
 
   if (firstCyclePlan) {
     ({ goal, belief, prediction, action, reasoning } = firstCyclePlan);
+  } else if (sc.index > SCENARIO.length) {
+    refs.push(...(sc.knowledgeRefs ?? []));
+    reasoning = sc.reasoningHowKnowledgeChangedDecision ??
+      `引用 ${refs.join("+")}: 自主目标生成器基于可用知识生成第 ${sc.index} 轮目标。`;
   } else if (sc.index === 3) {
     const usable = activeKnowledge(projectId);
     const previewKnowledge = usable.find((k) => parseTags(k).includes("preview"));
@@ -448,6 +713,25 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
   const auditSummary = sc.index === 4 ? auditSummaryForCycle4(refs) : undefined;
   const gateId = sc.index === 4 ? `gate_dir_c4_rollback_${cycleId.slice(-8)}` : `gate_dir_c${sc.index}_${cycleId.slice(-8)}`;
   const gateTitle = sc.index === 4 ? "第 4 轮可回滚执行闸: 变更包 + 审计摘要" : `第 ${sc.index} 轮方向闸`;
+  const persistedScenario = persistDirectionScenario({
+    index: sc.index,
+    proposedGoal: goal,
+    alternativeGoals: sc.alternativeGoals,
+    belief,
+    prediction,
+    action,
+    activationObserved: sc.activationObserved,
+    activationTarget: sc.activationTarget,
+    feedback: sc.feedback,
+    buildSuccess: sc.buildSuccess,
+    perceptionOk: sc.perceptionOk,
+    humanValueMismatch: sc.humanValueMismatch,
+    predictionMetric: sc.predictionMetric,
+    predictionOperator: sc.predictionOperator,
+    predictionTarget: sc.predictionTarget,
+    reasoningHowKnowledgeChangedDecision: reasoning,
+    knowledgeRefs: refs,
+  }, refs);
 
   // direction gate (PRD 11.1)
   const gate = storage.createGate({
@@ -464,6 +748,7 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
       action,
       ...(rollbackPlan ? { rollbackPlan, rollbackTrigger: rollbackPlan.rollbackTrigger } : {}),
       ...(auditSummary ? { auditSummary } : {}),
+      scenario: persistedScenario,
       createdAt: now(),
     }),
     status: "pending", estimatedMinutes: 10, decision: null, version: 1,
@@ -509,7 +794,17 @@ function readDirectionPlan(cycleId: string, sc: ScenarioRound) {
       prediction?: string;
       action?: string;
       knowledgeRefs?: string[];
+      scenario?: unknown;
     };
+    const persisted = payload.scenario ? toDirectionScenario(payload.scenario) : undefined;
+    if (persisted) {
+      return {
+        belief: persisted.belief || sc.belief,
+        prediction: persisted.prediction || sc.prediction,
+        action: persisted.action || sc.action,
+        refs: persisted.knowledgeRefs ?? [],
+      };
+    }
     return {
       belief: payload.belief ?? sc.belief,
       prediction: payload.prediction ?? sc.prediction,
@@ -664,7 +959,7 @@ export function evaluatePrediction(
     cycleId,
     belief: plan.belief, prediction: plan.prediction, action: plan.action,
     claims: JSON.stringify([claim]),
-    observation: `activation_rate = ${sc.activationObserved}`,
+    observation: `${config.metric} = ${config.observed}`,
     predictionError: cycleErr.eCycle, worstClaimError: cycleErr.worstClaimError,
     errorType: errorType, updateTarget: routeError(errorType), status: "resolved",
     knowledgeRefs: JSON.stringify(plan.refs),
@@ -804,6 +1099,53 @@ export async function runDistiller(projectId: string, cycleId: string, sc: Scena
     logEvent(4, "distiller", "knowledge_items", "insert", { id: saved.id });
   }
 
+  if (sc.index > SCENARIO.length) {
+    const referenced = activeKnowledge(projectId).filter((k) => refs.includes(k.id));
+    for (const k of referenced) {
+      const next = applyEvidenceDb(k, { kind: "prediction", normalizedError: claimError });
+      storage.updateKnowledge(k.id, {
+        evidenceAlpha: next.evidenceAlpha,
+        evidenceBeta: next.evidenceBeta,
+        confidenceScore: next.confidenceScore,
+        confidenceLevel: next.confidenceLevel,
+        lastValidatedCycle: sc.index,
+        usageCount: k.usageCount + 1,
+        semanticKey: k.semanticKey || computeSemanticKey(k.title, k.content),
+      });
+      logEvent(sc.index, "distiller", "knowledge_items", "update", { id: k.id, score: next.confidenceScore });
+    }
+
+    const anchor = referenced[0] ?? activeKnowledge(projectId).find((k) => k.status === "strong") ?? activeKnowledge(projectId)[0];
+    if (anchor) {
+      const base: KnowledgeItem = {
+        id: nextKbId(projectId), projectId, type: anchor.type,
+        title: anchor.title,
+        content: `${anchor.content}\n本轮应用场景: ${sc.proposedGoal}`,
+        sourceType: "agent_observation",
+        sourceRef: `cycle_${sc.index}`,
+        evidenceAlpha: 1, evidenceBeta: 1, confidenceScore: 0.5, confidenceLevel: "low",
+        status: "draft", humanApprovedCount: 0, externalVerifiedCount: 0,
+        validFrom: now().slice(0, 10), validUntil: null, lastValidatedCycle: sc.index,
+        createdByCycle: sc.index, createdBy: "distiller", approvedBy: null, usageCount: 0,
+        tags: JSON.stringify(parseTags(anchor)),
+        notes: `自主第${sc.index}轮把 ${anchor.id} 迁移到新场景,等待 Librarian 合并/去重。`,
+        semanticKey: anchor.semanticKey || computeSemanticKey(anchor.title, anchor.content),
+        supersededBy: null,
+        version: 1,
+      };
+      const next = applyEvidenceDb(base, { kind: "prediction", normalizedError: claimError });
+      const saved = storage.createKnowledge({
+        ...base,
+        evidenceAlpha: next.evidenceAlpha,
+        evidenceBeta: next.evidenceBeta,
+        confidenceScore: next.confidenceScore,
+        confidenceLevel: next.confidenceLevel,
+      });
+      created.push(saved.id);
+      logEvent(sc.index, "distiller", "knowledge_items", "insert", { id: saved.id, candidateForMergeWith: anchor.id });
+    }
+  }
+
   storage.recordAgentRun({
     cycleId, cycleIdx: sc.index, agent: "distiller", action: "distill_knowledge_candidates",
     outputSummary: created.length ? `生成知识候选: ${created.join(",")}` : "强化既有知识证据",
@@ -823,10 +1165,116 @@ export async function runLibrarian(projectId: string, cycleId: string, sc: Scena
     mockOutput: { summary: "transitions computed", items: [] },
   });
   const transitions: string[] = [];
+
   for (const k of storage.listKnowledge(projectId)) {
+    const semanticKey = k.semanticKey || computeSemanticKey(k.title, k.content);
+    if (semanticKey !== (k.semanticKey ?? "")) {
+      storage.updateKnowledge(k.id, { semanticKey });
+    }
+  }
+
+  const confidenceLevelFor = (score: number, ev: number, humanApprovedCount: number): KnowledgeItem["confidenceLevel"] => {
+    if (score >= 0.85 && ev >= 5 && humanApprovedCount > 0) return "verified";
+    if (score >= 0.75 && ev >= 3) return "high";
+    if (score >= 0.6 && ev >= 1) return "medium";
+    return "low";
+  };
+
+  const chooseKeeper = (a: KnowledgeItem, b: KnowledgeItem) => {
+    if (a.status !== b.status) {
+      if (a.status === "strong") return a;
+      if (b.status === "strong") return b;
+      if (a.status === "active") return a;
+      if (b.status === "active") return b;
+    }
+    if (a.confidenceScore !== b.confidenceScore) return a.confidenceScore > b.confidenceScore ? a : b;
+    return a.createdByCycle <= b.createdByCycle ? a : b;
+  };
+
+  const mergePair = (a: KnowledgeItem, b: KnowledgeItem) => {
+    const keeper = chooseKeeper(a, b);
+    const duplicate = keeper.id === a.id ? b : a;
+    const alpha = 1 + Math.max(0, keeper.evidenceAlpha - 1) + Math.max(0, duplicate.evidenceAlpha - 1);
+    const beta = 1 + Math.max(0, keeper.evidenceBeta - 1) + Math.max(0, duplicate.evidenceBeta - 1);
+    const ev = evidenceCount({ evidenceAlpha: alpha, evidenceBeta: beta });
+    const score = alpha / (alpha + beta);
+    const tags = Array.from(new Set([...parseTags(keeper), ...parseTags(duplicate)]));
+    const sourceRef = Array.from(new Set(
+      `${keeper.sourceRef},${duplicate.sourceRef}`.split(",").map((item) => item.trim()).filter(Boolean),
+    )).join(",");
+    const notes = [
+      keeper.notes,
+      `Librarian merge: absorbed ${duplicate.id}; preserved evidence and sourceRef=${duplicate.sourceRef || "n/a"}.`,
+    ].filter(Boolean).join("\n");
+    storage.updateKnowledge(keeper.id, {
+      evidenceAlpha: alpha,
+      evidenceBeta: beta,
+      confidenceScore: score,
+      confidenceLevel: confidenceLevelFor(score, ev, keeper.humanApprovedCount + duplicate.humanApprovedCount),
+      humanApprovedCount: keeper.humanApprovedCount + duplicate.humanApprovedCount,
+      externalVerifiedCount: keeper.externalVerifiedCount + duplicate.externalVerifiedCount,
+      lastValidatedCycle: Math.max(keeper.lastValidatedCycle, duplicate.lastValidatedCycle, sc.index),
+      usageCount: keeper.usageCount + duplicate.usageCount,
+      tags: JSON.stringify(tags),
+      sourceRef,
+      notes,
+      semanticKey: keeper.semanticKey || duplicate.semanticKey || computeSemanticKey(keeper.title, keeper.content),
+    });
+    storage.updateKnowledge(duplicate.id, {
+      supersededBy: keeper.id,
+      semanticKey: duplicate.semanticKey || keeper.semanticKey || computeSemanticKey(duplicate.title, duplicate.content),
+      notes: `${duplicate.notes}\nLibrarian merge: superseded by ${keeper.id}, not physically deleted.`.trim(),
+      lastValidatedCycle: Math.max(duplicate.lastValidatedCycle, sc.index),
+    });
+    logEvent(sc.index, "librarian", "knowledge_items", "merge", {
+      keeperId: keeper.id,
+      supersededId: duplicate.id,
+      evidenceAlpha: alpha,
+      evidenceBeta: beta,
+    });
+    transitions.push(`${duplicate.id}: merged->${keeper.id}`);
+  };
+
+  let mergeCandidates = storage.listKnowledge(projectId)
+    .filter((k) => !k.supersededBy)
+    .filter((k) => !["expired", "quarantined", "conflict"].includes(k.status));
+  for (let i = 0; i < mergeCandidates.length; i += 1) {
+    for (let j = i + 1; j < mergeCandidates.length; j += 1) {
+      const a = mergeCandidates[i];
+      const b = mergeCandidates[j];
+      if (isContradiction(a, b)) continue;
+      if (!isSemanticDuplicate(a, b, 0.72)) continue;
+      mergePair(a, b);
+      mergeCandidates = storage.listKnowledge(projectId)
+        .filter((k) => !k.supersededBy)
+        .filter((k) => !["expired", "quarantined", "conflict"].includes(k.status));
+      i = -1;
+      break;
+    }
+  }
+
+  const strongKnowledge = storage.listKnowledge(projectId)
+    .filter((k) => !k.supersededBy && k.status === "strong");
+  const comparableConflict = (candidate: KnowledgeItem) => strongKnowledge.some((strong) => {
+    if (strong.id === candidate.id) return false;
+    const candidateEv = evidenceCount(coreFromDb(candidate));
+    const strongEv = evidenceCount(coreFromDb(strong));
+    return candidateEv >= 1 && strongEv >= 1 && isContradiction(candidate, strong);
+  });
+
+  for (const k of storage.listKnowledge(projectId).filter((item) => !item.supersededBy)) {
+    if (k.validUntil) {
+      const validUntilMs = Date.parse(k.validUntil);
+      if (Number.isFinite(validUntilMs) && validUntilMs < Date.now() && !["stale", "expired", "quarantined", "conflict"].includes(k.status)) {
+        storage.updateKnowledge(k.id, { status: "stale", lastValidatedCycle: sc.index });
+        transitions.push(`${k.id}: ${k.status}->stale (valid_until expired)`);
+        logEvent(sc.index, "librarian", "knowledge_items", "transition", { id: k.id, from: k.status, to: "stale" });
+        continue;
+      }
+    }
     const core = coreFromDb(k);
     const r = transitionState(core, {
-      currentCycle: sc.index, conflictsWithStrong: false,
+      currentCycle: sc.index, conflictsWithStrong: comparableConflict(k),
       humanApprovedStrongPromotion: k.humanApprovedCount >= 1,
     });
     if (r.changed) {
@@ -846,7 +1294,7 @@ export async function runLibrarian(projectId: string, cycleId: string, sc: Scena
 export async function runOperationalStagesAfterApprovedDirection(projectId: string, cycleId: string) {
   const cycle = storage.getCycle(cycleId);
   if (!cycle) throw new Error("cycle not found");
-  const sc = requireScenarioRound(cycle.idx);
+  const sc = directionScenarioFromGate(cycleId) ?? await resolveCycleStimulus(projectId, cycle.idx, cycleId);
   const directionPlan = readDirectionPlan(cycleId, sc);
 
   await runSensor(projectId, cycleId, sc);
@@ -855,7 +1303,27 @@ export async function runOperationalStagesAfterApprovedDirection(projectId: stri
   await runDistiller(projectId, cycleId, sc, claimError, directionPlan.refs);
   const transitions = await runLibrarian(projectId, cycleId, sc);
 
-  storage.updateCycle(cycleId, { status: "closed" });
+  const decisionKnowledgeCount = storage.listKnowledge(projectId)
+    .filter((item) => !item.supersededBy && ["active", "strong"].includes(item.status))
+    .length;
+  const strongKnowledgeCount = storage.listKnowledge(projectId)
+    .filter((item) => !item.supersededBy && item.status === "strong")
+    .length;
+  const snapshot = JSON.stringify({
+    strongCount: strongKnowledgeCount,
+    decisionKnowledgeCount,
+    cycleIdx: sc.index,
+    closedAt: now(),
+  });
+  const currentReasoning = storage.getCycle(cycleId)?.reasoning ?? "";
+  const normalizedReasoning = currentReasoning
+    .split("\n")
+    .filter((line) => !line.startsWith("__flywheel_snapshot__="))
+    .join("\n");
+  storage.updateCycle(cycleId, {
+    status: "closed",
+    reasoning: `${normalizedReasoning}\n__flywheel_snapshot__=${snapshot}`.trim(),
+  });
   logEvent(sc.index, "orchestrator", "cycles", "close", { cycleId });
 
   return { cycleIdx: sc.index, prediction: pred, transitions };
@@ -865,7 +1333,7 @@ export async function runOperationalStagesAfterApprovedDirection(projectId: stri
 export async function runFullCycle(projectId: string, cycleId: string) {
   const cycle = storage.getCycle(cycleId);
   if (!cycle) throw new Error("cycle not found");
-  const sc = requireScenarioRound(cycle.idx);
+  const sc = await resolveCycleStimulus(projectId, cycle.idx, cycleId);
 
   const plan = await runOrchestrator(projectId, cycleId, sc);
   humanResolveDirectionGate(projectId, cycleId, plan.gate.id, sc);

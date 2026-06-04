@@ -1,5 +1,12 @@
 import { storage, now } from "./storage";
-import { runOrchestrator, runOperationalStagesAfterApprovedDirection, scenarioForCycle } from "./flywheel";
+import { buildNextGoalInput, resolveCycleStimulus, runOrchestrator, runOperationalStagesAfterApprovedDirection, scenarioForCycle } from "./flywheel";
+import { generateNextGoal, type NextGoalDraft } from "./autonomousGoal";
+import {
+  detectGoalRepetition,
+  detectKnowledgeExplosion,
+  detectKnowledgeMaturationStall,
+  detectPredictionStagnation,
+} from "./stallGuard";
 import { syncConfiguredFeedbackForProject } from "./externalFeedback";
 import type { ExternalFeedbackSyncResult, SyncGithubIssuesOptions } from "./externalFeedback";
 import type { HumanGateItem, Task } from "@shared/schema";
@@ -38,7 +45,6 @@ export interface SchedulerTickResult {
     | "waiting_feedback_window"
     | "ran_operational_stages"
     | "created_next_cycle"
-    | "scenario_exhausted"
     | "safety_mode";
   cycleId?: string;
   nextCycleId?: string;
@@ -713,6 +719,105 @@ function enforceBuilderMisdirectionGuard(projectId: string, cycleId: string) {
   return { safetyMode: true, state };
 }
 
+function findEvolutionRiskGate(projectId: string, cycleId: string, riskKey: string): HumanGateItem | undefined {
+  return storage.listGates(projectId).find((gate) => {
+    if (gate.cycleId !== cycleId || gate.type !== "risk" || gate.blocking !== 1) return false;
+    const payload = parsePayload(gate.payload);
+    return payload.riskKey === riskKey;
+  });
+}
+
+function openEvolutionRiskGate(projectId: string, cycleId: string, riskKey: string, evidence: Record<string, unknown>): HumanGateItem {
+  const cycle = storage.getCycle(cycleId);
+  const existing = findEvolutionRiskGate(projectId, cycleId, riskKey);
+  if (existing) return existing;
+  return storage.createGate({
+    id: `gate_${riskKey}_${cycle?.idx ?? 0}_${projectId.slice(-4)}`,
+    cycleId,
+    type: "risk",
+    blocking: 1,
+    title: "自主进化停机风险闸",
+    payload: JSON.stringify({
+      riskKey,
+      createdAt: now(),
+      evaluatedCycleIdx: cycle?.idx ?? 0,
+      evidence,
+      reason: "自主进化反空转检查触发，系统诚实停机并等待人工复核。",
+      requiredAction: "复核误差趋势、目标重复、知识成熟与知识库增长；必要时调整目标生成器、合并策略或人工审批节奏。",
+    }),
+    status: "pending",
+    estimatedMinutes: 15,
+    decision: null,
+    version: 1,
+  });
+}
+
+function evolutionHistories(projectId: string) {
+  const closed = storage.listCycles(projectId)
+    .filter((cycle) => cycle.status === "closed")
+    .sort((a, b) => a.idx - b.idx);
+  const errors = closed
+    .map((cycle) => cycle.eCycle)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const snapshots = closed.map((cycle) => {
+    const lines = cycle.reasoning.split("\n");
+    const marker = lines.find((line) => line.startsWith("__flywheel_snapshot__="));
+    if (marker) {
+      try {
+        const snapshot = JSON.parse(marker.slice("__flywheel_snapshot__=".length));
+        const strongCount = Number(snapshot.strongCount);
+        const decisionKnowledgeCount = Number(snapshot.decisionKnowledgeCount);
+        if (Number.isFinite(strongCount) && Number.isFinite(decisionKnowledgeCount)) {
+          return { strongCount, decisionKnowledgeCount };
+        }
+      } catch {
+        // keep fallback below
+      }
+    }
+    const knowledgeAsOfCycle = storage.listKnowledge(projectId).filter((item) => item.createdByCycle <= cycle.idx && !item.supersededBy);
+    return {
+      strongCount: knowledgeAsOfCycle.filter((item) => item.status === "strong").length,
+      decisionKnowledgeCount: knowledgeAsOfCycle.filter((item) => ["active", "strong"].includes(item.status)).length,
+    };
+  });
+  const strongCountHistory = snapshots.map((snapshot) => snapshot.strongCount);
+  const decisionKnowledgeSizeHistory = snapshots.map((snapshot) => snapshot.decisionKnowledgeCount);
+  return { closedCycleIdxs: closed.map((cycle) => cycle.idx), errors, strongCountHistory, decisionKnowledgeSizeHistory };
+}
+
+function evaluateEvolutionStall(projectId: string, draft: NextGoalDraft, rejectedGoals: string[]) {
+  const histories = evolutionHistories(projectId);
+  if (detectPredictionStagnation(histories.errors, 3)) {
+    return {
+      riskKey: "evolution_stalled",
+      evidence: { ...histories, window: 3, threshold: "last 3 non-zero errors did not improve by at least 0.01" },
+    };
+  }
+  if (detectGoalRepetition(draft.proposedGoal, rejectedGoals, 0.82)) {
+    return {
+      riskKey: "goal_repetition",
+      evidence: { proposedGoal: draft.proposedGoal, rejectedGoals, threshold: 0.82 },
+    };
+  }
+  const activeStrongGrowthWindow = histories.decisionKnowledgeSizeHistory.slice(-5);
+  const activeStrongGrowth = activeStrongGrowthWindow.length >= 2
+    ? activeStrongGrowthWindow[activeStrongGrowthWindow.length - 1] - activeStrongGrowthWindow[0]
+    : 0;
+  if (activeStrongGrowth >= 3 && detectKnowledgeMaturationStall(histories.strongCountHistory, 5)) {
+    return {
+      riskKey: "maturation_stall",
+      evidence: { ...histories, activeStrongGrowth, window: 5 },
+    };
+  }
+  if (detectKnowledgeExplosion(histories.decisionKnowledgeSizeHistory)) {
+    return {
+      riskKey: "knowledge_explosion",
+      evidence: { ...histories, sizeMetric: "active+strong non-superseded knowledge" },
+    };
+  }
+  return null;
+}
+
 function mergeMeaningGates(projectId: string) {
   const pending = storage.listGates(projectId).filter((g) => g.status === "pending" && g.type === "meaning" && g.blocking === 0);
   const groups = new Map<string, HumanGateItem[]>();
@@ -1018,25 +1123,50 @@ export async function schedulerTickProject(projectId: string, options: Scheduler
 
     const nextIdx = current.idx + 1;
     const sc = scenarioForCycle(nextIdx);
+    let nextGoal = sc?.proposedGoal ?? "";
+    let nextReasoning = "";
     if (!sc) {
-      return {
-        projectId,
-        action: "scenario_exhausted",
-        cycleId: current.id,
-        budget,
-        llmBudget,
-        note: `cycle ${nextIdx} has no explicit scenario; refusing to reuse the last cycle template`,
-      };
+      try {
+        const input = buildNextGoalInput(projectId, nextIdx, current.id);
+        const draft = await generateNextGoal(input);
+        const stall = evaluateEvolutionStall(projectId, draft, input.rejectedGoals);
+        if (stall) {
+          openEvolutionRiskGate(projectId, current.id, stall.riskKey, stall.evidence);
+          return {
+            projectId,
+            action: "safety_mode",
+            cycleId: current.id,
+            budget: gateBudgetForProject(projectId),
+            llmBudget,
+            note: `${stall.riskKey} guard triggered; waiting for human review`,
+          };
+        }
+        nextGoal = draft.proposedGoal;
+        nextReasoning = draft.reasoningHowKnowledgeChangedDecision;
+      } catch (error) {
+        openEvolutionRiskGate(projectId, current.id, "evolution_stalled", {
+          generationError: error instanceof Error ? error.message : String(error),
+          nextIdx,
+        });
+        return {
+          projectId,
+          action: "safety_mode",
+          cycleId: current.id,
+          budget: gateBudgetForProject(projectId),
+          llmBudget,
+          note: "autonomous goal generation failed; waiting for human review",
+        };
+      }
     }
     const next = storage.createCycle({
       id: `cycle_${nextIdx}_${projectId.slice(-4)}`,
       projectId,
       idx: nextIdx,
-      goal: sc.proposedGoal,
+      goal: nextGoal,
       status: "planning",
       eCycle: null,
       worstClaimError: null,
-      reasoning: "",
+      reasoning: nextReasoning,
       version: 1,
     });
     storage.updateProject(projectId, { currentCycleIdx: nextIdx });
@@ -1051,15 +1181,21 @@ export async function schedulerTickProject(projectId: string, options: Scheduler
     };
   }
 
-  const sc = scenarioForCycle(current.idx);
-  if (!sc) {
+  let sc;
+  try {
+    sc = await resolveCycleStimulus(projectId, current.idx, current.id);
+  } catch (error) {
+    openEvolutionRiskGate(projectId, current.id, "evolution_stalled", {
+      generationError: error instanceof Error ? error.message : String(error),
+      currentIdx: current.idx,
+    });
     return {
       projectId,
-      action: "scenario_exhausted",
+      action: "safety_mode",
       cycleId: current.id,
-      budget,
+      budget: gateBudgetForProject(projectId),
       llmBudget,
-      note: `cycle ${current.idx} has no explicit scenario; refusing to run a copied template`,
+      note: "autonomous cycle stimulus generation failed; waiting for human review",
     };
   }
   if (!hasDirectionGate(current.id)) {

@@ -1948,10 +1948,11 @@ test("scheduler can compound through four flywheel cycles without duplicating ga
   assert.match(cycle4Principle.content, /audit summary/);
   assert.equal(knowledge.some((k) => k.status === "strong"), true);
 
-  const exhausted = await schedulerTickProject(projectId);
-  assert.equal(exhausted.action, "scenario_exhausted");
-  assert.match(exhausted.note, /refusing to reuse the last cycle template/);
-  assert.equal(storage.listCycles(projectId).length, 4);
+  const autonomous = await schedulerTickProject(projectId);
+  assert.equal(autonomous.action, "created_next_cycle");
+  assert.match(autonomous.note, /created next planning cycle/);
+  assert.equal(storage.listCycles(projectId).length, 5);
+  assert.ok(storage.listCycles(projectId).find((cycle) => cycle.idx === 5)?.goal);
 });
 
 test("flywheel plan and task spec consume LLM output while preserving audit guardrails", async () => {

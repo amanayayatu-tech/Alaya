@@ -6,9 +6,9 @@
   "type": "module",
   "scripts": {
     "test": "node --import tsx --test tests/*.test.ts",
-    "e2e:llm": "tsx src/sim/e2e_llm_provider.ts",
-    "e2e:llm-flywheel": "tsx src/sim/e2e_real_llm_flywheel.ts",
-    "flywheel": "tsx src/sim/run_flywheel.ts",
+    "e2e:llm": "node --import tsx src/sim/e2e_llm_provider.ts",
+    "e2e:llm-flywheel": "node --import tsx src/sim/e2e_real_llm_flywheel.ts",
+    "flywheel": "node --import tsx src/sim/run_flywheel.ts",
     "typecheck": "tsc --noEmit",
     "guard": "node ../scripts/check-principles.mjs"
   },

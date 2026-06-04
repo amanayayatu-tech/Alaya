@@ -19,9 +19,9 @@ Alaya = 本地 SQLite 记忆层 + 5 个 Agent 飞轮 + 人工闸门 + 预测账�
 | Core | 可运行 | TypeScript 纯内核，验证 4 轮认知复利飞轮 |
 | Web App | 可运行 | Express + React + SQLite，本地完整 MVP |
 | LLM | mock / OpenAI-compatible | 默认 mock，可切 OpenAI / MiniMax 等兼容端点 |
-| Scheduler | 可运行 | 自动推进 cycle，受 blocking gate 和预算约束 |
+| Scheduler | 可运行 | 自动推进 cycle；第 5 轮起可由自主目标生成器接管，受 blocking gate、预算和反空转风险闸约束 |
 | Sensor | 可运行 | 支持 GitHub Issues 与表单反馈 |
-| Knowledge | 可运行 | SQLite FTS5 搜索，详情引用已做上限保护，避免大量引用导致页面卡死 |
+| Knowledge | 可运行 | SQLite FTS5 搜索，支持近义合并、`supersededBy` 保留、冲突隔离和详情引用上限保护 |
 | Governance | 可运行 | `PRINCIPLES.md` + guard 脚本约束核心底线 |
 
 ## 目录
@@ -30,6 +30,7 @@ Alaya = 本地 SQLite 记忆层 + 5 个 Agent 飞轮 + 人工闸门 + 预测账�
 - [项目结构](#项目结构)
 - [系统架构](#系统架构)
 - [核心概念](#核心概念)
+- [自主进化与长期验证](#自主进化与长期验证)
 - [Web 功能地图](#web-功能地图)
 - [常用命令](#常用命令)
 - [真实 LLM 与 Secret](#真实-llm-与-secret)
@@ -125,7 +126,7 @@ React/Vite -> Express API -> SQLite/FTS5 -> Scheduler -> 5 Agents -> LLM Provide
 预测 -> 行动 -> 观察 -> 误差归因 -> 知识沉淀 -> 下一轮引用
 ```
 
-第 3 轮必须被前两轮知识真实改变，而不是形式上引用。第 4 轮继续要求产出 rollback-ready change package 和 audit summary。
+第 3 轮必须被前两轮知识真实改变，而不是形式上引用。第 4 轮继续要求产出 rollback-ready change package 和 audit summary。第 5 轮起，如果脚本化场景已经用尽，Scheduler 会生成新的自主目标，而不是复用最后一轮模板或停止在场景耗尽状态。
 
 ### 2. Five Agents
 
@@ -153,6 +154,27 @@ React/Vite -> Express API -> SQLite/FTS5 -> Scheduler -> 5 Agents -> LLM Provide
 
 知识不是普通笔记。每条知识都有置信度、状态、来源、引用记录、有效期和治理字段。过期、冲突或未经验证的知识不能无条件支撑下一轮决策。
 
+Librarian 会对近义知识做熵减合并：保留主条目，给被合并条目写入 `supersededBy`，不做物理删除。检索和高风险证据集默认排除 stale、quarantined、conflict 和 superseded 条目。
+
+## 自主进化与长期验证
+
+Alaya 的默认 4 轮场景仍然作为治理回归基线保留。超过第 4 轮后，系统会基于当前项目身份、世界模型、已验证知识、上轮误差和近期反馈生成下一轮目标。
+
+自主进化有四类停机风险闸：
+
+- `evolution_stalled`：连续误差不改善。
+- `goal_repetition`：新目标与历史目标或被拒方向重复。
+- `maturation_stall`：决策知识增长但 strong 知识不成熟。
+- `knowledge_explosion`：可决策知识规模异常增长。
+
+长程离线验证：
+
+```bash
+npm run e2e:long-evolution
+```
+
+该脚本会跑 20 轮 mock LLM 飞轮，检查不再出现 `scenario_exhausted`、目标不重复、知识规模有界、合并事件有审计记录、blocking gate 不膨胀。
+
 ## Web 功能地图
 
 | 页面 | 作用 |
@@ -174,9 +196,12 @@ npm run test:all       # core + app + scripts 测试
 npm run guard          # 治理底线守卫
 npm run typecheck      # core + app 类型检查
 npm run build          # Web app 生产构建
-npm run flywheel       # 4 轮飞轮模拟
-npm run audit:upgrade  # 升级 readiness 审计
+npm run flywheel            # 4 轮飞轮模拟
+npm run e2e:long-evolution  # 20 轮自主进化离线验收
+npm run audit:upgrade       # 升级 readiness 审计
 ```
+
+TypeScript 运行入口统一使用 `node --import tsx`。这避免在受限环境里直接调用 `tsx` CLI 时创建 IPC pipe 失败，同时保留同样的 TS/ESM 加载能力。核心入口包括 app dev/build、core flywheel、真实 LLM E2E 和长程自主进化 E2E。
 
 Web 开发：
 
@@ -248,6 +273,8 @@ OPENAI_BASE_URL=https://api.minimax.io/openai \
 OPENAI_MODEL=MiniMax-M3 \
 npm run e2e:llm
 ```
+
+`ALAYA_E2E_ALLOW_SKIP=true` 只在没有可用 key 时允许跳过真实调用；如果本机存在 key 但 key 无效，E2E 会 fail closed 并显示 provider 返回的错误。
 
 真实 4 轮飞轮：
 
@@ -331,12 +358,12 @@ POST /api/projects/:id/feedback/form
 
 最近本地验证覆盖：
 
-- `npm test`
-- `npm run test:app`
-- `npm run test:scripts`
+- `npm run test:all`
 - `npm run guard`
 - `npm run typecheck`
 - `npm run build`
+- `npm run flywheel`
+- `npm run e2e:long-evolution`
 - `npm run e2e:ui-freeze`
 
 知识库详情页稳定性修复已经过压力验证：在大量 Agent 引用记录下，`/api/knowledge/:id` 只返回有限引用，前端只渲染有限列表，并通过浏览器 smoke test 检查页面切换、知识搜索、详情点击和主线程长任务。
