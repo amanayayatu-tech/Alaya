@@ -1724,6 +1724,33 @@ test("UI-created project first direction gate uses onboarding seed instead of de
   assert.equal(claims[0].failureThreshold, "approved_review_gate_count < 1");
 });
 
+test("orchestrator reuses an existing deterministic direction gate on repeated ticks", async () => {
+  const projectId = "proj_orchestrator_idempotent";
+  createProject(projectId);
+  const cycle = storage.listCycles(projectId)[0];
+  const scenario = SCENARIO[0];
+  let llmCalls = 0;
+  const fakeLlm = async (input: any) => {
+    llmCalls += 1;
+    return {
+      ...input.mockOutput,
+      goal: llmCalls === 1 ? "stable first direction" : "drifting second direction",
+      reasoning: llmCalls === 1 ? "stable first reasoning" : "drifting second reasoning",
+    };
+  };
+
+  const first = await runOrchestrator(projectId, cycle.id, scenario, fakeLlm);
+  const second = await runOrchestrator(projectId, cycle.id, scenario, fakeLlm);
+  const gates = storage.listGates(projectId).filter((gate) => gate.cycleId === cycle.id && gate.type === "direction");
+  const updatedCycle = storage.getCycle(cycle.id);
+
+  assert.equal(second.gate.id, first.gate.id);
+  assert.equal(second.goal, first.goal);
+  assert.equal(updatedCycle?.goal, first.goal);
+  assert.equal(gates.length, 1);
+  assert.equal(llmCalls, 1);
+});
+
 test("LLM onboarding seed preserves machine-readable interview fields", async () => {
   const fakeLlm = async (input: any) => ({
     ...input.mockOutput,

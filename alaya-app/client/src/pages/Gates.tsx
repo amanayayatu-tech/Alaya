@@ -238,7 +238,7 @@ export default function Gates() {
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setDialog(null)}>取消</Button>
-            <Button type="button" onClick={confirmAction} disabled={acting} className="gap-2">
+            <Button type="button" onClick={confirmAction} disabled={acting} className="gap-2" data-testid="button-confirm-gate-action">
               {acting ? <ClipboardCheck className="h-4 w-4 animate-pulse" /> : null}
               确认{dialog ? actionText[dialog.action] : ""}
             </Button>
@@ -322,9 +322,9 @@ function GateCard({ gate, onAction }: { gate: HumanGate; onAction: (action: Gate
 function humanSummary(gate: HumanGate): string {
   const p = gate.payload ?? {};
   if (p.recommended) return `推荐处理：${p.recommended}`;
+  if (p.userQuote) return `外部反馈：${p.userQuote}`;
   if (p.summary) return String(p.summary);
   if (p.reasoning) return String(p.reasoning);
-  if (p.userQuote) return `外部反馈：${p.userQuote}`;
   if (p.auditSummary?.whyNow) return String(p.auditSummary.whyNow);
   return gate.blocking === 1 ? "这是一个阻塞闸门。处理前，飞轮会暂停相关自动推进。" : "这是一个非阻塞闸门，用于确认信号是否值得进入知识循环。";
 }

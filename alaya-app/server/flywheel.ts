@@ -16,7 +16,7 @@ import { classifyError, routeError } from "@shared/core/classify_error.js";
 import { applyEvidence } from "@shared/core/update_confidence.js";
 import { eligibleForHighRisk, transitionState } from "@shared/core/transition_state.js";
 import { evidenceCount, type Claim, type AttributionContext, type Operator } from "@shared/core/types.js";
-import type { KnowledgeItem } from "@shared/schema";
+import type { HumanGateItem, KnowledgeItem } from "@shared/schema";
 
 type LlmCaller = typeof callLlm;
 
@@ -234,6 +234,33 @@ function nonEmptyString(value: unknown, fallback: string): string {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+}
+
+function parseGatePayload(gate: HumanGateItem): Record<string, unknown> {
+  try {
+    const payload = JSON.parse(gate.payload);
+    return payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function planFromExistingDirectionGate(gate: HumanGateItem, sc: ScenarioRound) {
+  const payload = parseGatePayload(gate);
+  const scenario = payload.scenario && typeof payload.scenario === "object" && !Array.isArray(payload.scenario)
+    ? payload.scenario as Record<string, unknown>
+    : {};
+  const refs = stringArray(payload.knowledgeRefs ?? scenario.knowledgeRefs);
+  const goal = nonEmptyString(payload.recommended ?? scenario.proposedGoal, sc.proposedGoal);
+  const belief = nonEmptyString(payload.belief ?? scenario.belief, sc.belief);
+  const prediction = nonEmptyString(payload.prediction ?? scenario.prediction, sc.prediction);
+  const action = nonEmptyString(payload.action ?? scenario.action, sc.action);
+  const reasoning = nonEmptyString(
+    payload.reasoning ?? scenario.reasoningHowKnowledgeChangedDecision,
+    sc.reasoningHowKnowledgeChangedDecision ?? "",
+  );
+
+  return { goal, belief, prediction, action, refs, reasoning, gate };
 }
 
 function mergeTags(required: string[], proposed: unknown): string[] {
@@ -633,6 +660,10 @@ export function buildDirectionScenarioFallback(sc: ScenarioRound, refs: string[]
 
 // ---------------- Agents ----------------
 export async function runOrchestrator(projectId: string, cycleId: string, sc: ScenarioRound, llmCaller: LlmCaller = callLlm) {
+  const gateId = sc.index === 4 ? `gate_dir_c4_rollback_${cycleId.slice(-8)}` : `gate_dir_c${sc.index}_${cycleId.slice(-8)}`;
+  const existingGate = storage.getGate(gateId);
+  if (existingGate) return planFromExistingDirectionGate(existingGate, sc);
+
   let goal = sc.proposedGoal, belief = sc.belief, prediction = sc.prediction, action = sc.action;
   const refs: string[] = [];
   let reasoning = "";
@@ -730,12 +761,8 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
   reasoning = nonEmptyString(llmData.reasoning, reasoning);
   refs.splice(0, refs.length, ...safeKnowledgeRefs(projectId, llmData.knowledgeRefs, refs));
 
-  storage.updateCycle(cycleId, { goal, reasoning, status: "running" });
-  logEvent(sc.index, "orchestrator", "cycles", "update", { cycleId, goal });
-
   const rollbackPlan = rollbackReadyChangePackage(sc, action);
   const auditSummary = sc.index === 4 ? auditSummaryForCycle4(refs) : undefined;
-  const gateId = sc.index === 4 ? `gate_dir_c4_rollback_${cycleId.slice(-8)}` : `gate_dir_c${sc.index}_${cycleId.slice(-8)}`;
   const gateTitle = sc.index === 4 ? "第 4 轮可回滚执行闸: 变更包 + 审计摘要" : `第 ${sc.index} 轮方向闸`;
   const persistedScenario = persistDirectionScenario({
     index: sc.index,
@@ -757,35 +784,57 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
     knowledgeRefs: refs,
   }, refs);
 
-  // direction gate (PRD 11.1)
-  const gate = storage.createGate({
-    id: gateId,
-    cycleId, type: "direction", blocking: 1,
-    title: gateTitle,
-    payload: JSON.stringify({
-      recommended: goal,
-      alternatives: sc.alternativeGoals,
-      knowledgeRefs: refs,
-      reasoning,
-      belief,
-      prediction,
-      action,
-      ...(rollbackPlan ? { rollbackPlan, rollbackTrigger: rollbackPlan.rollbackTrigger } : {}),
-      ...(auditSummary ? { auditSummary } : {}),
-      scenario: persistedScenario,
-      createdAt: now(),
-    }),
-    status: "pending", estimatedMinutes: 10, decision: null, version: 1,
+  const gatePayload = JSON.stringify({
+    recommended: goal,
+    alternatives: sc.alternativeGoals,
+    knowledgeRefs: refs,
+    reasoning,
+    belief,
+    prediction,
+    action,
+    ...(rollbackPlan ? { rollbackPlan, rollbackTrigger: rollbackPlan.rollbackTrigger } : {}),
+    ...(auditSummary ? { auditSummary } : {}),
+    scenario: persistedScenario,
+    createdAt: now(),
   });
-  logEvent(sc.index, "orchestrator", "human_gate_items", "insert", { gateId: gate.id });
 
-  storage.recordAgentRun({
-    cycleId, cycleIdx: sc.index, agent: "orchestrator",
-    action: "plan_cycle + open_direction_gate",
-    outputSummary: `目标: ${goal}${refs.length ? ` | 引用知识: ${refs.join(",")}` : ""}`,
-    knowledgeRefsUsed: JSON.stringify(refs), ts: now(),
-  });
-  traceAgentRun(projectId, cycleId, sc.index, "orchestrator", "plan_cycle + open_direction_gate", refs);
+  // direction gate (PRD 11.1). Scheduler ticks can overlap with a manual UI
+  // tick; the gate identity is deterministic, so reusing it keeps the stage
+  // idempotent instead of wedging the cycle on a UNIQUE constraint.
+  let gate = storage.getGate(gateId);
+  let gateCreated = false;
+  if (!gate) {
+    try {
+      gate = storage.createGate({
+        id: gateId,
+        cycleId, type: "direction", blocking: 1,
+        title: gateTitle,
+        payload: gatePayload,
+        status: "pending", estimatedMinutes: 10, decision: null, version: 1,
+      });
+      gateCreated = true;
+    } catch (error) {
+      const existing = storage.getGate(gateId);
+      if (!existing) throw error;
+      gate = existing;
+    }
+  }
+
+  if (gateCreated) {
+    logEvent(sc.index, "orchestrator", "human_gate_items", "insert", { gateId: gate.id });
+    storage.recordAgentRun({
+      cycleId, cycleIdx: sc.index, agent: "orchestrator",
+      action: "plan_cycle + open_direction_gate",
+      outputSummary: `目标: ${goal}${refs.length ? ` | 引用知识: ${refs.join(",")}` : ""}`,
+      knowledgeRefsUsed: JSON.stringify(refs), ts: now(),
+    });
+    traceAgentRun(projectId, cycleId, sc.index, "orchestrator", "plan_cycle + open_direction_gate", refs);
+  }
+
+  if (!gateCreated) return planFromExistingDirectionGate(gate, sc);
+
+  storage.updateCycle(cycleId, { goal, reasoning, status: "running" });
+  logEvent(sc.index, "orchestrator", "cycles", "update", { cycleId, goal });
 
   return { goal, belief, prediction, action, refs, reasoning, gate };
 }

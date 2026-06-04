@@ -151,7 +151,7 @@ async function main() {
     await fillByLabel(page, "创始人偏好", "保守推进,所有高风险动作必须可追责");
     await fillByLabel(page, "第一轮希望看到的外部信号", "用户愿意批准第一轮方向闸");
     await fillByLabel(page, "第一轮指标 key", "approved_review_gate_count");
-    await fillByLabel(page, "第一轮目标阈值", "1");
+    await fillByLabel(page, "目标阈值", "1");
     await fillByLabel(page, "绝不做什么", "不跳过人工闸门;不把模糊反馈直接写入强知识");
     await fillByLabel(page, "高风险红线", "不得泄露隐私\n不得自动批准 high-risk execution");
     await fillByLabel(page, "已知竞品", "Notion AI, Linear triage, manual weekly review");
@@ -196,6 +196,7 @@ async function main() {
     const approveButton = page.getByTestId(`button-approve-${directionGate.id}`);
     await approveButton.waitFor({ timeout: timeoutMs });
     await approveButton.click();
+    await page.getByTestId("button-confirm-gate-action").click();
 
     await waitUntil(async () => {
       const updated = await requestJson(`/api/human-gates/${directionGate.id}`);
@@ -232,7 +233,7 @@ async function main() {
     await page.getByTestId("page-review").waitFor({ timeout: timeoutMs });
     await page.getByTestId("text-cycle-goal").waitFor({ timeout: timeoutMs });
     const selectedCycleText = await page.getByTestId("select-cycle").locator("option:checked").textContent();
-    assert(selectedCycleText?.includes("第 1 轮") && selectedCycleText.includes("closed"), "review UI did not select the closed first cycle");
+    assert(selectedCycleText?.includes("第 1 轮") && selectedCycleText.includes("已闭环"), "review UI did not select the closed first cycle");
 
     console.log(JSON.stringify({
       ok: true,

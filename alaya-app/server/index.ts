@@ -76,17 +76,6 @@ app.use((req, res, next) => {
 (async () => {
   await registerRoutes(httpServer, app);
 
-  // Auto-seed the demo project on first startup so the app opens with a 3-round flywheel state.
-  try {
-    const { seedDemo, demoExists } = await import("./seed");
-    if (!demoExists()) {
-      await seedDemo();
-      log("seeded demo project (3 flywheel cycles)");
-    }
-  } catch (e) {
-    console.error("demo seed failed", e);
-  }
-
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
@@ -122,6 +111,22 @@ app.use((req, res, next) => {
   httpServer.listen(listenOptions, () => {
     log(`serving on ${host}:${port}`);
   });
+
+  // Auto-seed the demo project after the server is reachable. In live E2E the
+  // seed is disabled so real LLM validation does not block readiness. Keep the
+  // scheduler off until seeding finishes so it cannot consume half-seeded demo
+  // cycles.
+  if (process.env.ALAYA_AUTO_SEED_DEMO !== "false") {
+    try {
+      const { seedDemo, demoExists } = await import("./seed");
+      if (!demoExists()) {
+        await seedDemo();
+        log("seeded demo project (3 flywheel cycles)");
+      }
+    } catch (e) {
+      console.error("demo seed failed", e);
+    }
+  }
 
   if (process.env.ALAYA_SCHEDULER !== "false") {
     const scheduler = startCycleScheduler();

@@ -174,9 +174,9 @@ async function main() {
 
   const store = makeStore();
   const llm = new OpenAIProvider({
-    maxRetries: Number(process.env.ALAYA_REAL_LLM_MAX_RETRIES ?? 0),
+    maxRetries: Number(process.env.ALAYA_REAL_LLM_MAX_RETRIES ?? 2),
     temperature: Number(process.env.OPENAI_TEMPERATURE ?? 0),
-    maxOutputTokens: Number(process.env.OPENAI_MAX_OUTPUT_TOKENS ?? 512),
+    maxOutputTokens: Number(process.env.OPENAI_MAX_OUTPUT_TOKENS ?? 1024),
   });
 
   for (const scenario of SCENARIO) {

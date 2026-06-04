@@ -182,6 +182,54 @@ test("24h validation runner distinguishes missing live prereqs from network-bloc
   assert.match(source, /Validation failed with \$ERRORS failed step\(s\)\./);
 });
 
+test("12h validation runner keeps non-critical failures non-blocking", () => {
+  const source = readFileSync(join(root, "scripts", "12h_validation.sh"), "utf8");
+
+  assert.match(source, /ALAYA_VALIDATION_DURATION_SECONDS:-43200/);
+  assert.match(source, /ALAYA_VALIDATION_SLEEP_SECONDS:-600/);
+  assert.match(source, /ALAYA_VALIDATION_MAX_ROUNDS:-72/);
+  assert.match(source, /tests\/principles\.guard\.test\.ts/);
+  assert.match(source, /npm run flywheel/);
+  assert.match(source, /npm run e2e:llm-flywheel/);
+  assert.match(source, /ALERT: 3 consecutive non-critical validation errors/);
+  assert.match(source, /continuing\./);
+  assert.doesNotMatch(source, /Stopping after .*consecutive/);
+  assert.doesNotMatch(source, /Validation failed with \$ERRORS failed step/);
+});
+
+test("live upgrade app startup disables blocking demo seed", () => {
+  const liveSource = readFileSync(join(root, "scripts", "e2e-live-upgrade.mjs"), "utf8");
+  const serverSource = readFileSync(join(root, "alaya-app", "server", "index.ts"), "utf8");
+
+  assert.match(liveSource, /ALAYA_AUTO_SEED_DEMO: "false"/);
+  assert.match(liveSource, /OPENAI_MAX_OUTPUT_TOKENS.*"1024"/);
+  assert.match(liveSource, /ALAYA_REAL_LLM_MAX_RETRIES.*"2"/);
+  assert.match(serverSource, /ALAYA_AUTO_SEED_DEMO !== "false"/);
+  assert.ok(
+    serverSource.indexOf("await seedDemo()") < serverSource.indexOf("startCycleScheduler()"),
+    "server startup should finish demo seeding before enabling the scheduler",
+  );
+  assert.match(serverSource, /server is reachable/);
+});
+
+test("UI onboarding E2E uses the current New Project form labels", () => {
+  const scriptSource = readFileSync(join(root, "scripts", "e2e-ui-onboarding-cycle.mjs"), "utf8");
+  const pageSource = readFileSync(join(root, "alaya-app", "client", "src", "pages", "NewProject.tsx"), "utf8");
+  const gatesSource = readFileSync(join(root, "alaya-app", "client", "src", "pages", "Gates.tsx"), "utf8");
+
+  assert.match(pageSource, /label="目标阈值"/);
+  assert.match(scriptSource, /fillByLabel\(page, "目标阈值"/);
+  assert.doesNotMatch(scriptSource, /fillByLabel\(page, "第一轮目标阈值"/);
+  assert.match(gatesSource, /data-testid="button-confirm-gate-action"/);
+  assert.ok(
+    gatesSource.indexOf("if (p.userQuote)") < gatesSource.indexOf("if (p.summary)"),
+    "Human Gates should display redacted external feedback quotes before generic summaries",
+  );
+  assert.match(scriptSource, /button-confirm-gate-action/);
+  assert.match(scriptSource, /已闭环/);
+  assert.doesNotMatch(scriptSource, /selectedCycleText\.includes\("closed"\)/);
+});
+
 test("validation-summary reports total rounds, failures and first positive delta", () => {
   const tmp = mkdtempSync(join(tmpdir(), "alaya-validation-summary-"));
   const summary = join(tmp, "SUMMARY.csv");
