@@ -20,6 +20,8 @@ export interface KnowledgeItem {
   createdBy: string; approvedBy: string | null; usageCount: number;
   tags: string[]; notes: string; version: number;
   referencedByAgents?: { agent: string; cycleIdx: number; action: string }[];
+  referencedByAgentsLimit?: number;
+  referencedByAgentsTruncated?: boolean;
 }
 export interface Claim {
   id: string; type: string; metric?: string; operator?: string; target?: number;

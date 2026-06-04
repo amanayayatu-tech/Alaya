@@ -153,6 +153,55 @@ test("redactPii removes emails, phones and token-like secrets", () => {
   assert.match(redacted, /\[redacted-token\]/);
 });
 
+test("knowledge detail references are bounded to avoid UI freezes", () => {
+  const projectId = "proj_kb_refs_128";
+  createProject(projectId);
+  const cycle = storage.listCycles(projectId)[0];
+  storage.createKnowledge({
+    id: "kb_ref_limit",
+    projectId,
+    type: "fact",
+    title: "Reference limit fixture",
+    content: "A knowledge item referenced by many agent runs.",
+    sourceType: "test",
+    sourceRef: "fixture",
+    evidenceAlpha: 1,
+    evidenceBeta: 1,
+    confidenceScore: 0.5,
+    confidenceLevel: "low",
+    status: "active",
+    humanApprovedCount: 0,
+    externalVerifiedCount: 0,
+    validFrom: "2026-06-04",
+    validUntil: null,
+    lastValidatedCycle: 1,
+    createdByCycle: 1,
+    createdBy: "test",
+    approvedBy: null,
+    usageCount: 0,
+    tags: "[]",
+    notes: "",
+    version: 1,
+  });
+
+  for (let i = 0; i < 500; i += 1) {
+    storage.recordAgentRun({
+      cycleId: cycle.id,
+      cycleIdx: cycle.idx,
+      agent: i % 2 === 0 ? "orchestrator" : "distiller",
+      action: `reference fixture ${i}`,
+      outputSummary: "fixture",
+      knowledgeRefsUsed: JSON.stringify(["kb_ref_limit"]),
+      ts: now(),
+    });
+  }
+
+  const runs = storage.listAgentRunsReferencingKnowledge("kb_ref_limit", projectId, 51);
+  assert.equal(runs.length, 51);
+  assert.ok(runs.every((run) => JSON.parse(run.knowledgeRefsUsed).includes("kb_ref_limit")));
+  assert.equal(runs[0].action, "reference fixture 499");
+});
+
 test("LLM boundary redacts PII before provider request and call logging", async () => {
   const projectId = "proj_llm_pii_119";
   createProject(projectId);

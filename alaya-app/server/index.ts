@@ -36,6 +36,17 @@ export function log(message: string, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
+function summarizeJsonForLog(value: unknown, maxLength = 1_200) {
+  let text = "";
+  try {
+    text = JSON.stringify(value);
+  } catch {
+    text = "[unserializable response]";
+  }
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength)}... [truncated ${text.length - maxLength} chars]`;
+}
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -52,7 +63,7 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        logLine += ` :: ${summarizeJsonForLog(capturedJsonResponse)}`;
       }
 
       log(logLine);

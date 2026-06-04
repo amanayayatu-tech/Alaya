@@ -21,6 +21,7 @@
     "e2e:github-autonomous": "node scripts/e2e-github-autonomous-sensor.mjs",
     "e2e:live": "node scripts/e2e-live-upgrade.mjs",
     "e2e:ui-onboarding": "node scripts/e2e-ui-onboarding-cycle.mjs",
+    "e2e:ui-freeze": "npm --prefix alaya-app run e2e:ui-freeze",
     "e2e:scheduler": "node scripts/e2e-autonomous-scheduler.mjs",
     "flywheel": "npm --prefix alaya-core run flywheel",
     "typecheck": "npm --prefix alaya-core run typecheck && npm --prefix alaya-app run check",

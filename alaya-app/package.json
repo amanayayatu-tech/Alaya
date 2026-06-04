@@ -8,6 +8,7 @@
     "build": "tsx script/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
     "test": "node --import tsx --test tests/*.test.ts",
+    "e2e:ui-freeze": "node ../scripts/e2e-ui-freeze-smoke.mjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",
     "guard": "node ../scripts/check-principles.mjs"

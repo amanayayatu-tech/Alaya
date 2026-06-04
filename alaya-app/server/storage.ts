@@ -150,6 +150,18 @@ function migrate() {
     INSERT INTO knowledge_fts(rowid, title, content, tags) VALUES (new.rowid, new.title, new.content, new.tags);
   END;
   `);
+
+  sqlite.exec(`
+  CREATE INDEX IF NOT EXISTS idx_cycles_project_idx ON cycles(project_id, idx);
+  CREATE INDEX IF NOT EXISTS idx_tasks_cycle ON tasks(cycle_id);
+  CREATE INDEX IF NOT EXISTS idx_feedback_cycle ON feedback_items(cycle_id);
+  CREATE INDEX IF NOT EXISTS idx_predictions_cycle ON predictions(cycle_id);
+  CREATE INDEX IF NOT EXISTS idx_knowledge_project_cycle ON knowledge_items(project_id, created_by_cycle, id);
+  CREATE INDEX IF NOT EXISTS idx_gates_cycle ON human_gate_items(cycle_id);
+  CREATE INDEX IF NOT EXISTS idx_decisions_cycle_ts ON decision_log(cycle_id, ts);
+  CREATE INDEX IF NOT EXISTS idx_agent_runs_cycle_id ON agent_runs(cycle_id, id);
+  CREATE INDEX IF NOT EXISTS idx_external_sources_project ON external_feedback_sources(project_id);
+  `);
 }
 migrate();
 
@@ -171,6 +183,10 @@ function parseJsonObject(value: string): Record<string, any> {
   } catch {
     return {};
   }
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
 }
 
 // ---------------- camel<->snake mapping helpers ----------------
@@ -315,6 +331,7 @@ export interface IStorage {
   // agent runs
   recordAgentRun(r: Omit<AgentRun, "id">): void;
   listAgentRuns(cycleId?: string): AgentRun[];
+  listAgentRunsReferencingKnowledge(knowledgeId: string, projectId: string, limit?: number): AgentRun[];
   // external feedback sources
   createExternalFeedbackSource(s: ExternalFeedbackSource): ExternalFeedbackSource;
   getExternalFeedbackSource(id: string): ExternalFeedbackSource | undefined;
@@ -613,6 +630,29 @@ export class DatabaseStorage implements IStorage {
   listAgentRuns(cycleId?: string): AgentRun[] {
     if (!cycleId) return rawDb.prepare(`SELECT * FROM agent_runs ORDER BY id ASC`).all().map(rowToAgentRun);
     return rawDb.prepare(`SELECT * FROM agent_runs WHERE cycle_id=? ORDER BY id ASC`).all(cycleId).map(rowToAgentRun);
+  }
+  listAgentRunsReferencingKnowledge(knowledgeId: string, projectId: string, limit = 50): AgentRun[] {
+    const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 200);
+    const pattern = `%"${escapeLike(knowledgeId)}"%`;
+    const rows = rawDb.prepare(`
+      SELECT r.*
+      FROM agent_runs r
+      JOIN cycles c ON c.id = r.cycle_id
+      WHERE c.project_id = ?
+        AND r.knowledge_refs_used LIKE ? ESCAPE '\\'
+      ORDER BY r.cycle_idx DESC, r.id DESC
+      LIMIT ?
+    `).all(projectId, pattern, safeLimit);
+    return rows
+      .map(rowToAgentRun)
+      .filter((run) => {
+        try {
+          return (JSON.parse(run.knowledgeRefsUsed) as string[]).includes(knowledgeId);
+        } catch {
+          return false;
+        }
+      })
+      .slice(0, safeLimit);
   }
   // ---- external feedback sources ----
   createExternalFeedbackSource(s: ExternalFeedbackSource): ExternalFeedbackSource {

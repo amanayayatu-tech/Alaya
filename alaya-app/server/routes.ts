@@ -313,11 +313,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/knowledge/:id", (req, res) => {
     const k = storage.getKnowledge(req.params.id);
     if (!k) return res.status(404).json({ message: "not found" });
-    // which agents referenced this knowledge
-    const runs = storage.listAgentRuns().filter((r) => {
-      try { return (JSON.parse(r.knowledgeRefsUsed) as string[]).includes(k.id); } catch { return false; }
+    const referenceLimit = 50;
+    const runs = storage.listAgentRunsReferencingKnowledge(k.id, k.projectId, referenceLimit + 1);
+    const visibleRuns = runs.slice(0, referenceLimit);
+    res.json({
+      ...parseJsonFields(k, ["tags"]),
+      referencedByAgents: visibleRuns.map((r) => ({ agent: r.agent, cycleIdx: r.cycleIdx, action: r.action })),
+      referencedByAgentsLimit: referenceLimit,
+      referencedByAgentsTruncated: runs.length > referenceLimit,
     });
-    res.json({ ...parseJsonFields(k, ["tags"]), referencedByAgents: runs.map((r) => ({ agent: r.agent, cycleIdx: r.cycleIdx, action: r.action })) });
   });
   app.post("/api/knowledge", (req, res) => {
     const b = req.body;

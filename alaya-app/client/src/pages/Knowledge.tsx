@@ -10,6 +10,7 @@ import {
 } from "@/lib/alaya";
 
 const TYPE_FILTERS = ["all", "identity", "world_model", "principle", "fact", "pattern"];
+const MAX_REFERENCES_RENDERED = 50;
 
 export default function Knowledge() {
   const { projectId } = useProject();
@@ -37,7 +38,7 @@ export default function Knowledge() {
     enabled: !!projectId && activeSearch.trim().length > 0,
   });
 
-  const { data: detail } = useQuery<KnowledgeItem>({
+  const { data: detail, isFetching: detailIsFetching, isError: detailIsError, error: detailError } = useQuery<KnowledgeItem>({
     queryKey: ["/api/knowledge", "detail", selectedId],
     queryFn: async () => {
       const r = await apiRequest("GET", `/api/knowledge/${selectedId}`);
@@ -68,6 +69,9 @@ export default function Knowledge() {
   const searching = activeSearch.trim().length > 0;
   const base = searching ? (searchResults ?? []) : all;
   const items = typeFilter === "all" ? base : base.filter((k) => k.type === typeFilter);
+  const renderedReferences = (detail?.referencedByAgents ?? []).slice(0, MAX_REFERENCES_RENDERED);
+  const referencesTruncated = Boolean(detail?.referencedByAgentsTruncated)
+    || (detail?.referencedByAgents?.length ?? 0) > MAX_REFERENCES_RENDERED;
 
   function runSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -182,7 +186,15 @@ export default function Knowledge() {
         <div className="lg:col-span-2">
           <Panel className="sticky top-0">
             <PanelHeader>详情 · detail</PanelHeader>
-            {!detail ? (
+            {detailIsFetching && !detail ? (
+              <div className="px-4 py-12 text-sm text-muted-foreground" data-testid="detail-knowledge-loading">
+                加载详情中…
+              </div>
+            ) : detailIsError ? (
+              <div className="px-4 py-12 text-sm text-destructive" data-testid="detail-knowledge-error">
+                详情加载失败: {detailError instanceof Error ? detailError.message : "unknown error"}
+              </div>
+            ) : !detail ? (
               <div className="flex flex-col items-center gap-2 px-4 py-12 text-center text-sm text-muted-foreground">
                 <BookOpen className="h-6 w-6 opacity-40" />
                 选择左侧知识查看来源、置信度演化与引用它的 Agent
@@ -211,9 +223,9 @@ export default function Knowledge() {
                   <div className="mb-1.5 text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
                     被哪些 Agent 引用 · referenced by
                   </div>
-                  {detail.referencedByAgents && detail.referencedByAgents.length > 0 ? (
+                  {renderedReferences.length > 0 ? (
                     <div className="space-y-1.5">
-                      {detail.referencedByAgents.map((r, i) => (
+                      {renderedReferences.map((r, i) => (
                         <div key={i} className="flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs" data-testid={`ref-agent-${detail.id}-${i}`}>
                           <Tag className="border-primary/30 bg-primary/10 text-primary">C{r.cycleIdx}</Tag>
                           <span className="font-medium">{AGENT_LABEL[r.agent] ?? r.agent}</span>
@@ -223,6 +235,11 @@ export default function Knowledge() {
                     </div>
                   ) : (
                     <div className="text-xs text-muted-foreground">尚无 Agent 引用记录</div>
+                  )}
+                  {referencesTruncated && (
+                    <div className="mt-2 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-xs text-muted-foreground" data-testid="text-reference-truncated">
+                      为避免详情页卡顿,仅显示最近 {Math.min(detail.referencedByAgentsLimit ?? MAX_REFERENCES_RENDERED, MAX_REFERENCES_RENDERED)} 条引用。
+                    </div>
                   )}
                 </div>
 
