@@ -57,6 +57,7 @@ Alaya 是一个本地优先的「认知复利」MVP：每一轮产品/运营动�
 - [Web MVP](#web-mvp)
 - [API 总览](#api-总览)
 - [验证命令](#验证命令)
+- [最终交付审计](#最终交付审计)
 - [本地数据与配置](#本地数据与配置)
 - [真实 LLM](#真实-llm)
 - [路线图](#路线图)
@@ -289,6 +290,44 @@ npm run setup:secrets -- --overwrite
 已知构建提示：
 
 - 一个 PostCSS 插件提示未向 `postcss.parse` 传入 `from` 选项；当前不影响本地构建。
+
+## 最终交付审计
+
+截至 2026-06-04，`main` 已完成从 Phase 1 mock MVP 到「真实 LLM + 自动化运转 + 人工闸门 + 外部 Sensor」终态的四层升级。最新已推送提交：
+
+```text
+5eec539 fix: stabilize MiniMax live e2e and guard
+f0c644c feat: upgrade Alaya live flywheel governance
+```
+
+最终验收覆盖如下：
+
+| 验收项 | 当前结论 | 证据 |
+| --- | --- | --- |
+| Layer 1 真实 LLM | 通过 | MiniMax-M3 provider preflight 返回 schema-valid JSON；真实 4 轮 flywheel 完成 20 次 Agent 调用，PRD 17.3 全部为 true |
+| Layer 2 真实项目创建 | 通过 | `e2e:ui-onboarding` 通过浏览器创建非 demo 项目，写入 seed identity/world model/第一轮 claim，并跑通第一轮 |
+| Layer 3 自动化骨架 | 通过 | `e2e:scheduler` 不调用 `/scheduler/tick`，后台 scheduler 自动关闭首轮并创建第二轮方向闸，gate budget 未超预算 |
+| Layer 4 真实 Sensor | 通过 | `e2e:github-autonomous` 创建真实 GitHub issue，后台同步为 non-blocking meaning gate，并在 Human Gates UI 可见 |
+| PRD 22.5 失败阈值 | 通过 | 单测覆盖 LLM 成本、pending human、blocking gate 数量/时长、飞轮空转、预测不可测、知识成熟停滞、Librarian 审计失败、Builder 偏航等阻断路径 |
+| 宪法治理 | 通过 | `npm run guard` 17 项通过；底线 3 审计旁路守卫有 6 个 meta-test 防误报/漏报 |
+| CI | 通过 | GitHub Actions `Principles Guard` 对最新代码成功完成 |
+| Secret 安全 | 通过 | 真实 MiniMax/GitHub key 只从本机 key file 读取；代码与提交中未写入真实 token |
+
+最近一次完整本机 live 验收命令：
+
+```bash
+OPENAI_API_KEY_FILE=/private/tmp/alaya-minimax-key \
+GITHUB_TOKEN_FILE=/private/tmp/alaya-github-token \
+OPENAI_BASE_URL=https://api.minimax.io/openai \
+OPENAI_MODEL=MiniMax-M3 \
+OPENAI_MAX_OUTPUT_TOKENS=512 \
+OPENAI_REQUEST_TIMEOUT_MS=120000 \
+ALAYA_REAL_LLM_STEP_TIMEOUT_MS=180000 \
+ALAYA_E2E_TIMEOUT_MS=180000 \
+npm run e2e:live
+```
+
+该命令已完成真实 LLM preflight、真实 LLM 4 轮飞轮、UI onboarding、后台 scheduler、真实 GitHub autonomous Sensor E2E 和最终 `audit:upgrade`。本次真实 GitHub Sensor 验收创建的测试 issue `#3` 已自动关闭，当前没有遗留 open 的 Alaya E2E 测试 issue。
 
 ## UI Onboarding E2E
 
