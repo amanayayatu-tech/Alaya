@@ -1,0 +1,41 @@
+{
+  "id": "alaya-p0-p1-smoke",
+  "mode": "deterministic-mock",
+  "cases": [
+    {
+      "id": "round4_regression",
+      "purpose": "Cycle 4 must not reuse cycle 3 and must include rollback/audit intent.",
+      "degradedVariant": "Force cycle 4 goal/action to equal cycle 3; guard must fail."
+    },
+    {
+      "id": "trace_completeness_and_rollback_package",
+      "purpose": "A 4-cycle flywheel run must emit trace evidence and a rollback-ready task package.",
+      "degradedVariant": "Remove rollbackPlan from the task spec; guard must fail."
+    },
+    {
+      "id": "knowledge_injection_filters_pollution",
+      "purpose": "Knowledge injection includes only active/strong unsuperseded knowledge.",
+      "degradedVariant": "Superseded or rejected knowledge appearing in prior context must fail."
+    },
+    {
+      "id": "principle_decay_trace",
+      "purpose": "Time decay demotes stale knowledge and writes principle transition trace evidence.",
+      "degradedVariant": "Decay without transition trace must fail."
+    },
+    {
+      "id": "prompt_injection_cannot_promote_strong",
+      "purpose": "LLM/prompt-injected content cannot self-promote to strong without explicit human confirmation.",
+      "degradedVariant": "Strong promotion without human approval must fail."
+    },
+    {
+      "id": "action_risk_degraded_sanity",
+      "purpose": "Destructive actions without approval are blocked and recorded in action ledger.",
+      "degradedVariant": "Bypassing approval while marking action approved must fail."
+    },
+    {
+      "id": "model_routing",
+      "purpose": "Role-level model routing overrides global defaults and is auditable.",
+      "degradedVariant": "Ignoring role route should fail."
+    }
+  ]
+}

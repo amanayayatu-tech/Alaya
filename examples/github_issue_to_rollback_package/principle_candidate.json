@@ -1,0 +1,9 @@
+{
+  "type": "principle",
+  "status": "candidate",
+  "title": "High-risk actions need rollback path and audit summary before execution",
+  "content": "A high-risk action should not move from preview to execution until the change package names modified objects, rollback triggers, rollback steps, risk level, and owner-facing audit summary.",
+  "sourceCycle": 4,
+  "evidenceTraceIds": ["span-knowledge", "span-builder", "span-close"],
+  "tags": ["rollback", "audit", "high_risk"]
+}

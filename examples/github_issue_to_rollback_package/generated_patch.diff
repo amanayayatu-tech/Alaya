@@ -1,0 +1,10 @@
+diff --git a/workflows/cleanup-plan.md b/workflows/cleanup-plan.md
+new file mode 100644
+--- /dev/null
++++ b/workflows/cleanup-plan.md
+@@
++# Cleanup Plan
++
++- Modified objects: stale workflow candidates, dry-run preview, audit log.
++- Execution mode: draft-only until owner approves the rollback-ready package.
++- Rollback trigger: activation or owner trust signal drops after the cleanup.

@@ -10,6 +10,7 @@ import {
 import { syncConfiguredFeedbackForProject } from "./externalFeedback";
 import type { ExternalFeedbackSyncResult, SyncGithubIssuesOptions } from "./externalFeedback";
 import { applyTimeDecay } from "@shared/core/update_confidence.js";
+import { recordTrace } from "./trace";
 import type { HumanGateItem, KnowledgeItem, Task } from "@shared/schema";
 
 export interface GateBudgetState {
@@ -155,6 +156,25 @@ export function decayStaleKnowledge(projectId: string, currentTime = Date.now(),
       lastDecayedAt: currentTime,
       status: nextStatus,
       actor: "time_decay_scheduler",
+    });
+    const cycle = storage.listCycles(projectId).at(-1);
+    recordTrace({
+      projectId,
+      cycleId: cycle?.id ?? null,
+      cycleIdx: cycle?.idx ?? null,
+      kind: "principle_transition",
+      name: "knowledge_time_decay",
+      agent: "time_decay_scheduler",
+      attributes: {
+        knowledgeId: item.id,
+        from: item.status,
+        to: nextStatus,
+        oldScore: item.confidenceScore,
+        newScore: result.newScore,
+        oldStorageStrength: item.storageStrength ?? 1,
+        newStorageStrength: result.newStorageStrength,
+        daysSinceLastVerified: result.daysSinceLastVerified,
+      },
     });
     decayed += 1;
     if (statusChanged) demoted += 1;

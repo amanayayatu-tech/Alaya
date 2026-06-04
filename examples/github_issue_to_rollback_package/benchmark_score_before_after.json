@@ -1,0 +1,13 @@
+{
+  "benchmark": "alaya-p0-p1-smoke",
+  "before": {
+    "round4_regression": "pass",
+    "trace_completeness_and_rollback_package": "fail"
+  },
+  "after": {
+    "round4_regression": "pass",
+    "trace_completeness_and_rollback_package": "pass",
+    "action_risk_degraded_sanity": "pass",
+    "model_routing": "pass"
+  }
+}

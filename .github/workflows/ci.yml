@@ -60,6 +60,9 @@ jobs:
       - name: Root script tests
         run: npm run test:scripts
 
+      - name: Benchmark smoke
+        run: npm run benchmark:smoke
+
       - name: Flywheel simulation
         run: npm --prefix alaya-core run flywheel
         env:

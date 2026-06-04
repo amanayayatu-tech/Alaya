@@ -194,6 +194,16 @@ npm run e2e:long-evolution
 | New Project | Onboarding Interview，创建新项目 |
 | Project Setup | 修正 seed identity、world model、redlines 和第一轮 claim |
 
+## P0/P1 证据化内核
+
+本轮 P0/P1 在本地 SQLite 架构上增加可追踪、可评测、可审计的证据层，不依赖外部 OTel 或 LangSmith 服务。
+
+- `trace_events` 记录 OTel-compatible 的 cycle state、agent run、LLM call、knowledge injection、error classification、principle transition、approval 和 action risk 事件；`event_log` 保留为原有审计流。
+- `action_ledger` 记录高风险动作的 risk level、approval gate、rollback plan、audit summary 和 idempotency key。只有 `approved` direction gate，或与该动作 idempotency key 匹配的 `approved` risk gate，才能放行需要审批的动作；`pending`、`modified`、`rejected` 都不会被视为批准。
+- `RiskLevel` 分为 `read_only`、`draft_only`、`local_write`、`external_write`、`destructive`、`financial`、`compliance_sensitive`。内部 local write 默认可免审批；external/destructive/financial/compliance-sensitive 必须经过 gate。
+- Model router 默认沿用 `ALAYA_LLM_PROVIDER` / `OPENAI_MODEL`，也支持 `ALAYA_MODEL_ROUTING_JSON` 和 role-specific env override；`llm_calls` 会记录 provider/model/route reason。
+- `npm run benchmark:smoke` 使用 deterministic mock cases 覆盖 round4、knowledge injection、rollback package、source reliability、principle decay、prompt injection、action risk、model routing 和 trace completeness。
+
 ## 常用命令
 
 从仓库根目录运行：
@@ -205,6 +215,8 @@ npm run typecheck      # core + app 类型检查
 npm run build          # Web app 生产构建
 npm run flywheel            # 4 轮飞轮模拟
 npm run e2e:long-evolution  # 20 轮自主进化离线验收
+npm run benchmark:smoke      # P0/P1 deterministic benchmark
+npm run trace:export -- --cycle <cycleId>  # 导出 cycle trace JSONL
 npm run audit:upgrade       # 升级 readiness 审计
 npm run validation:summary  # 汇总 validation-logs 下最新 SUMMARY.csv
 ```
@@ -396,6 +408,8 @@ POST /api/knowledge/:id/approve
 POST /api/knowledge/:id/quarantine
 
 GET  /api/cycles/:id/review
+GET  /api/cycles/:id/traces
+GET  /api/projects/:id/traces?limit=...
 POST /api/cycles/:id/run-full
 GET  /api/llm-calls/summary?projectId=...
 ```
@@ -425,6 +439,7 @@ POST /api/projects/:id/feedback/form
 - `npm run guard`
 - `npm run typecheck`
 - `npm run build`
+- `npm run benchmark:smoke`
 - `npm run flywheel`
 - `npm run e2e:long-evolution`
 - `npm run e2e:ui-freeze`

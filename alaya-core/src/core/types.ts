@@ -83,6 +83,7 @@ export type KnowledgeType =
   | "principle";
 
 export type KnowledgeStatus =
+  | "candidate"
   | "draft"
   | "active"
   | "strong"
@@ -90,7 +91,9 @@ export type KnowledgeStatus =
   | "stale"
   | "expired"
   | "conflict"
-  | "quarantined";
+  | "quarantined"
+  | "deprecated"
+  | "rejected";
 
 export type ConfidenceLevel = "low" | "medium" | "high" | "verified";
 
@@ -155,4 +158,68 @@ export interface HumanGate {
   status: "pending" | "approved" | "rejected" | "modified";
   estimatedMinutes: number;
   decision?: string | null;
+}
+
+// ---------------- Trace / safety / model routing ----------------
+
+export type TraceEventKind =
+  | "cycle_state"
+  | "agent_run"
+  | "llm_call"
+  | "knowledge_injection"
+  | "error_classification"
+  | "principle_transition"
+  | "approval"
+  | "action_risk";
+
+export interface TraceEvent {
+  id: string;
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string | null;
+  projectId: string;
+  cycleId?: string | null;
+  cycleIdx?: number | null;
+  kind: TraceEventKind;
+  name: string;
+  agent?: string | null;
+  status: "ok" | "error" | "blocked";
+  attributes: Record<string, unknown>;
+  startedAt: string;
+  endedAt?: string | null;
+  durationMs?: number | null;
+}
+
+export type RiskLevel =
+  | "read_only"
+  | "draft_only"
+  | "local_write"
+  | "external_write"
+  | "destructive"
+  | "financial"
+  | "compliance_sensitive";
+
+export interface ActionLedgerItem {
+  id: string;
+  projectId: string;
+  cycleId?: string | null;
+  actionType: string;
+  target: string;
+  riskLevel: RiskLevel;
+  requiresApproval: boolean;
+  approvalGateId?: string | null;
+  idempotencyKey: string;
+  status: "proposed" | "approved" | "blocked" | "executed" | "rolled_back";
+  rollbackPlan?: string | null;
+  auditSummary?: string | null;
+  payload: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ModelRoute {
+  role: string;
+  provider: string;
+  model: string;
+  routeReason: string;
 }

@@ -16,6 +16,8 @@
     "test:scripts": "node --test scripts/tests/*.test.mjs",
     "test:all": "npm test && npm run test:app && npm run test:scripts",
     "validation:summary": "node scripts/validation-summary.mjs",
+    "benchmark:smoke": "cd alaya-app && node --import ./node_modules/tsx/dist/esm/index.mjs ../scripts/benchmark-smoke.mjs",
+    "trace:export": "cd alaya-app && node --import ./node_modules/tsx/dist/esm/index.mjs ../scripts/trace-export.mjs",
     "e2e:llm": "npm --prefix alaya-core run e2e:llm",
     "e2e:llm-flywheel": "npm --prefix alaya-core run e2e:llm-flywheel",
     "e2e:github": "node scripts/e2e-github-issue-sensor.mjs",

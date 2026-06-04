@@ -2,12 +2,14 @@
  * transition_knowledge_state —— PRD 8.6 状态迁移
  *
  * | 迁移 | 触发条件 | 是否需人类 |
- * | draft -> active | score>=0.6 且 evidenceCount>=1 | 否 |
+ * | draft/candidate -> active | score>=0.6 且 evidenceCount>=1 | 否 |
  * | active -> strong | score>=0.85 且 evidenceCount>=5 且 >=1 次人类批准 | 是 |
  * | active -> stale | 超有效期未验证,或衰减后 score<0.5 | 否 |
  * | 任意 -> conflict | 与现有 strong 知识断言相反且证据相当 | 否,自动标记 |
  * | 任意 -> quarantined | evidenceCount>=3 且 score<0.35 | 否 |
  * | stale -> expired | stale 超保留期且无新证据 | 否 |
+ * | active/strong -> deprecated | 被更具体原则替代时由 Librarian 通过 supersededBy 标记 | 否 |
+ * | any -> rejected | 被 benchmark 或人工复盘证明有害 | 是 |
  *
  * 硬约束:stale/expired/quarantined/conflict 不得进入高风险动作证据集。
  */
@@ -63,6 +65,7 @@ export function transitionState(
   }
 
   switch (cur) {
+    case "candidate":
     case "draft":
     case "provisional": {
       if (score >= ACTIVE_SCORE && ev >= 1) {
@@ -100,6 +103,10 @@ export function transitionState(
       }
       return keep("维持 strong");
     }
+    case "deprecated":
+    case "rejected": {
+      return keep(`${cur} 知识不自动重新进入决策集`);
+    }
     default:
       return keep(`状态 ${cur} 无自动迁移`);
   }
@@ -107,5 +114,5 @@ export function transitionState(
 
 /** 硬约束:该知识能否进入高风险动作证据集 (PRD 8.6 末尾) */
 export function eligibleForHighRisk(k: KnowledgeItem): boolean {
-  return !["stale", "expired", "quarantined", "conflict"].includes(k.status);
+  return !["stale", "expired", "quarantined", "conflict", "deprecated", "rejected"].includes(k.status);
 }

@@ -29,6 +29,19 @@ test("knowledge_items migration adds maturity and injection fields without break
     assert.equal(columns.has(name), true, `${name} should exist`);
   }
 
+  const llmColumns = new Set(
+    (rawDb.prepare("PRAGMA table_info(llm_calls)").all() as Array<{ name: string }>).map((row) => row.name),
+  );
+  for (const name of ["provider", "model", "route_reason"]) {
+    assert.equal(llmColumns.has(name), true, `llm_calls.${name} should exist`);
+  }
+
+  const tables = new Set(
+    (rawDb.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name),
+  );
+  assert.equal(tables.has("trace_events"), true, "trace_events table should exist");
+  assert.equal(tables.has("action_ledger"), true, "action_ledger table should exist");
+
   storage.createKnowledge({
     id: "kb_schema_1",
     projectId: "proj_schema",

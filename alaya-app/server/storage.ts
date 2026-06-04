@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import type {
   Project, Cycle, Agent, Task, FeedbackItem, Prediction, Observation,
   KnowledgeItem, HumanGateItem, DecisionLogItem, EventLogItem, LlmCall, AgentRun,
-  ExternalFeedbackSource,
+  ExternalFeedbackSource, TraceEventItem, ActionLedgerRow,
 } from "@shared/schema";
 
 const sqlite = new Database(process.env.ALAYA_DB_PATH ?? "data.db");
@@ -92,10 +92,27 @@ function migrate() {
   );
   CREATE TABLE IF NOT EXISTS llm_calls (
     id INTEGER PRIMARY KEY AUTOINCREMENT, cycle_id TEXT NOT NULL, agent TEXT NOT NULL,
+    provider TEXT NOT NULL DEFAULT 'mock', model TEXT NOT NULL DEFAULT 'mock',
+    route_reason TEXT NOT NULL DEFAULT 'default',
     prompt_version TEXT NOT NULL, input_summary TEXT NOT NULL DEFAULT '',
     output_summary TEXT NOT NULL DEFAULT '', schema_valid INTEGER NOT NULL DEFAULT 1,
     retry_count INTEGER NOT NULL DEFAULT 0, latency_ms INTEGER NOT NULL DEFAULT 0,
     token_count INTEGER NOT NULL DEFAULT 0, estimated_cost REAL NOT NULL DEFAULT 0, ts TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS trace_events (
+    id TEXT PRIMARY KEY, trace_id TEXT NOT NULL, span_id TEXT NOT NULL,
+    parent_span_id TEXT, project_id TEXT NOT NULL, cycle_id TEXT, cycle_idx INTEGER,
+    kind TEXT NOT NULL, name TEXT NOT NULL, agent TEXT, status TEXT NOT NULL DEFAULT 'ok',
+    attributes TEXT NOT NULL DEFAULT '{}', started_at TEXT NOT NULL, ended_at TEXT,
+    duration_ms INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS action_ledger (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, cycle_id TEXT,
+    action_type TEXT NOT NULL, target TEXT NOT NULL DEFAULT '', risk_level TEXT NOT NULL,
+    requires_approval INTEGER NOT NULL DEFAULT 0, approval_gate_id TEXT,
+    idempotency_key TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'proposed',
+    rollback_plan TEXT, audit_summary TEXT, payload TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS agent_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT, cycle_id TEXT NOT NULL, cycle_idx INTEGER NOT NULL,
@@ -151,6 +168,16 @@ function migrate() {
     if (!knowledgeColumns.has(name)) sqlite.exec(`ALTER TABLE knowledge_items ADD COLUMN ${name} ${spec}`);
   }
 
+  const llmColumns = new Set((sqlite.prepare(`PRAGMA table_info(llm_calls)`).all() as Array<{ name: string }>).map((c) => c.name));
+  const llmColumnSpecs: Array<[string, string]> = [
+    ["provider", "TEXT NOT NULL DEFAULT 'mock'"],
+    ["model", "TEXT NOT NULL DEFAULT 'mock'"],
+    ["route_reason", "TEXT NOT NULL DEFAULT 'default'"],
+  ];
+  for (const [name, spec] of llmColumnSpecs) {
+    if (!llmColumns.has(name)) sqlite.exec(`ALTER TABLE llm_calls ADD COLUMN ${name} ${spec}`);
+  }
+
   // FTS5 virtual table mirroring knowledge_items + sync triggers
   sqlite.exec(`
   CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
@@ -182,6 +209,10 @@ function migrate() {
   CREATE INDEX IF NOT EXISTS idx_decisions_cycle_ts ON decision_log(cycle_id, ts);
   CREATE INDEX IF NOT EXISTS idx_agent_runs_cycle_id ON agent_runs(cycle_id, id);
   CREATE INDEX IF NOT EXISTS idx_external_sources_project ON external_feedback_sources(project_id);
+  CREATE INDEX IF NOT EXISTS idx_trace_cycle ON trace_events(cycle_id, started_at, id);
+  CREATE INDEX IF NOT EXISTS idx_trace_project ON trace_events(project_id, started_at, id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_action_ledger_idem ON action_ledger(idempotency_key);
+  CREATE INDEX IF NOT EXISTS idx_action_ledger_project ON action_ledger(project_id, created_at);
   `);
 }
 migrate();
@@ -290,10 +321,31 @@ function rowToEvent(r: any): EventLogItem {
 }
 function rowToLlm(r: any): LlmCall {
   return {
-    id: r.id, cycleId: r.cycle_id, agent: r.agent, promptVersion: r.prompt_version,
+    id: r.id, cycleId: r.cycle_id, agent: r.agent,
+    provider: r.provider ?? "mock", model: r.model ?? "mock", routeReason: r.route_reason ?? "default",
+    promptVersion: r.prompt_version,
     inputSummary: r.input_summary, outputSummary: r.output_summary, schemaValid: r.schema_valid,
     retryCount: r.retry_count, latencyMs: r.latency_ms, tokenCount: r.token_count,
     estimatedCost: r.estimated_cost, ts: r.ts,
+  };
+}
+function rowToTraceEvent(r: any): TraceEventItem {
+  return {
+    id: r.id, traceId: r.trace_id, spanId: r.span_id, parentSpanId: r.parent_span_id,
+    projectId: r.project_id, cycleId: r.cycle_id, cycleIdx: r.cycle_idx,
+    kind: r.kind, name: r.name, agent: r.agent, status: r.status,
+    attributes: r.attributes, startedAt: r.started_at, endedAt: r.ended_at,
+    durationMs: r.duration_ms,
+  };
+}
+function rowToActionLedger(r: any): ActionLedgerRow {
+  return {
+    id: r.id, projectId: r.project_id, cycleId: r.cycle_id,
+    actionType: r.action_type, target: r.target, riskLevel: r.risk_level,
+    requiresApproval: r.requires_approval, approvalGateId: r.approval_gate_id,
+    idempotencyKey: r.idempotency_key, status: r.status,
+    rollbackPlan: r.rollback_plan, auditSummary: r.audit_summary, payload: r.payload,
+    createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
 function rowToAgentRun(r: any): AgentRun {
@@ -305,6 +357,8 @@ function rowToExternalFeedbackSource(r: any): ExternalFeedbackSource {
     status: r.status, lastSyncedAt: r.last_synced_at, createdAt: r.created_at, version: r.version,
   };
 }
+
+type LlmCallInsert = Omit<LlmCall, "id" | "provider" | "model" | "routeReason"> & Partial<Pick<LlmCall, "provider" | "model" | "routeReason">>;
 
 export interface IStorage {
   // projects
@@ -356,8 +410,15 @@ export interface IStorage {
   recordEvent(e: Omit<EventLogItem, "id">): void;
   listEvents(): EventLogItem[];
   // llm calls
-  recordLlmCall(c: Omit<LlmCall, "id">): void;
+  recordLlmCall(c: LlmCallInsert): void;
   listLlmCalls(): LlmCall[];
+  // traces
+  recordTraceEvent(e: TraceEventItem): void;
+  listTraceEventsByCycle(cycleId: string, limit?: number): TraceEventItem[];
+  listTraceEventsByProject(projectId: string, limit?: number): TraceEventItem[];
+  // action ledger
+  upsertActionLedger(a: ActionLedgerRow): ActionLedgerRow;
+  listActionLedger(projectId?: string): ActionLedgerRow[];
   // agent runs
   recordAgentRun(r: Omit<AgentRun, "id">): void;
   listAgentRuns(cycleId?: string): AgentRun[];
@@ -619,7 +680,7 @@ export class DatabaseStorage implements IStorage {
     const terms = query.trim().split(/\s+/).filter(Boolean).map((t) => `"${t.replace(/"/g, "")}"*`);
     if (terms.length === 0) return [];
     const match = terms.join(" OR ");
-    const HIGH_RISK_EXCLUDED = ["stale", "expired", "quarantined", "conflict"];
+    const HIGH_RISK_EXCLUDED = ["stale", "expired", "quarantined", "conflict", "deprecated", "rejected"];
     try {
       const rows = rawDb.prepare(`
         SELECT k.* FROM knowledge_fts f
@@ -687,13 +748,73 @@ export class DatabaseStorage implements IStorage {
     return rawDb.prepare(`SELECT * FROM event_log ORDER BY id DESC LIMIT 500`).all().map(rowToEvent);
   }
   // ---- llm calls ----
-  recordLlmCall(c: Omit<LlmCall, "id">): void {
-    rawDb.prepare(`INSERT INTO llm_calls (cycle_id,agent,prompt_version,input_summary,output_summary,schema_valid,retry_count,latency_ms,token_count,estimated_cost,ts)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(c.cycleId, c.agent, c.promptVersion, c.inputSummary, c.outputSummary, c.schemaValid, c.retryCount, c.latencyMs, c.tokenCount, c.estimatedCost, c.ts);
-    this.auditWrite(c.agent || "llm", "llm_calls", "insert", null, c, this.cycleIdxFor(c.cycleId));
+  recordLlmCall(c: LlmCallInsert): void {
+    const n = {
+      provider: c.provider ?? "mock",
+      model: c.model ?? "mock",
+      routeReason: c.routeReason ?? "default",
+      ...c,
+    };
+    rawDb.prepare(`INSERT INTO llm_calls (cycle_id,agent,provider,model,route_reason,prompt_version,input_summary,output_summary,schema_valid,retry_count,latency_ms,token_count,estimated_cost,ts)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+      n.cycleId, n.agent, n.provider, n.model, n.routeReason, n.promptVersion,
+      n.inputSummary, n.outputSummary, n.schemaValid, n.retryCount, n.latencyMs,
+      n.tokenCount, n.estimatedCost, n.ts,
+    );
+    this.auditWrite(c.agent || "llm", "llm_calls", "insert", null, n, this.cycleIdxFor(c.cycleId));
   }
   listLlmCalls(): LlmCall[] {
     return rawDb.prepare(`SELECT * FROM llm_calls ORDER BY id ASC`).all().map(rowToLlm);
+  }
+  // ---- trace events ----
+  recordTraceEvent(e: TraceEventItem): void {
+    rawDb.prepare(`INSERT OR REPLACE INTO trace_events (id,trace_id,span_id,parent_span_id,project_id,cycle_id,cycle_idx,kind,name,agent,status,attributes,started_at,ended_at,duration_ms)
+      VALUES (@id,@trace_id,@span_id,@parent_span_id,@project_id,@cycle_id,@cycle_idx,@kind,@name,@agent,@status,@attributes,@started_at,@ended_at,@duration_ms)`).run({
+      id: e.id, trace_id: e.traceId, span_id: e.spanId, parent_span_id: e.parentSpanId,
+      project_id: e.projectId, cycle_id: e.cycleId, cycle_idx: e.cycleIdx,
+      kind: e.kind, name: e.name, agent: e.agent, status: e.status,
+      attributes: e.attributes, started_at: e.startedAt, ended_at: e.endedAt,
+      duration_ms: e.durationMs,
+    });
+    this.auditWrite(e.agent || "trace", "trace_events", "insert", null, e, e.cycleIdx ?? 0);
+  }
+  listTraceEventsByCycle(cycleId: string, limit = 1000): TraceEventItem[] {
+    const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 5000);
+    return rawDb.prepare(`SELECT * FROM trace_events WHERE cycle_id=? ORDER BY started_at ASC, id ASC LIMIT ?`)
+      .all(cycleId, safeLimit)
+      .map(rowToTraceEvent);
+  }
+  listTraceEventsByProject(projectId: string, limit = 1000): TraceEventItem[] {
+    const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 5000);
+    return rawDb.prepare(`SELECT * FROM trace_events WHERE project_id=? ORDER BY started_at ASC, id ASC LIMIT ?`)
+      .all(projectId, safeLimit)
+      .map(rowToTraceEvent);
+  }
+  // ---- action ledger ----
+  upsertActionLedger(a: ActionLedgerRow): ActionLedgerRow {
+    rawDb.prepare(`INSERT INTO action_ledger (id,project_id,cycle_id,action_type,target,risk_level,requires_approval,approval_gate_id,idempotency_key,status,rollback_plan,audit_summary,payload,created_at,updated_at)
+      VALUES (@id,@project_id,@cycle_id,@action_type,@target,@risk_level,@requires_approval,@approval_gate_id,@idempotency_key,@status,@rollback_plan,@audit_summary,@payload,@created_at,@updated_at)
+      ON CONFLICT(idempotency_key) DO UPDATE SET
+        approval_gate_id=excluded.approval_gate_id,
+        status=excluded.status,
+        rollback_plan=excluded.rollback_plan,
+        audit_summary=excluded.audit_summary,
+        payload=excluded.payload,
+        updated_at=excluded.updated_at`).run({
+      id: a.id, project_id: a.projectId, cycle_id: a.cycleId,
+      action_type: a.actionType, target: a.target, risk_level: a.riskLevel,
+      requires_approval: a.requiresApproval, approval_gate_id: a.approvalGateId,
+      idempotency_key: a.idempotencyKey, status: a.status,
+      rollback_plan: a.rollbackPlan, audit_summary: a.auditSummary, payload: a.payload,
+      created_at: a.createdAt, updated_at: a.updatedAt,
+    });
+    this.auditWrite("safety", "action_ledger", "upsert", null, a, this.cycleIdxFor(a.cycleId));
+    const row = rawDb.prepare(`SELECT * FROM action_ledger WHERE idempotency_key=?`).get(a.idempotencyKey);
+    return rowToActionLedger(row);
+  }
+  listActionLedger(projectId?: string): ActionLedgerRow[] {
+    if (!projectId) return rawDb.prepare(`SELECT * FROM action_ledger ORDER BY created_at ASC, id ASC`).all().map(rowToActionLedger);
+    return rawDb.prepare(`SELECT * FROM action_ledger WHERE project_id=? ORDER BY created_at ASC, id ASC`).all(projectId).map(rowToActionLedger);
   }
   // ---- agent runs ----
   recordAgentRun(r: Omit<AgentRun, "id">): void {

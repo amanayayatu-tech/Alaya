@@ -173,6 +173,9 @@ export const llmCalls = sqliteTable("llm_calls", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   cycleId: text("cycle_id").notNull(),
   agent: text("agent").notNull(),
+  provider: text("provider").notNull().default("mock"),
+  model: text("model").notNull().default("mock"),
+  routeReason: text("route_reason").notNull().default("default"),
   promptVersion: text("prompt_version").notNull(),
   inputSummary: text("input_summary").notNull().default(""),
   outputSummary: text("output_summary").notNull().default(""),
@@ -182,6 +185,44 @@ export const llmCalls = sqliteTable("llm_calls", {
   tokenCount: integer("token_count").notNull().default(0),
   estimatedCost: real("estimated_cost").notNull().default(0),
   ts: text("ts").notNull(),
+});
+
+// ---------------- traceEvents ----------------
+export const traceEvents = sqliteTable("trace_events", {
+  id: text("id").primaryKey(),
+  traceId: text("trace_id").notNull(),
+  spanId: text("span_id").notNull(),
+  parentSpanId: text("parent_span_id"),
+  projectId: text("project_id").notNull(),
+  cycleId: text("cycle_id"),
+  cycleIdx: integer("cycle_idx"),
+  kind: text("kind").notNull(),
+  name: text("name").notNull(),
+  agent: text("agent"),
+  status: text("status").notNull().default("ok"),
+  attributes: text("attributes").notNull().default("{}"),
+  startedAt: text("started_at").notNull(),
+  endedAt: text("ended_at"),
+  durationMs: integer("duration_ms"),
+});
+
+// ---------------- actionLedger ----------------
+export const actionLedger = sqliteTable("action_ledger", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull(),
+  cycleId: text("cycle_id"),
+  actionType: text("action_type").notNull(),
+  target: text("target").notNull().default(""),
+  riskLevel: text("risk_level").notNull(),
+  requiresApproval: integer("requires_approval").notNull().default(0),
+  approvalGateId: text("approval_gate_id"),
+  idempotencyKey: text("idempotency_key").notNull(),
+  status: text("status").notNull().default("proposed"),
+  rollbackPlan: text("rollback_plan"),
+  auditSummary: text("audit_summary"),
+  payload: text("payload").notNull().default("{}"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
 });
 
 // ---------------- agentRuns (PRD 17.3: 每 Agent 每轮运行记录) ----------------
@@ -237,6 +278,8 @@ export type HumanGateItem = typeof humanGateItems.$inferSelect;
 export type DecisionLogItem = typeof decisionLog.$inferSelect;
 export type EventLogItem = typeof eventLog.$inferSelect;
 export type LlmCall = typeof llmCalls.$inferSelect;
+export type TraceEventItem = typeof traceEvents.$inferSelect;
+export type ActionLedgerRow = typeof actionLedger.$inferSelect;
 export type AgentRun = typeof agentRuns.$inferSelect;
 export type ExternalFeedbackSource = typeof externalFeedbackSources.$inferSelect;
 

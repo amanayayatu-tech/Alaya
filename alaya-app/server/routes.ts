@@ -10,6 +10,7 @@ import { gateBudgetForProject, llmBudgetForProject, schedulerTickAllProjects, sc
 import { ingestFormFeedback, syncConfiguredFeedbackForProject, syncGithubIssuesForSource, upsertGithubSource } from "./externalFeedback";
 import { seedDemo } from "./seed";
 import { buildFlywheelHealth } from "./flywheelHealth";
+import { parseTraceEvent } from "./trace";
 import { applyEvidence } from "@shared/core/update_confidence.js";
 import { transitionState } from "@shared/core/transition_state.js";
 
@@ -28,6 +29,11 @@ function feedbackSyncOptions(req: Request) {
     token: req.body?.token ?? req.body?.githubToken,
     limit: req.body?.limit,
   };
+}
+
+function numericLimit(value: unknown, fallback = 1000): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.min(Math.max(Math.trunc(n), 1), 5000) : fallback;
 }
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
@@ -252,6 +258,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const bugs = feedback.filter((f) => f.category === "bug");
     res.json({ cycle, feedback, predictions: preds, tasks, agentRuns: runs, decisions, referencedKnowledge, knowledgeUpdated, bugs });
   });
+  app.get("/api/cycles/:id/traces", (req, res) => {
+    const cycle = storage.getCycle(req.params.id);
+    if (!cycle) return res.status(404).json({ message: "not found" });
+    res.json(storage.listTraceEventsByCycle(cycle.id, numericLimit(req.query.limit)).map(parseTraceEvent));
+  });
+  app.get("/api/projects/:id/traces", (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    res.json(storage.listTraceEventsByProject(project.id, numericLimit(req.query.limit)).map(parseTraceEvent));
+  });
 
   // ---------------- human gates ----------------
   app.get("/api/human-gates", (req, res) => {
@@ -400,13 +416,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ---------------- diagnostics ----------------
   app.get("/api/llm-calls", (_req, res) => res.json(storage.listLlmCalls()));
-  app.get("/api/llm-calls/summary", (_req, res) => {
-    const calls = storage.listLlmCalls();
+  app.get("/api/llm-calls/summary", (req, res) => {
+    const projectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
+    const calls = storage.listLlmCalls().filter((call) => {
+      if (!projectId) return true;
+      return storage.getCycle(call.cycleId)?.projectId === projectId;
+    });
+    const sumBy = (keyFor: (call: typeof calls[number]) => string, valueFor: (call: typeof calls[number]) => number) => {
+      const out: Record<string, number> = {};
+      for (const call of calls) out[keyFor(call)] = +(Number(out[keyFor(call)] ?? 0) + valueFor(call)).toFixed(6);
+      return out;
+    };
     res.json({
       count: calls.length,
       totalTokens: calls.reduce((s, c) => s + c.tokenCount, 0),
       totalCost: +calls.reduce((s, c) => s + c.estimatedCost, 0).toFixed(6),
       byAgent: Object.fromEntries(["orchestrator", "sensor", "builder", "distiller", "librarian"].map((a) => [a, calls.filter((c) => c.agent === a).length])),
+      byModel: sumBy((c) => c.model, () => 1),
+      byRoute: sumBy((c) => c.routeReason, () => 1),
+      costByModel: sumBy((c) => c.model, (c) => c.estimatedCost),
     });
   });
   app.get("/api/event-log", (_req, res) => res.json(storage.listEvents()));

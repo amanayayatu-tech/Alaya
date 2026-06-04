@@ -9,6 +9,8 @@ import { callLlm } from "./llm";
 import { generateNextGoal, type NextGoalDraft, type NextGoalInput } from "./autonomousGoal";
 import { buildKnowledgeContext } from "./knowledgeInjection";
 import { computeSemanticKey, isContradiction, isSemanticDuplicate } from "./knowledgeSimilarity";
+import { recordTrace } from "./trace";
+import { recordActionProposal } from "./actionLedger";
 import { computeClaimError, computeCycleError } from "@shared/core/compute_error.js";
 import { classifyError, routeError } from "@shared/core/classify_error.js";
 import { applyEvidence } from "@shared/core/update_confidence.js";
@@ -147,6 +149,18 @@ const BUILD_SCHEMA = {
 
 function logEvent(cycleIdx: number, actor: string, table: string, op: string, after: unknown) {
   storage.recordEvent({ cycleIdx, actor, tableName: table, op, before: null, after: JSON.stringify(after), ts: now() });
+}
+
+function traceAgentRun(projectId: string, cycleId: string, cycleIdx: number, agent: string, action: string, knowledgeRefsUsed: string[]) {
+  recordTrace({
+    projectId,
+    cycleId,
+    cycleIdx,
+    kind: "agent_run",
+    name: action,
+    agent,
+    attributes: { knowledgeRefsUsed },
+  });
 }
 
 // JSON field helpers for knowledge items (DB stores tags as JSON text)
@@ -669,7 +683,7 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
   const priorKnowledge = buildKnowledgeContext(
     scenarioKnowledgeQuery(sc, `${goal}\n${belief}\n${prediction}\n${action}`),
     projectId,
-    { cycleIdx: sc.index },
+    { cycleIdx: sc.index, cycleId, agent: "orchestrator" },
   );
   const llmData = await llmCaller({
     cycleId,
@@ -771,6 +785,7 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
     outputSummary: `目标: ${goal}${refs.length ? ` | 引用知识: ${refs.join(",")}` : ""}`,
     knowledgeRefsUsed: JSON.stringify(refs), ts: now(),
   });
+  traceAgentRun(projectId, cycleId, sc.index, "orchestrator", "plan_cycle + open_direction_gate", refs);
 
   return { goal, belief, prediction, action, refs, reasoning, gate };
 }
@@ -786,6 +801,15 @@ export function humanResolveDirectionGate(projectId: string, cycleId: string, ga
     ts: now(),
   });
   logEvent(sc.index, "human", "decision_log", "insert", { gateId, decision: "approve_recommended" });
+  recordTrace({
+    projectId,
+    cycleId,
+    cycleIdx: sc.index,
+    kind: "approval",
+    name: "direction_gate_approved",
+    agent: "human",
+    attributes: { gateId, decision: "approve_recommended" },
+  });
 }
 
 function readDirectionPlan(cycleId: string, sc: ScenarioRound) {
@@ -843,7 +867,7 @@ export async function runSensor(projectId: string, cycleId: string, sc: Scenario
     knowledgeSummary: buildKnowledgeContext(
       scenarioKnowledgeQuery(sc, "cluster feedback and preserve user quotes"),
       projectId,
-      { cycleIdx: sc.index },
+      { cycleIdx: sc.index, cycleId, agent: "sensor" },
     ),
     schema: SUMMARY_ARRAY_SCHEMA,
     mockOutput: {
@@ -884,6 +908,7 @@ export async function runSensor(projectId: string, cycleId: string, sc: Scenario
     outputSummary: `反馈 ${sc.feedback.length} 条 (bug ${bugs.length}, 模糊 ${unclear.length}),保留原话`,
     knowledgeRefsUsed: "[]", ts: now(),
   });
+  traceAgentRun(projectId, cycleId, sc.index, "sensor", "import_and_cluster_feedback", []);
   return { unclear };
 }
 
@@ -901,7 +926,7 @@ export async function runBuilder(cycleId: string, sc: ScenarioRound, plannedActi
     knowledgeSummary: projectId ? buildKnowledgeContext(
       `${scenarioKnowledgeQuery(sc)}\n${plannedAction}`,
       projectId,
-      { cycleIdx: sc.index },
+      { cycleIdx: sc.index, cycleId, agent: "builder" },
     ) : "",
     prohibited: [
       "Do not claim tests passed unless the tool-reported build result says so.",
@@ -931,10 +956,19 @@ export async function runBuilder(cycleId: string, sc: ScenarioRound, plannedActi
     } : {}),
     ...(auditSummary ? { auditSummary } : {}),
   };
+  const actionLedger = projectId ? recordActionProposal({
+    projectId,
+    cycleId,
+    actionType: "builder.emit_task_spec",
+    target: plannedAction,
+    payload: taskSpec,
+    rollbackPlan,
+    auditSummary,
+  }) : null;
   const task = storage.createTask({
     id: `task_build_c${sc.index}_${cycleId.slice(-8)}`, cycleId, agent: "builder", kind: "build",
     status: sc.buildSuccess ? "done" : "failed",
-    spec: JSON.stringify(taskSpec),
+    spec: JSON.stringify({ ...taskSpec, actionLedgerId: actionLedger?.id ?? null }),
   });
   logEvent(sc.index, "builder", "tasks", "insert", { taskId: task.id, success: sc.buildSuccess });
   storage.recordAgentRun({
@@ -942,6 +976,7 @@ export async function runBuilder(cycleId: string, sc: ScenarioRound, plannedActi
     outputSummary: `build=${sc.buildSuccess ? "成功" : "失败"} | ${diffSummary}`,
     knowledgeRefsUsed: "[]", ts: now(),
   });
+  if (projectId) traceAgentRun(projectId, cycleId, sc.index, "builder", "emit_task_spec + receive_mock_build_report", []);
   return { buildSuccess: sc.buildSuccess };
 }
 
@@ -974,6 +1009,22 @@ export function evaluatePrediction(
     humanFlaggedValueMismatch: sc.humanValueMismatch,
     isQualitative: false,
   } as AttributionContext);
+  recordTrace({
+    projectId,
+    cycleId,
+    cycleIdx: sc.index,
+    kind: "error_classification",
+    name: "classify_prediction_error",
+    agent: "orchestrator",
+    attributes: {
+      claimId: claim.id,
+      claimError: claim.error,
+      cycleError: cycleErr.eCycle,
+      worstClaimError: cycleErr.worstClaimError,
+      errorType,
+      updateTarget: routeError(errorType),
+    },
+  });
 
   const pred = storage.createPrediction({
     id: sc.index === 4 ? `pred_c4_rollback_${cycleId.slice(-8)}` : `pred_c${sc.index}_${cycleId.slice(-8)}`,
@@ -1004,7 +1055,7 @@ export async function runDistiller(projectId: string, cycleId: string, sc: Scena
     knowledgeSummary: buildKnowledgeContext(
       scenarioKnowledgeQuery(sc, `claim_error=${claimError.toFixed(3)} refs=${refs.join(",")}`),
       projectId,
-      { cycleIdx: sc.index },
+      { cycleIdx: sc.index, cycleId, agent: "distiller" },
     ),
     schema: SUMMARY_ARRAY_SCHEMA,
     mockOutput: distillerDraftOutput(sc, claimError),
@@ -1177,6 +1228,7 @@ export async function runDistiller(projectId: string, cycleId: string, sc: Scena
     outputSummary: created.length ? `生成知识候选: ${created.join(",")}` : "强化既有知识证据",
     knowledgeRefsUsed: JSON.stringify(refs), ts: now(),
   });
+  traceAgentRun(projectId, cycleId, sc.index, "distiller", "distill_knowledge_candidates", refs);
   return created;
 }
 
@@ -1194,7 +1246,7 @@ export async function runLibrarian(projectId: string, cycleId: string, sc: Scena
     knowledgeSummary: buildKnowledgeContext(
       `audit merge transition\n${scenarioKnowledgeQuery(sc)}\n${auditCorpus}`,
       projectId,
-      { cycleIdx: sc.index },
+      { cycleIdx: sc.index, cycleId, agent: "librarian" },
     ),
     schema: SUMMARY_ARRAY_SCHEMA,
     mockOutput: { summary: "transitions computed", items: [] },
@@ -1304,6 +1356,15 @@ export async function runLibrarian(projectId: string, cycleId: string, sc: Scena
         storage.updateKnowledge(k.id, { status: "stale", lastValidatedCycle: sc.index });
         transitions.push(`${k.id}: ${k.status}->stale (valid_until expired)`);
         logEvent(sc.index, "librarian", "knowledge_items", "transition", { id: k.id, from: k.status, to: "stale" });
+        recordTrace({
+          projectId,
+          cycleId,
+          cycleIdx: sc.index,
+          kind: "principle_transition",
+          name: "knowledge_valid_until_expired",
+          agent: "librarian",
+          attributes: { knowledgeId: k.id, from: k.status, to: "stale", reason: "valid_until expired" },
+        });
         continue;
       }
     }
@@ -1316,6 +1377,15 @@ export async function runLibrarian(projectId: string, cycleId: string, sc: Scena
       storage.updateKnowledge(k.id, { status: r.nextStatus });
       transitions.push(`${k.id}: ${k.status}->${r.nextStatus} (${r.reason})`);
       logEvent(sc.index, "librarian", "knowledge_items", "transition", { id: k.id, from: k.status, to: r.nextStatus });
+      recordTrace({
+        projectId,
+        cycleId,
+        cycleIdx: sc.index,
+        kind: "principle_transition",
+        name: "knowledge_status_transition",
+        agent: "librarian",
+        attributes: { knowledgeId: k.id, from: k.status, to: r.nextStatus, reason: r.reason },
+      });
     }
   }
   storage.recordAgentRun({
@@ -1323,6 +1393,7 @@ export async function runLibrarian(projectId: string, cycleId: string, sc: Scena
     outputSummary: transitions.length ? transitions.join(" | ") : "无状态迁移",
     knowledgeRefsUsed: "[]", ts: now(),
   });
+  traceAgentRun(projectId, cycleId, sc.index, "librarian", "audit_merge_transition", []);
   return transitions;
 }
 
@@ -1360,6 +1431,15 @@ export async function runOperationalStagesAfterApprovedDirection(projectId: stri
     reasoning: `${normalizedReasoning}\n__flywheel_snapshot__=${snapshot}`.trim(),
   });
   logEvent(sc.index, "orchestrator", "cycles", "close", { cycleId });
+  recordTrace({
+    projectId,
+    cycleId,
+    cycleIdx: sc.index,
+    kind: "cycle_state",
+    name: "cycle_closed",
+    agent: "orchestrator",
+    attributes: { strongKnowledgeCount, decisionKnowledgeCount, transitions },
+  });
 
   return { cycleIdx: sc.index, prediction: pred, transitions };
 }
@@ -1369,6 +1449,15 @@ export async function runFullCycle(projectId: string, cycleId: string) {
   const cycle = storage.getCycle(cycleId);
   if (!cycle) throw new Error("cycle not found");
   const sc = await resolveCycleStimulus(projectId, cycle.idx, cycleId);
+  recordTrace({
+    projectId,
+    cycleId,
+    cycleIdx: cycle.idx,
+    kind: "cycle_state",
+    name: "cycle_started",
+    agent: "orchestrator",
+    attributes: { goal: cycle.goal, status: cycle.status },
+  });
 
   const plan = await runOrchestrator(projectId, cycleId, sc);
   humanResolveDirectionGate(projectId, cycleId, plan.gate.id, sc);

@@ -49,6 +49,10 @@ jobs:
       - name: Long autonomous evolution E2E
         run: npm run e2e:long-evolution
 
+      # 5.6 P0/P1 证据化 benchmark：trace、rollback、action risk、model routing
+      - name: Evidence benchmark smoke
+        run: npm run benchmark:smoke
+
       # 6. 类型检查：core + app
       - name: Typecheck
         run: npm --prefix alaya-core run typecheck && npm --prefix alaya-app run check

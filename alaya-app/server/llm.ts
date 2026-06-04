@@ -1,5 +1,8 @@
 import { storage, now } from "./storage";
 import { readFileSync } from "node:fs";
+import { resolveModelRoute } from "@shared/core/model_router.js";
+import { recordTrace } from "./trace";
+import type { ModelRoute } from "@shared/core/types.js";
 
 const DEFAULT_OPENAI_API_KEY_FILE = "/private/tmp/alaya-minimax-key";
 
@@ -146,10 +149,13 @@ function promptVersion(promptName: string) {
   return `${promptName}@v1`;
 }
 
-function record(input: LlmCallInput, data: Record<string, unknown>, schemaValid: boolean, retryCount: number, latencyMs: number, tokenCount: number) {
+function record(input: LlmCallInput, route: ModelRoute, data: Record<string, unknown>, schemaValid: boolean, retryCount: number, latencyMs: number, tokenCount: number) {
   storage.recordLlmCall({
     cycleId: input.cycleId,
     agent: input.agent,
+    provider: route.provider,
+    model: route.model,
+    routeReason: route.routeReason,
     promptVersion: promptVersion(input.promptName),
     inputSummary: summarize({
       input: input.inputSummary,
@@ -165,6 +171,29 @@ function record(input: LlmCallInput, data: Record<string, unknown>, schemaValid:
     estimatedCost: estimateCost(tokenCount),
     ts: now(),
   });
+  const cycle = storage.getCycle(input.cycleId);
+  if (cycle) {
+    recordTrace({
+      projectId: cycle.projectId,
+      cycleId: input.cycleId,
+      cycleIdx: cycle.idx,
+      kind: "llm_call",
+      name: input.promptName,
+      agent: input.agent,
+      status: schemaValid ? "ok" : "error",
+      durationMs: latencyMs,
+      attributes: {
+        promptVersion: promptVersion(input.promptName),
+        provider: route.provider,
+        model: route.model,
+        routeReason: route.routeReason,
+        schemaValid,
+        retryCount,
+        tokenCount,
+        estimatedCost: estimateCost(tokenCount),
+      },
+    });
+  }
 }
 
 function createDegradedGate(input: LlmCallInput, reason: string) {
@@ -187,12 +216,13 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
   const safeInput = sanitizeInput(input);
   const schema = input.schema ?? DEFAULT_SCHEMA;
   const started = Date.now();
-  const provider = process.env.ALAYA_LLM_PROVIDER ?? "mock";
+  const route = resolveModelRoute(input.agent, process.env);
+  const provider = route.provider;
 
   if (provider !== "openai") {
     const schemaValid = validate(input.mockOutput, schema);
     const tokenCount = approxTokens({ input: safeInput, output: input.mockOutput });
-    record(safeInput, input.mockOutput, schemaValid, 0, Date.now() - started, tokenCount);
+    record(safeInput, route, input.mockOutput, schemaValid, 0, Date.now() - started, tokenCount);
     if (!schemaValid) createDegradedGate(safeInput, "mock output failed schema validation");
     return input.mockOutput;
   }
@@ -200,7 +230,7 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
   const apiKey = openAiApiKey();
   if (!apiKey) {
     const data = { summary: `OpenAI disabled: missing OPENAI_API_KEY` };
-    record(safeInput, data, false, 0, Date.now() - started, approxTokens({ input: safeInput, data }));
+    record(safeInput, route, data, false, 0, Date.now() - started, approxTokens({ input: safeInput, data }));
     createDegradedGate(safeInput, "OPENAI_API_KEY is not set");
     return data;
   }
@@ -208,10 +238,10 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
   let lastError = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const data = await callOpenAI(safeInput, schema, redactSensitiveText(lastError), apiKey);
+      const data = await callOpenAI(safeInput, schema, redactSensitiveText(lastError), apiKey, route.model);
       const errors = validationErrors(data, schema);
       if (errors.length === 0) {
-        record(safeInput, data, true, attempt, Date.now() - started, approxTokens({ input: safeInput, data }));
+        record(safeInput, route, data, true, attempt, Date.now() - started, approxTokens({ input: safeInput, data }));
         return data;
       }
       lastError = `schema validation failed: ${errors.join("; ")}. Include every required key; use [] for empty arrays.`;
@@ -227,14 +257,15 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
       simpleSchema,
       `response failed JSON schema validation; return simplified JSON summary only. ${redactSensitiveText(lastError)}`,
       apiKey,
+      route.model,
     );
     if (validate(simpleData, simpleSchema)) {
       const originalErrors = validationErrors(simpleData, schema);
       if (originalErrors.length === 0) {
-        record(safeInput, simpleData, true, 2, Date.now() - started, approxTokens({ input: safeInput, simpleData }));
+        record(safeInput, route, simpleData, true, 2, Date.now() - started, approxTokens({ input: safeInput, simpleData }));
         return simpleData;
       }
-      record(safeInput, simpleData, false, 2, Date.now() - started, approxTokens({ input: safeInput, simpleData }));
+      record(safeInput, route, simpleData, false, 2, Date.now() - started, approxTokens({ input: safeInput, simpleData }));
       createDegradedGate(safeInput, `degraded to simplified schema after: ${lastError || "schema validation failed"}`);
       return simpleData;
     }
@@ -244,15 +275,15 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
   }
 
   const simplified = { summary: `LLM degraded for ${input.agent}/${input.promptName}: ${lastError}` };
-  record(safeInput, simplified, false, 3, Date.now() - started, approxTokens({ input: safeInput, simplified }));
+  record(safeInput, route, simplified, false, 3, Date.now() - started, approxTokens({ input: safeInput, simplified }));
   createDegradedGate(safeInput, lastError || "schema validation failed");
   return simplified;
 }
 
-async function callOpenAI(input: LlmCallInput, schema: JsonSchema, previousError: string, apiKey: string): Promise<Record<string, unknown>> {
+async function callOpenAI(input: LlmCallInput, schema: JsonSchema, previousError: string, apiKey: string, model: string): Promise<Record<string, unknown>> {
   const mode = resolveOpenAIApiMode();
-  if (mode === "chat") return callChatCompletions(input, schema, previousError, apiKey);
-  return callResponses(input, schema, previousError, apiKey);
+  if (mode === "chat") return callChatCompletions(input, schema, previousError, apiKey, model);
+  return callResponses(input, schema, previousError, apiKey, model);
 }
 
 type OpenAIApiMode = "responses" | "chat";
@@ -285,9 +316,8 @@ function minimaxChatEndpointAlias(cleanBaseUrl: string): string | undefined {
   return undefined;
 }
 
-async function callResponses(input: LlmCallInput, schema: JsonSchema, previousError: string, apiKey: string): Promise<Record<string, unknown>> {
+async function callResponses(input: LlmCallInput, schema: JsonSchema, previousError: string, apiKey: string, model: string): Promise<Record<string, unknown>> {
   const endpoint = process.env.OPENAI_RESPONSES_ENDPOINT ?? "https://api.openai.com/v1/responses";
-  const model = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
   const response = await fetchWithTimeout(endpoint, {
     method: "POST",
     headers: {
@@ -333,10 +363,9 @@ async function callResponses(input: LlmCallInput, schema: JsonSchema, previousEr
   return parseJsonObjectText(text, "OpenAI");
 }
 
-async function callChatCompletions(input: LlmCallInput, schema: JsonSchema, previousError: string, apiKey: string): Promise<Record<string, unknown>> {
+async function callChatCompletions(input: LlmCallInput, schema: JsonSchema, previousError: string, apiKey: string, model: string): Promise<Record<string, unknown>> {
   const endpoint = process.env.OPENAI_CHAT_COMPLETIONS_ENDPOINT
     ?? chatCompletionsEndpoint(process.env.OPENAI_BASE_URL ?? "https://api.openai.com");
-  const model = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
   const response = await fetchWithTimeout(endpoint, {
     method: "POST",
     headers: {

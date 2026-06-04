@@ -1,5 +1,6 @@
 import { rawDb, storage, now } from "./storage";
 import type { KnowledgeItem } from "@shared/schema";
+import { recordTrace } from "./trace";
 
 const MAX_INJECTED_ITEMS = 5;
 const MAX_APPROX_TOKENS = 800;
@@ -114,7 +115,7 @@ function formatKnowledgeItem(item: KnowledgeItem, contentChars: number): string 
 export function buildKnowledgeContext(
   taskDescription: string,
   projectId: string,
-  options: { nowMs?: number; maxTokens?: number; cycleIdx?: number } = {},
+  options: { nowMs?: number; maxTokens?: number; cycleIdx?: number; cycleId?: string; agent?: string } = {},
 ): string {
   const items = searchInjectableKnowledge(projectId, taskDescription);
   if (items.length === 0) return "";
@@ -152,5 +153,19 @@ export function buildKnowledgeContext(
       });
     }
   }
+  recordTrace({
+    projectId,
+    cycleId: options.cycleId ?? null,
+    cycleIdx: options.cycleIdx ?? null,
+    kind: "knowledge_injection",
+    name: "build_prior_knowledge_context",
+    agent: options.agent ?? "knowledge_injection",
+    attributes: {
+      injectedKnowledgeIds: included.map((item) => item.id),
+      itemCount: included.length,
+      maxTokens: options.maxTokens ?? MAX_APPROX_TOKENS,
+      taskQueryChars: taskDescription.length,
+    },
+  });
   return `[PRIOR KNOWLEDGE]\n${lines.join("\n")}\n[/PRIOR KNOWLEDGE]`;
 }

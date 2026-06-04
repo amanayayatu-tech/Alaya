@@ -1,0 +1,5 @@
+{"traceId":"example-round4","spanId":"span-cycle-start","kind":"cycle_state","name":"cycle_started","agent":"orchestrator","status":"ok","attributes":{"cycleIdx":4,"goal":"rollback-ready change package"}}
+{"traceId":"example-round4","spanId":"span-knowledge","kind":"knowledge_injection","name":"build_prior_knowledge_context","agent":"orchestrator","status":"ok","attributes":{"injectedKnowledgeIds":["kb_preview","kb_user_fear"],"itemCount":2}}
+{"traceId":"example-round4","spanId":"span-builder","kind":"action_risk","name":"builder.emit_task_spec","agent":"builder","status":"ok","attributes":{"riskLevel":"destructive","requiresApproval":true,"approvalGateId":"gate_dir_c4_rollback","status":"approved"}}
+{"traceId":"example-round4","spanId":"span-error","kind":"error_classification","name":"classify_prediction_error","agent":"orchestrator","status":"ok","attributes":{"errorType":null,"cycleError":0}}
+{"traceId":"example-round4","spanId":"span-close","kind":"cycle_state","name":"cycle_closed","agent":"orchestrator","status":"ok","attributes":{"strongKnowledgeCount":1,"decisionKnowledgeCount":3}}
