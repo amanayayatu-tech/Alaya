@@ -7,6 +7,7 @@
 import { storage, now } from "./storage";
 import { callLlm } from "./llm";
 import { generateNextGoal, type NextGoalDraft, type NextGoalInput } from "./autonomousGoal";
+import { buildKnowledgeContext } from "./knowledgeInjection";
 import { computeSemanticKey, isContradiction, isSemanticDuplicate } from "./knowledgeSimilarity";
 import { computeClaimError, computeCycleError } from "@shared/core/compute_error.js";
 import { classifyError, routeError } from "@shared/core/classify_error.js";
@@ -85,9 +86,9 @@ export const SCENARIO: ScenarioRound[] = [
     index: 4,
     proposedGoal: "(由系统基于 strong/active 知识继续生成)",
     alternativeGoals: ["直接开放批量删除", "先做视觉主题与模板"],
-    belief: "(由系统生成)",
-    prediction: "(由系统生成)",
-    action: "(由系统生成)",
+    belief: "高风险自动化要继续扩大适用范围,必须同时满足可预览、可回滚、可追溯",
+    prediction: "加入回滚与审计摘要后,activation 达到 45% 以上且正向复盘反馈增加",
+    action: "开发变更包回滚入口 + 自动审计摘要",
     activationObserved: 0.48, activationTarget: 0.45,
     feedback: [
       { id: "f6", text: "现在有预览和回滚记录,我愿意让它处理更多发布前检查", category: "metric_signal", sentiment: "positive" },
@@ -200,7 +201,7 @@ function auditSummaryForCycle4(refs: string[]) {
 function activeKnowledge(projectId: string): KnowledgeItem[] {
   return storage.listKnowledge(projectId)
     .filter((k) => !k.supersededBy)
-    .filter((k) => ["active", "strong", "draft", "provisional"].includes(k.status));
+    .filter((k) => ["active", "strong"].includes(k.status));
 }
 
 // Convert core KnowledgeItem (tags: string[]) <-> DB KnowledgeItem (tags: json text)
@@ -291,17 +292,21 @@ function distillerDraftOutput(sc: ScenarioRound, claimError: number): Record<str
   };
 }
 
-function knowledgeSummary(items: KnowledgeItem[]): string {
-  return items
-    .map((k) => `${k.id} [${k.status}] ${k.title} tags=${parseTags(k).join(",")}`)
-    .join("\n")
-    .slice(0, 4000);
-}
-
 function safeKnowledgeRefs(projectId: string, proposed: unknown, fallback: string[]): string[] {
   const allowed = new Set(activeKnowledge(projectId).map((k) => k.id));
   const refs = stringArray(proposed).filter((id) => allowed.has(id));
   return refs.length > 0 || fallback.length === 0 ? refs : fallback;
+}
+
+function scenarioKnowledgeQuery(sc: ScenarioRound, extra = ""): string {
+  return [
+    extra,
+    sc.proposedGoal,
+    sc.belief,
+    sc.prediction,
+    sc.action,
+    sc.feedback.map((item) => item.text).join("\n"),
+  ].filter(Boolean).join("\n");
 }
 
 function worldModelLine(worldModel: string, label: string): string {
@@ -661,6 +666,11 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
   }
 
   const usableKnowledge = activeKnowledge(projectId);
+  const priorKnowledge = buildKnowledgeContext(
+    scenarioKnowledgeQuery(sc, `${goal}\n${belief}\n${prediction}\n${action}`),
+    projectId,
+    { cycleIdx: sc.index },
+  );
   const llmData = await llmCaller({
     cycleId,
     agent: "orchestrator",
@@ -688,7 +698,7 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
         confidenceScore: k.confidenceScore,
       })),
     },
-    knowledgeSummary: knowledgeSummary(usableKnowledge),
+    knowledgeSummary: priorKnowledge,
     prohibited: [
       "Do not approve or reject the direction gate; human gate decides that.",
       "Do not promote knowledge to strong; pure transition rules decide that.",
@@ -830,6 +840,11 @@ export async function runSensor(projectId: string, cycleId: string, sc: Scenario
     promptName: "cluster_feedback",
     inputSummary: `${sc.feedback.length} feedback items`,
     context: { feedback: sc.feedback },
+    knowledgeSummary: buildKnowledgeContext(
+      scenarioKnowledgeQuery(sc, "cluster feedback and preserve user quotes"),
+      projectId,
+      { cycleIdx: sc.index },
+    ),
     schema: SUMMARY_ARRAY_SCHEMA,
     mockOutput: {
       summary: "clustered + preserved quotes",
@@ -875,6 +890,7 @@ export async function runSensor(projectId: string, cycleId: string, sc: Scenario
 export async function runBuilder(cycleId: string, sc: ScenarioRound, plannedAction = sc.action, refs: string[] = [], llmCaller: LlmCaller = callLlm) {
   const rollbackPlan = rollbackReadyChangePackage(sc, plannedAction);
   const auditSummary = sc.index === 4 ? auditSummaryForCycle4(refs) : undefined;
+  const projectId = storage.getCycle(cycleId)?.projectId;
 
   const llmData = await llmCaller({
     cycleId,
@@ -882,6 +898,11 @@ export async function runBuilder(cycleId: string, sc: ScenarioRound, plannedActi
     promptName: "emit_task_spec",
     inputSummary: plannedAction,
     context: { action: plannedAction, rollbackPlan, auditSummary },
+    knowledgeSummary: projectId ? buildKnowledgeContext(
+      `${scenarioKnowledgeQuery(sc)}\n${plannedAction}`,
+      projectId,
+      { cycleIdx: sc.index },
+    ) : "",
     prohibited: [
       "Do not claim tests passed unless the tool-reported build result says so.",
       "Do not remove rollback or audit fields from a high-risk cycle 4 task.",
@@ -980,6 +1001,11 @@ export async function runDistiller(projectId: string, cycleId: string, sc: Scena
     promptName: "distill_knowledge",
     inputSummary: `cycle ${sc.index} error=${claimError.toFixed(2)}`,
     context: { feedback: sc.feedback, claimError, refs },
+    knowledgeSummary: buildKnowledgeContext(
+      scenarioKnowledgeQuery(sc, `claim_error=${claimError.toFixed(3)} refs=${refs.join(",")}`),
+      projectId,
+      { cycleIdx: sc.index },
+    ),
     schema: SUMMARY_ARRAY_SCHEMA,
     mockOutput: distillerDraftOutput(sc, claimError),
   });
@@ -1155,12 +1181,21 @@ export async function runDistiller(projectId: string, cycleId: string, sc: Scena
 }
 
 export async function runLibrarian(projectId: string, cycleId: string, sc: ScenarioRound) {
+  const auditCorpus = storage.listKnowledge(projectId)
+    .map((item) => `${item.title}\n${item.content}`)
+    .join("\n")
+    .slice(0, 4000);
   await callLlm({
     cycleId,
     agent: "librarian",
     promptName: "audit_and_merge",
     inputSummary: "incremental audit",
     context: { knowledgeCount: storage.listKnowledge(projectId).length },
+    knowledgeSummary: buildKnowledgeContext(
+      `audit merge transition\n${scenarioKnowledgeQuery(sc)}\n${auditCorpus}`,
+      projectId,
+      { cycleIdx: sc.index },
+    ),
     schema: SUMMARY_ARRAY_SCHEMA,
     mockOutput: { summary: "transitions computed", items: [] },
   });

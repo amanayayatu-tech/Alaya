@@ -98,9 +98,9 @@ export const SCENARIO: CycleScenario[] = [
     index: 4,
     proposedGoal: "(由系统基于 strong/active 知识继续生成)",
     alternativeGoals: ["直接开放批量删除", "先做视觉主题与模板"],
-    belief: "(由系统生成)",
-    prediction: "(由系统生成)",
-    action: "(由系统生成)",
+    belief: "高风险自动化要继续扩大适用范围,必须同时满足可预览、可回滚、可追溯",
+    prediction: "加入回滚与审计摘要后,activation 达到 45% 以上且正向复盘反馈增加",
+    action: "开发变更包回滚入口 + 自动审计摘要",
     activationObserved: 0.48,
     activationTarget: 0.45,
     feedback: [

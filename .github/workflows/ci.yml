@@ -1,0 +1,118 @@
+name: Alaya CI
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**", "codex/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit-and-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: |
+            alaya-app/package-lock.json
+            alaya-core/package-lock.json
+
+      - name: Install root tools
+        run: npm install
+
+      - name: Install app dependencies
+        working-directory: alaya-app
+        run: npm ci
+
+      - name: Install core dependencies
+        working-directory: alaya-core
+        run: npm ci
+
+      - name: PRINCIPLES guard
+        run: npm run guard
+
+      - name: App focused regression tests
+        working-directory: alaya-app
+        run: >
+          node --import tsx --test
+          tests/principles.guard.test.ts
+          tests/flywheel.round4.test.ts
+          tests/knowledgeInjection.test.ts
+          tests/flywheelHealth.api.test.ts
+          tests/update_confidence.decay.test.ts
+
+      - name: App full test suite
+        run: npm --prefix alaya-app test
+
+      - name: App typecheck
+        run: npm --prefix alaya-app run check
+
+      - name: Core full test suite
+        run: npm --prefix alaya-core test
+
+      - name: Core typecheck
+        run: npm --prefix alaya-core run typecheck
+
+      - name: Root script tests
+        run: npm run test:scripts
+
+      - name: Flywheel simulation
+        run: npm --prefix alaya-core run flywheel
+        env:
+          CI: "true"
+
+  live-llm-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    needs: unit-and-integration
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: |
+            alaya-app/package-lock.json
+            alaya-core/package-lock.json
+
+      - name: Install root tools
+        run: npm install
+
+      - name: Install app dependencies
+        working-directory: alaya-app
+        run: npm ci
+
+      - name: Install core dependencies
+        working-directory: alaya-core
+        run: npm ci
+
+      - name: Live validation prerequisites
+        env:
+          OPENAI_API_KEY: ${{ secrets.LLM_API_KEY }}
+          ALAYA_GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -z "${OPENAI_API_KEY:-}" ] || [ -z "${ALAYA_GITHUB_TOKEN:-}" ]; then
+            echo "Live validation skipped: configure Actions secrets LLM_API_KEY and GH_PAT."
+            echo "Use GH_PAT for personal tokens; GITHUB_TOKEN is a reserved Actions token name."
+            exit 0
+          fi
+
+      - name: Live Alaya upgrade validation
+        env:
+          OPENAI_API_KEY: ${{ secrets.LLM_API_KEY }}
+          ALAYA_GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL || 'https://api.minimax.io/openai' }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL || 'MiniMax-M3' }}
+          FLYWHEEL_ROUNDS: "4"
+          FLYWHEEL_VALIDATE_COMPOUNDING: "true"
+        run: |
+          if [ -z "${OPENAI_API_KEY:-}" ] || [ -z "${ALAYA_GITHUB_TOKEN:-}" ]; then
+            exit 0
+          fi
+          npm --prefix alaya-app run flywheel:live

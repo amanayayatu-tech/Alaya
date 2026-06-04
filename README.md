@@ -21,8 +21,9 @@ Alaya = 本地 SQLite 记忆层 + 5 个 Agent 飞轮 + 人工闸门 + 预测账�
 | LLM | mock / OpenAI-compatible | 默认 mock，可切 OpenAI / MiniMax 等兼容端点 |
 | Scheduler | 可运行 | 自动推进 cycle；第 5 轮起可由自主目标生成器接管，受 blocking gate、预算和反空转风险闸约束 |
 | Sensor | 可运行 | 支持 GitHub Issues 与表单反馈 |
-| Knowledge | 可运行 | SQLite FTS5 搜索，支持近义合并、`supersededBy` 保留、冲突隔离和详情引用上限保护 |
-| Governance | 可运行 | `PRINCIPLES.md` + guard 脚本约束核心底线 |
+| Knowledge | 可运行 | SQLite FTS5 搜索、任务前知识注入、近义合并、`supersededBy` 保留、冲突隔离、时间衰减和详情引用上限保护 |
+| Health | 可运行 | `/health` 页面与 `/api/flywheel/health` API 展示复利、知识成熟和 human gate 压力 |
+| Governance | 可运行 | `PRINCIPLES.md`、guard 脚本、CI 和 24h 验证脚本约束核心底线 |
 
 ## 目录
 
@@ -34,6 +35,7 @@ Alaya = 本地 SQLite 记忆层 + 5 个 Agent 飞轮 + 人工闸门 + 预测账�
 - [Web 功能地图](#web-功能地图)
 - [常用命令](#常用命令)
 - [真实 LLM 与 Secret](#真实-llm-与-secret)
+- [CI 与 24h 验证](#ci-与-24h-验证)
 - [本地数据](#本地数据)
 - [API 概览](#api-概览)
 - [验证记录](#验证记录)
@@ -156,6 +158,10 @@ React/Vite -> Express API -> SQLite/FTS5 -> Scheduler -> 5 Agents -> LLM Provide
 
 Librarian 会对近义知识做熵减合并：保留主条目，给被合并条目写入 `supersededBy`，不做物理删除。检索和高风险证据集默认排除 stale、quarantined、conflict 和 superseded 条目。
 
+任务前知识注入由 `alaya-app/server/knowledgeInjection.ts` 负责：系统根据当前任务文本从 FTS5 检索 active/strong 且未被 supersede 的知识，构造有上限的 `[PRIOR KNOWLEDGE]` 上下文并写回 `usageCount`、`lastInjectedAt` 和审计事件。数据库启动迁移会执行 FTS5 `rebuild`，确保旧库已有知识也能被新建索引检索到。
+
+时间衰减由 `applyTimeDecay` 和 Scheduler 共同执行。`lastVerifiedAt` 保留真实验证时间，`lastDecayedAt` 记录最近一次自动衰减时间，避免周期性 tick 对同一历史区间重复衰减。被衰减到阈值以下的知识会降级为 stale，并通过 `time_decay_scheduler` 写入审计日志。
+
 ## 自主进化与长期验证
 
 Alaya 的默认 4 轮场景仍然作为治理回归基线保留。超过第 4 轮后，系统会基于当前项目身份、世界模型、已验证知识、上轮误差和近期反馈生成下一轮目标。
@@ -184,6 +190,7 @@ npm run e2e:long-evolution
 | Prediction Ledger | 查看预测、观察、误差和归因 |
 | Knowledge Base | 搜索知识、查看置信度、来源和 Agent 引用 |
 | Cycle Review | 复盘单轮 cycle、Agent 输出和复利证据 |
+| Flywheel Health | 查看每轮新增知识、晋级、纠错、知识注入、知识状态和复利证明 |
 | New Project | Onboarding Interview，创建新项目 |
 | Project Setup | 修正 seed identity、world model、redlines 和第一轮 claim |
 
@@ -199,6 +206,7 @@ npm run build          # Web app 生产构建
 npm run flywheel            # 4 轮飞轮模拟
 npm run e2e:long-evolution  # 20 轮自主进化离线验收
 npm run audit:upgrade       # 升级 readiness 审计
+npm run validation:summary  # 汇总 validation-logs 下最新 SUMMARY.csv
 ```
 
 TypeScript 运行入口统一使用 `node --import tsx`。这避免在受限环境里直接调用 `tsx` CLI 时创建 IPC pipe 失败，同时保留同样的 TS/ESM 加载能力。核心入口包括 app dev/build、core flywheel、真实 LLM E2E 和长程自主进化 E2E。
@@ -235,6 +243,12 @@ ALAYA_E2E_BASE_URL=http://127.0.0.1:5000 npm run e2e:ui-freeze
 npm run e2e:live
 ```
 
+`alaya-app` 内也提供同名代理入口，供 CI 和脚本在 app 工作目录中调用：
+
+```bash
+npm --prefix alaya-app run flywheel:live
+```
+
 ## 真实 LLM 与 Secret
 
 默认不调用真实模型。启用 OpenAI-compatible provider：
@@ -265,6 +279,9 @@ npm run setup:secrets:check
 
 文件权限为 `0600`，不会打印 secret 值。
 
+GitHub Actions 中请添加 `LLM_API_KEY` 和 `GH_PAT` 两个 Secrets。不要自定义名为
+`GITHUB_TOKEN` 的 Secret；这是 GitHub Actions 的保留令牌名。
+
 真实 LLM preflight：
 
 ```bash
@@ -283,6 +300,51 @@ OPENAI_API_KEY_FILE=/private/tmp/alaya-minimax-key \
 OPENAI_BASE_URL=https://api.minimax.io/openai \
 OPENAI_MODEL=MiniMax-M3 \
 npm run e2e:llm-flywheel
+```
+
+## CI 与 24h 验证
+
+GitHub Actions 工作流位于 `.github/workflows/ci.yml`：
+
+- `unit-and-integration`：安装 root/app/core 依赖，运行 guard、app focused regression、app full test、app typecheck、core test、core typecheck、script tests 和 core flywheel simulation。
+- `live-llm-validation`：只在 `main` 分支 push 后尝试运行真实 LLM/GitHub live validation；缺少 secret 时明确跳过。
+
+Actions secrets：
+
+| Secret | 用途 |
+| --- | --- |
+| `LLM_API_KEY` | OpenAI-compatible provider key，可指向 MiniMax |
+| `GH_PAT` | GitHub live sensor / issue E2E token |
+| `OPENAI_BASE_URL` | 可选，默认 `https://api.minimax.io/openai` |
+| `OPENAI_MODEL` | 可选，默认 `MiniMax-M3` |
+
+24h 本地验证脚本：
+
+```bash
+./scripts/24h_validation.sh
+```
+
+常用参数：
+
+```bash
+ALAYA_VALIDATION_DURATION_SECONDS=86400 \
+ALAYA_VALIDATION_SLEEP_SECONDS=600 \
+ALAYA_HEALTH_URL=http://127.0.0.1:5000/api/flywheel/health?projectId=... \
+./scripts/24h_validation.sh
+```
+
+脚本每轮运行 principles guard 和 mock flywheel simulation，每 3 轮尝试 live validation。缺少 secret 时标记 `SKIP`，有 secret 但 API 网络不可达时标记 `SKIP_NET`。如果 guard、simulation 或 live 步骤出现 `FAIL`，最终退出码为非零；连续 3 次 live failure 会提前停止。
+
+汇总最近一次验证：
+
+```bash
+npm run validation:summary
+```
+
+或指定路径：
+
+```bash
+npm run validation:summary -- validation-logs/<run>/SUMMARY.csv
 ```
 
 ## 本地数据
@@ -316,6 +378,7 @@ GET  /api/projects
 POST /api/projects
 PATCH /api/projects/:id
 GET  /api/projects/:id/dashboard
+GET  /api/flywheel/health?projectId=...
 GET  /api/projects/:id/cycles
 GET  /api/projects/:id/predictions
 POST /api/projects/:id/scheduler/tick
@@ -365,8 +428,17 @@ POST /api/projects/:id/feedback/form
 - `npm run flywheel`
 - `npm run e2e:long-evolution`
 - `npm run e2e:ui-freeze`
+- `cd alaya-app && node --import tsx --test tests/schema_migration.test.ts tests/update_confidence.decay.test.ts`
+- `node --test scripts/tests/live-readiness.test.mjs`
 
 知识库详情页稳定性修复已经过压力验证：在大量 Agent 引用记录下，`/api/knowledge/:id` 只返回有限引用，前端只渲染有限列表，并通过浏览器 smoke test 检查页面切换、知识搜索、详情点击和主线程长任务。
+
+本次治理增强额外覆盖：
+
+- 旧库已有 `knowledge_items` 在 FTS5 迁移后可被知识注入检索。
+- Scheduler tick 会自动执行 stale knowledge 时间衰减，并通过 `lastDecayedAt` 避免重复衰减同一时间区间。
+- `/health` 页面按当前项目查询 flywheel health 和 pending gates。
+- 24h 验证脚本在任何 FAIL 后以非零退出码结束。
 
 已知构建提示：
 

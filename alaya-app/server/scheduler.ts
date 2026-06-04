@@ -9,7 +9,8 @@ import {
 } from "./stallGuard";
 import { syncConfiguredFeedbackForProject } from "./externalFeedback";
 import type { ExternalFeedbackSyncResult, SyncGithubIssuesOptions } from "./externalFeedback";
-import type { HumanGateItem, Task } from "@shared/schema";
+import { applyTimeDecay } from "@shared/core/update_confidence.js";
+import type { HumanGateItem, KnowledgeItem, Task } from "@shared/schema";
 
 export interface GateBudgetState {
   budget: number;
@@ -89,6 +90,77 @@ function parseEventAfter(after: string | null): Record<string, any> {
   } catch {
     return {};
   }
+}
+
+function knowledgeEvidence(item: KnowledgeItem): number {
+  return Math.max(0, (item.evidenceAlpha - 1) + (item.evidenceBeta - 1));
+}
+
+function confidenceLevelFor(item: KnowledgeItem, score: number): KnowledgeItem["confidenceLevel"] {
+  const ev = knowledgeEvidence(item);
+  if (score >= 0.85 && ev >= 5 && item.humanApprovedCount > 0) return "verified";
+  if (score >= 0.75 && ev >= 3) return "high";
+  if (score >= 0.6 && ev >= 1) return "medium";
+  return "low";
+}
+
+function lastVerifiedAtMs(item: KnowledgeItem, currentTime: number): number {
+  if (typeof item.lastVerifiedAt === "number" && Number.isFinite(item.lastVerifiedAt)) return item.lastVerifiedAt;
+  const validFromMs = Date.parse(item.validFrom);
+  return Number.isFinite(validFromMs) ? validFromMs : currentTime;
+}
+
+function decayAnchorAtMs(item: KnowledgeItem, currentTime: number): number {
+  const anchors = [
+    item.lastDecayedAt,
+    lastVerifiedAtMs(item, currentTime),
+  ].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (anchors.length === 0) return currentTime;
+  return Math.max(...anchors);
+}
+
+function validityExpired(item: KnowledgeItem, currentTime: number): boolean {
+  if (!item.validUntil) return false;
+  const validUntilMs = Date.parse(item.validUntil);
+  return Number.isFinite(validUntilMs) && validUntilMs < currentTime;
+}
+
+export function decayStaleKnowledge(projectId: string, currentTime = Date.now(), lambda = 0.03) {
+  const eligible = storage.listKnowledge(projectId).filter((item) => (
+    !item.supersededBy &&
+    !validityExpired(item, currentTime) &&
+    !["quarantined", "expired", "conflict"].includes(item.status)
+  ));
+  let decayed = 0;
+  let demoted = 0;
+
+  for (const item of eligible) {
+    const result = applyTimeDecay({
+      score: item.confidenceScore,
+      lastVerifiedAt: decayAnchorAtMs(item, currentTime),
+      storageStrength: item.storageStrength ?? 1,
+    }, currentTime, lambda);
+    if (result.daysSinceLastVerified === 0) continue;
+
+    const nextStatus = result.shouldDemoteToStale && item.status !== "stale" ? "stale" : item.status;
+    const scoreChanged = Math.abs(result.newScore - item.confidenceScore) > 1e-9;
+    const storageChanged = Math.abs(result.newStorageStrength - (item.storageStrength ?? 1)) > 1e-9;
+    const statusChanged = nextStatus !== item.status;
+    if (!scoreChanged && !storageChanged && !statusChanged) continue;
+
+    storage.updateKnowledge(item.id, {
+      confidenceScore: result.newScore,
+      confidenceLevel: confidenceLevelFor(item, result.newScore),
+      storageStrength: result.newStorageStrength,
+      lastDecayedAt: currentTime,
+      status: nextStatus,
+      actor: "time_decay_scheduler",
+    });
+    decayed += 1;
+    if (statusChanged) demoted += 1;
+  }
+
+  return { evaluated: eligible.length, decayed, demoted };
 }
 
 function gateResolvedAt(gate: HumanGateItem): string | null {
@@ -1031,6 +1103,7 @@ function hasFeedbackSyncErrors(results: ExternalFeedbackSyncResult[]): boolean {
 }
 
 export async function schedulerTickProject(projectId: string, options: SchedulerTickOptions = {}): Promise<SchedulerTickResult> {
+  decayStaleKnowledge(projectId);
   const budget = executeGateBudget(projectId);
   const humanAttention = enforceHumanAttentionBudget(projectId, budget);
   if (humanAttention.safetyMode) {

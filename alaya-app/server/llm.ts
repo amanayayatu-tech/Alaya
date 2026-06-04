@@ -30,6 +30,14 @@ const DEFAULT_SCHEMA: JsonSchema = {
   properties: { summary: { type: "string" } },
 };
 const DEFAULT_SIMPLIFIED_SCHEMA = DEFAULT_SCHEMA;
+const BASE_SYSTEM_INSTRUCTIONS =
+  "You are an Alaya agent. Return concise JSON only. Match the supplied schema exactly, using [] for empty arrays. " +
+  "If draft_output already satisfies the schema, copy its key names exactly and adapt content only when evidence requires it.";
+
+export function buildSystemInstructions(input: Pick<LlmCallInput, "knowledgeSummary">): string {
+  const priorKnowledge = input.knowledgeSummary?.trim();
+  return priorKnowledge ? `${priorKnowledge}\n\n${BASE_SYSTEM_INSTRUCTIONS}` : BASE_SYSTEM_INSTRUCTIONS;
+}
 
 function stableStringify(value: unknown): string {
   try {
@@ -290,9 +298,7 @@ async function callResponses(input: LlmCallInput, schema: JsonSchema, previousEr
       model,
       temperature: 0.2,
       max_output_tokens: maxOutputTokens(),
-      instructions:
-        "You are an Alaya agent. Return concise JSON only. Match the supplied schema exactly, using [] for empty arrays. " +
-        "If draft_output already satisfies the schema, copy its key names exactly and adapt content only when evidence requires it.",
+      instructions: buildSystemInstructions(input),
       input: [{
         role: "user",
         content: [{
@@ -346,9 +352,7 @@ async function callChatCompletions(input: LlmCallInput, schema: JsonSchema, prev
       messages: [
         {
           role: "system",
-          content:
-            "You are an Alaya agent. Return concise JSON only. Match the supplied schema exactly, using [] for empty arrays. " +
-            "If draft_output already satisfies the schema, copy its key names exactly and adapt content only when evidence requires it.",
+          content: buildSystemInstructions(input),
         },
         {
           role: "user",

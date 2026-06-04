@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyEvidence, decayConfidence } from "../src/core/update_confidence.js";
+import { applyEvidence, applyTimeDecay, decayConfidence } from "../src/core/update_confidence.js";
 import { transitionState, eligibleForHighRisk } from "../src/core/transition_state.js";
 import { evidenceCount } from "../src/core/types.js";
 import type { KnowledgeItem } from "../src/core/types.js";
@@ -104,6 +104,22 @@ test("漏洞F:衰减按 cycle 触发,score 随间隔下降", () => {
 test("衰减 gap=0 时不变", () => {
   const k = seed({ confidenceScore: 0.9, lastValidatedCycle: 5 });
   assert.equal(decayConfidence(k, 5).confidenceScore, 0.9);
+});
+
+test("Bjork 时间衰减:30天未验证 score 下降", () => {
+  const now = Date.parse("2026-06-04T00:00:00.000Z");
+  const decayed = applyTimeDecay({ score: 0.8, lastVerifiedAt: now - (30 * 86_400_000), storageStrength: 1 }, now);
+  assert.ok(decayed.newScore < 0.8);
+  assert.ok(decayed.newStorageStrength < 1);
+});
+
+test("Bjork 时间衰减:相同入参确定性且低于0.5建议 stale", () => {
+  const now = Date.parse("2026-06-04T00:00:00.000Z");
+  const input = { score: 0.8, lastVerifiedAt: now - (90 * 86_400_000), storageStrength: 1 };
+  const first = applyTimeDecay(input, now);
+  const second = applyTimeDecay(input, now);
+  assert.deepEqual(first, second);
+  assert.equal(first.shouldDemoteToStale, true);
 });
 
 // ---- 状态迁移 ----

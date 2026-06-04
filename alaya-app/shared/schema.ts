@@ -119,6 +119,12 @@ export const knowledgeItems = sqliteTable("knowledge_items", {
   createdBy: text("created_by").notNull().default("distiller"),
   approvedBy: text("approved_by"),
   usageCount: integer("usage_count").notNull().default(0),
+  lastInjectedAt: integer("last_injected_at"),
+  lastVerifiedAt: integer("last_verified_at"),
+  lastDecayedAt: integer("last_decayed_at"),
+  storageStrength: real("storage_strength").notNull().default(1.0),
+  noveltyScore: real("novelty_score"),
+  sourceRound: integer("source_round"),
   tags: text("tags").notNull().default("[]"), // JSON string[]
   notes: text("notes").notNull().default(""),
   supersededBy: text("superseded_by"),
@@ -214,9 +220,18 @@ export type FeedbackItem = typeof feedbackItems.$inferSelect;
 export type Prediction = typeof predictions.$inferSelect;
 export type Observation = typeof observations.$inferSelect;
 type KnowledgeItemRow = typeof knowledgeItems.$inferSelect;
-export type KnowledgeItem = Omit<KnowledgeItemRow, "supersededBy" | "semanticKey"> & {
+export type KnowledgeItem = Omit<
+  KnowledgeItemRow,
+  "supersededBy" | "semanticKey" | "lastInjectedAt" | "lastVerifiedAt" | "lastDecayedAt" | "storageStrength" | "noveltyScore" | "sourceRound"
+> & {
   supersededBy?: string | null;
   semanticKey?: string;
+  lastInjectedAt?: number | null;
+  lastVerifiedAt?: number | null;
+  lastDecayedAt?: number | null;
+  storageStrength?: number;
+  noveltyScore?: number | null;
+  sourceRound?: number | null;
 };
 export type HumanGateItem = typeof humanGateItems.$inferSelect;
 export type DecisionLogItem = typeof decisionLog.$inferSelect;

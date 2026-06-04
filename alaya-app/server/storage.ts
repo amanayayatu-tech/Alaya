@@ -68,7 +68,10 @@ function migrate() {
     valid_from TEXT NOT NULL DEFAULT '', valid_until TEXT,
     last_validated_cycle INTEGER NOT NULL DEFAULT 0, created_by_cycle INTEGER NOT NULL DEFAULT 0,
     created_by TEXT NOT NULL DEFAULT 'distiller', approved_by TEXT,
-    usage_count INTEGER NOT NULL DEFAULT 0, tags TEXT NOT NULL DEFAULT '[]',
+    usage_count INTEGER NOT NULL DEFAULT 0, last_injected_at INTEGER, last_verified_at INTEGER,
+    last_decayed_at INTEGER,
+    storage_strength REAL NOT NULL DEFAULT 1.0, novelty_score REAL, source_round INTEGER,
+    tags TEXT NOT NULL DEFAULT '[]',
     notes TEXT NOT NULL DEFAULT '', superseded_by TEXT, semantic_key TEXT NOT NULL DEFAULT '',
     version INTEGER NOT NULL DEFAULT 1
   );
@@ -134,6 +137,13 @@ function migrate() {
 
   const knowledgeColumns = new Set((sqlite.prepare(`PRAGMA table_info(knowledge_items)`).all() as Array<{ name: string }>).map((c) => c.name));
   const knowledgeColumnSpecs: Array<[string, string]> = [
+    ["usage_count", "INTEGER NOT NULL DEFAULT 0"],
+    ["last_injected_at", "INTEGER"],
+    ["last_verified_at", "INTEGER"],
+    ["last_decayed_at", "INTEGER"],
+    ["storage_strength", "REAL NOT NULL DEFAULT 1.0"],
+    ["novelty_score", "REAL"],
+    ["source_round", "INTEGER"],
     ["superseded_by", "TEXT"],
     ["semantic_key", "TEXT NOT NULL DEFAULT ''"],
   ];
@@ -160,6 +170,7 @@ function migrate() {
     INSERT INTO knowledge_fts(rowid, title, content, tags) VALUES (new.rowid, new.title, new.content, new.tags);
   END;
   `);
+  sqlite.prepare(`INSERT INTO knowledge_fts(knowledge_fts) VALUES ('rebuild')`).run();
 
   sqlite.exec(`
   CREATE INDEX IF NOT EXISTS idx_cycles_project_idx ON cycles(project_id, idx);
@@ -228,7 +239,14 @@ function rowToKnowledge(r: any): KnowledgeItem {
     status: r.status, humanApprovedCount: r.human_approved_count, externalVerifiedCount: r.external_verified_count,
     validFrom: r.valid_from, validUntil: r.valid_until, lastValidatedCycle: r.last_validated_cycle,
     createdByCycle: r.created_by_cycle, createdBy: r.created_by, approvedBy: r.approved_by,
-    usageCount: r.usage_count, tags: r.tags, notes: r.notes,
+    usageCount: r.usage_count ?? 0,
+    lastInjectedAt: r.last_injected_at ?? null,
+    lastVerifiedAt: r.last_verified_at ?? null,
+    lastDecayedAt: r.last_decayed_at ?? null,
+    storageStrength: r.storage_strength ?? 1,
+    noveltyScore: r.novelty_score ?? null,
+    sourceRound: r.source_round ?? null,
+    tags: r.tags, notes: r.notes,
     supersededBy: r.superseded_by ?? null, semanticKey: r.semantic_key ?? "",
     version: r.version,
   };
@@ -518,16 +536,34 @@ export class DatabaseStorage implements IStorage {
   }
   // ---- knowledge ----
   createKnowledge(k: KnowledgeItem): KnowledgeItem {
-    const n = { ...k, supersededBy: k.supersededBy ?? null, semanticKey: k.semanticKey ?? "" };
-    rawDb.prepare(`INSERT INTO knowledge_items (id,project_id,type,title,content,source_type,source_ref,evidence_alpha,evidence_beta,confidence_score,confidence_level,status,human_approved_count,external_verified_count,valid_from,valid_until,last_validated_cycle,created_by_cycle,created_by,approved_by,usage_count,tags,notes,superseded_by,semantic_key,version)
-      VALUES (@id,@project_id,@type,@title,@content,@source_type,@source_ref,@evidence_alpha,@evidence_beta,@confidence_score,@confidence_level,@status,@human_approved_count,@external_verified_count,@valid_from,@valid_until,@last_validated_cycle,@created_by_cycle,@created_by,@approved_by,@usage_count,@tags,@notes,@superseded_by,@semantic_key,@version)`).run({
+    const n = {
+      ...k,
+      usageCount: k.usageCount ?? 0,
+      lastInjectedAt: k.lastInjectedAt ?? null,
+      lastVerifiedAt: k.lastVerifiedAt ?? null,
+      lastDecayedAt: k.lastDecayedAt ?? null,
+      storageStrength: k.storageStrength ?? 1,
+      noveltyScore: k.noveltyScore ?? null,
+      sourceRound: k.sourceRound ?? k.createdByCycle ?? null,
+      supersededBy: k.supersededBy ?? null,
+      semanticKey: k.semanticKey ?? "",
+    };
+    rawDb.prepare(`INSERT INTO knowledge_items (id,project_id,type,title,content,source_type,source_ref,evidence_alpha,evidence_beta,confidence_score,confidence_level,status,human_approved_count,external_verified_count,valid_from,valid_until,last_validated_cycle,created_by_cycle,created_by,approved_by,usage_count,last_injected_at,last_verified_at,last_decayed_at,storage_strength,novelty_score,source_round,tags,notes,superseded_by,semantic_key,version)
+      VALUES (@id,@project_id,@type,@title,@content,@source_type,@source_ref,@evidence_alpha,@evidence_beta,@confidence_score,@confidence_level,@status,@human_approved_count,@external_verified_count,@valid_from,@valid_until,@last_validated_cycle,@created_by_cycle,@created_by,@approved_by,@usage_count,@last_injected_at,@last_verified_at,@last_decayed_at,@storage_strength,@novelty_score,@source_round,@tags,@notes,@superseded_by,@semantic_key,@version)`).run({
       id: k.id, project_id: k.projectId, type: k.type, title: k.title, content: k.content,
       source_type: k.sourceType, source_ref: k.sourceRef, evidence_alpha: k.evidenceAlpha, evidence_beta: k.evidenceBeta,
       confidence_score: k.confidenceScore, confidence_level: k.confidenceLevel, status: k.status,
       human_approved_count: k.humanApprovedCount, external_verified_count: k.externalVerifiedCount,
       valid_from: k.validFrom, valid_until: k.validUntil, last_validated_cycle: k.lastValidatedCycle,
       created_by_cycle: k.createdByCycle, created_by: k.createdBy, approved_by: k.approvedBy,
-      usage_count: k.usageCount, tags: k.tags, notes: k.notes,
+      usage_count: n.usageCount,
+      last_injected_at: n.lastInjectedAt,
+      last_verified_at: n.lastVerifiedAt,
+      last_decayed_at: n.lastDecayedAt,
+      storage_strength: n.storageStrength,
+      novelty_score: n.noveltyScore,
+      source_round: n.sourceRound,
+      tags: k.tags, notes: k.notes,
       superseded_by: n.supersededBy, semantic_key: n.semanticKey, version: k.version,
     });
     this.auditWrite(k.createdBy || "distiller", "knowledge_items", "insert", null, n, k.createdByCycle);
@@ -547,17 +583,31 @@ export class DatabaseStorage implements IStorage {
     const n = {
       ...cur,
       ...rawPatch,
+      usageCount: rawPatch.usageCount ?? cur.usageCount ?? 0,
+      lastInjectedAt: rawPatch.lastInjectedAt ?? cur.lastInjectedAt ?? null,
+      lastVerifiedAt: rawPatch.lastVerifiedAt ?? cur.lastVerifiedAt ?? null,
+      lastDecayedAt: rawPatch.lastDecayedAt ?? cur.lastDecayedAt ?? null,
+      storageStrength: rawPatch.storageStrength ?? cur.storageStrength ?? 1,
+      noveltyScore: rawPatch.noveltyScore ?? cur.noveltyScore ?? null,
+      sourceRound: rawPatch.sourceRound ?? cur.sourceRound ?? cur.createdByCycle ?? null,
       supersededBy: rawPatch.supersededBy ?? cur.supersededBy ?? null,
       semanticKey: rawPatch.semanticKey ?? cur.semanticKey ?? "",
       version: cur.version + 1,
     };
-    rawDb.prepare(`UPDATE knowledge_items SET type=@type,title=@title,content=@content,source_type=@source_type,source_ref=@source_ref,evidence_alpha=@evidence_alpha,evidence_beta=@evidence_beta,confidence_score=@confidence_score,confidence_level=@confidence_level,status=@status,human_approved_count=@human_approved_count,external_verified_count=@external_verified_count,valid_from=@valid_from,valid_until=@valid_until,last_validated_cycle=@last_validated_cycle,created_by_cycle=@created_by_cycle,created_by=@created_by,approved_by=@approved_by,usage_count=@usage_count,tags=@tags,notes=@notes,superseded_by=@superseded_by,semantic_key=@semantic_key,version=@version WHERE id=@id`).run({
+    rawDb.prepare(`UPDATE knowledge_items SET type=@type,title=@title,content=@content,source_type=@source_type,source_ref=@source_ref,evidence_alpha=@evidence_alpha,evidence_beta=@evidence_beta,confidence_score=@confidence_score,confidence_level=@confidence_level,status=@status,human_approved_count=@human_approved_count,external_verified_count=@external_verified_count,valid_from=@valid_from,valid_until=@valid_until,last_validated_cycle=@last_validated_cycle,created_by_cycle=@created_by_cycle,created_by=@created_by,approved_by=@approved_by,usage_count=@usage_count,last_injected_at=@last_injected_at,last_verified_at=@last_verified_at,last_decayed_at=@last_decayed_at,storage_strength=@storage_strength,novelty_score=@novelty_score,source_round=@source_round,tags=@tags,notes=@notes,superseded_by=@superseded_by,semantic_key=@semantic_key,version=@version WHERE id=@id`).run({
       id, type: n.type, title: n.title, content: n.content, source_type: n.sourceType, source_ref: n.sourceRef,
       evidence_alpha: n.evidenceAlpha, evidence_beta: n.evidenceBeta, confidence_score: n.confidenceScore,
       confidence_level: n.confidenceLevel, status: n.status, human_approved_count: n.humanApprovedCount,
       external_verified_count: n.externalVerifiedCount, valid_from: n.validFrom, valid_until: n.validUntil,
       last_validated_cycle: n.lastValidatedCycle, created_by_cycle: n.createdByCycle, created_by: n.createdBy,
-      approved_by: n.approvedBy, usage_count: n.usageCount, tags: n.tags, notes: n.notes,
+      approved_by: n.approvedBy, usage_count: n.usageCount,
+      last_injected_at: n.lastInjectedAt,
+      last_verified_at: n.lastVerifiedAt,
+      last_decayed_at: n.lastDecayedAt,
+      storage_strength: n.storageStrength,
+      novelty_score: n.noveltyScore,
+      source_round: n.sourceRound,
+      tags: n.tags, notes: n.notes,
       superseded_by: n.supersededBy, semantic_key: n.semanticKey, version: n.version,
     });
     const actor = actorHint ?? (rawPatch.approvedBy ? "human" : "librarian");

@@ -103,6 +103,41 @@ export function applyEvidence(
   };
 }
 
+export interface TimeDecayInput {
+  score: number;
+  lastVerifiedAt: number;
+  storageStrength?: number | null;
+}
+
+export interface TimeDecayResult {
+  newScore: number;
+  newStorageStrength: number;
+  shouldDemoteToStale: boolean;
+  daysSinceLastVerified: number;
+}
+
+/**
+ * Bjork 双强度时间衰减。
+ * retrieval strength(score) 衰减较快,storage strength 衰减较慢。
+ */
+export function applyTimeDecay(
+  knowledge: TimeDecayInput,
+  currentTime: number,
+  lambda = 0.03,
+): TimeDecayResult {
+  const daysSinceLastVerified = Math.max(0, (currentTime - knowledge.lastVerifiedAt) / 86_400_000);
+  const safeLambda = Number.isFinite(lambda) && lambda >= 0 ? lambda : 0.03;
+  const currentStorage = knowledge.storageStrength ?? 1;
+  const newScore = knowledge.score * Math.exp(-safeLambda * daysSinceLastVerified);
+  const newStorageStrength = currentStorage * Math.exp(-(safeLambda / 4) * daysSinceLastVerified);
+  return {
+    newScore,
+    newStorageStrength,
+    shouldDemoteToStale: newScore < 0.5,
+    daysSinceLastVerified,
+  };
+}
+
 /**
  * 知识衰减 —— 修复漏洞F:定义显式衰减,按 cycle 触发。
  * score_decayed = score * exp(-λ * cyclesSinceValidated)

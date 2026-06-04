@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -166,4 +166,45 @@ test("e2e-live-upgrade refuses broad-permission local secret files before any li
   assert.match(result.stderr, /mode 0644; expected 0600/);
   assert.doesNotMatch(result.stderr, /sk-test-minimax-value/);
   assert.doesNotMatch(result.stderr, /ghp_test_github_value/);
+});
+
+test("24h validation runner distinguishes missing live prereqs from network-blocked live", () => {
+  const source = readFileSync(join(root, "scripts", "24h_validation.sh"), "utf8");
+
+  assert.match(source, /MINIMAX_API_KEY/);
+  assert.match(source, /GH_PAT/);
+  assert.match(source, /ALAYA_LLM_CONNECTIVITY_URL/);
+  assert.match(source, /ALAYA_GITHUB_CONNECTIVITY_URL/);
+  assert.match(source, /LIVE=SKIP_NET/);
+  assert.match(source, /live SKIP_NET/);
+  assert.match(source, /Live validation skipped because API connectivity is unavailable\./);
+  assert.match(source, /if \[ "\$ERRORS" -gt 0 \]; then/);
+  assert.match(source, /Validation failed with \$ERRORS failed step\(s\)\./);
+});
+
+test("validation-summary reports total rounds, failures and first positive delta", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "alaya-validation-summary-"));
+  const summary = join(tmp, "SUMMARY.csv");
+  writeFileSync(summary, [
+    "round,timestamp,guard,sim,live,delta",
+    "1,10:00:00,PASS,PASS,SKIP,NA",
+    "2,10:10:00,PASS,PASS,SKIP,0",
+    "3,10:20:00,PASS,PASS,SKIP_NET,2",
+    "4,10:30:00,PASS,FAIL,SKIP,2",
+    "",
+  ].join("\n"));
+
+  const result = spawnSync(process.execPath, ["scripts/validation-summary.mjs", summary], {
+    cwd: root,
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 0);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.totalRounds, 4);
+  assert.equal(parsed.errors, 1);
+  assert.equal(parsed.firstDeltaPositiveRound, 3);
+  assert.equal(parsed.lastRound, 4);
+  assert.equal(parsed.lastDelta, "2");
+  assert.equal(parsed.statusCounts.live.SKIP_NET, 1);
 });

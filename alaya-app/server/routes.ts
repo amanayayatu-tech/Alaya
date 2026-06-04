@@ -9,6 +9,7 @@ import { runFullCycle, scenarioForCycle } from "./flywheel";
 import { gateBudgetForProject, llmBudgetForProject, schedulerTickAllProjects, schedulerTickProject } from "./scheduler";
 import { ingestFormFeedback, syncConfiguredFeedbackForProject, syncGithubIssuesForSource, upsertGithubSource } from "./externalFeedback";
 import { seedDemo } from "./seed";
+import { buildFlywheelHealth } from "./flywheelHealth";
 import { applyEvidence } from "@shared/core/update_confidence.js";
 import { transitionState } from "@shared/core/transition_state.js";
 
@@ -155,6 +156,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       strongCount: knowledge.filter((k) => k.status === "strong").length,
       recentKnowledge: recentKnowledge.map((k) => parseJsonFields(k, ["tags"])),
     });
+  });
+  app.get("/api/flywheel/health", (req, res) => {
+    const requestedProjectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
+    const project = requestedProjectId
+      ? storage.getProject(requestedProjectId)
+      : storage.listProjects()[0];
+    if (requestedProjectId && !project) return res.status(404).json({ message: "not found" });
+    res.json(buildFlywheelHealth(project?.id));
   });
   app.get("/api/projects/:id/gate-budget", (req, res) => {
     const project = storage.getProject(req.params.id);

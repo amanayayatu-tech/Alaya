@@ -122,6 +122,12 @@ export interface KnowledgeItem {
   createdBy: string;
   approvedBy?: string | null;
   usageCount: number;
+  lastInjectedAt?: number | null;
+  lastVerifiedAt?: number | null;
+  lastDecayedAt?: number | null;
+  storageStrength?: number;
+  noveltyScore?: number | null;
+  sourceRound?: number | null;
   tags: string[];
   notes: string;
   /** 熵减合并后指向主知识；保留原条目，不物理删除。 */
