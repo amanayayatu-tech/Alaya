@@ -1,21 +1,32 @@
-import { Card, CardContent } from "@/components/ui/card";
-import { AlertCircle } from "lucide-react";
+import { Link } from "wouter";
+import { AlertCircle, ArrowLeft } from "lucide-react";
+import { EmptyState, PageShell } from "@/components/AppPrimitives";
+import { Button } from "@/components/ui/button";
 
 export default function NotFound() {
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
-      <Card className="w-full max-w-md mx-4">
-        <CardContent className="pt-6">
-          <div className="flex mb-4 gap-2">
-            <AlertCircle className="h-8 w-8 text-red-500" />
-            <h1 className="text-2xl font-bold text-gray-900">404 Page Not Found</h1>
-          </div>
-
-          <p className="mt-4 text-sm text-gray-600">
-            Did you forget to add the page to the router?
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+    <PageShell
+      title="页面不存在"
+      eyebrow="404"
+      description="当前路由没有对应的 Alaya 工作台页面。"
+      className="pb-8"
+    >
+      <EmptyState
+        title="找不到这个页面"
+        description="回到飞轮总览继续查看当前项目状态。"
+        action={
+          <Button asChild className="gap-2">
+            <Link href="/">
+              <ArrowLeft className="h-4 w-4" />
+              返回总览
+            </Link>
+          </Button>
+        }
+      />
+      <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+        <AlertCircle className="h-4 w-4" />
+        <span>Hash 路由仍由现有 wouter 配置处理。</span>
+      </div>
+    </PageShell>
   );
 }

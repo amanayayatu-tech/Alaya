@@ -1,22 +1,54 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { AlertTriangle, ArrowUpRight, CircleDollarSign, Gauge, LoaderCircle, Play } from "lucide-react";
+import {
+  AlertTriangle, ArrowUpRight, Brain, CheckCircle2, CircleDollarSign,
+  GitBranch, LoaderCircle, Play, ShieldCheck, Timer,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useProject } from "@/components/Layout";
-import { PageHeader, Panel, PanelHeader, Stat, Tag, Empty, SkeletonRows } from "@/components/bits";
+import {
+  BudgetRing,
+  EmptyState,
+  ErrorState,
+  FlywheelStageMap,
+  InlineNotice,
+  LoadingBlock,
+  MetricTile,
+  PageShell,
+  SectionCard,
+  StatusBadge,
+} from "@/components/AppPrimitives";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
-  AGENT_ORDER, AGENT_LABEL, STATUS_TONE, CONFIDENCE_TONE, fmtNum,
+  CONFIDENCE_TONE,
+  STATUS_TONE,
+  fmtNum,
   type Dashboard as DashboardData,
 } from "@/lib/alaya";
+import {
+  cycleStatusLabels,
+  flywheelStageLabels,
+  knowledgeStatusLabels,
+  metaFor,
+  schedulerActionLabels,
+  schedulerResultText,
+} from "@/lib/labels";
+
+type SchedulerResult = {
+  action?: string;
+  note?: string;
+  nextCycleId?: string;
+  cycleId?: string;
+};
 
 export default function Dashboard() {
   const { projectId } = useProject();
   const { toast } = useToast();
   const [advancing, setAdvancing] = useState(false);
-  const [lastSchedulerAction, setLastSchedulerAction] = useState<string | null>(null);
-  const { data, isLoading } = useQuery<DashboardData>({
+  const [lastResult, setLastResult] = useState<SchedulerResult | null>(null);
+  const { data, isLoading, isError, error, refetch } = useQuery<DashboardData>({
     queryKey: ["/api/projects", projectId, "dashboard"],
     enabled: !!projectId,
   });
@@ -26,184 +58,182 @@ export default function Dashboard() {
     setAdvancing(true);
     try {
       const response = await apiRequest("POST", `/api/projects/${projectId}/scheduler/tick`, { syncFeedback: false });
-      const result = await response.json();
-      setLastSchedulerAction(result.action ?? "unknown");
+      const result = await response.json() as SchedulerResult;
+      setLastResult(result);
       await queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "dashboard"] });
-      await queryClient.invalidateQueries({ queryKey: ["/api/human-gates", projectId] });
-      toast({ title: "Cycle 已推进", description: result.note ?? result.action });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast({ title: "Cycle 推进失败", description: message });
+      await queryClient.invalidateQueries({ queryKey: ["/api/human-gates"] });
+      toast({ title: "飞轮已请求推进", description: schedulerResultText(result.action, result.note) });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast({ title: "推进失败", description: message });
     } finally {
       setAdvancing(false);
     }
   }
 
-  if (!projectId) return <Empty>选择或创建一个项目</Empty>;
-  if (isLoading || !data) return <SkeletonRows rows={6} />;
+  if (!projectId) {
+    return (
+      <EmptyState
+        illustrated
+        title="先创建一个项目"
+        description="Alaya 会围绕项目目标持续记录预测、反馈、知识和人类决策。"
+        action={<Link href="/projects/new" className="text-sm font-medium text-primary">创建项目</Link>}
+      />
+    );
+  }
+  if (isLoading) return <LoadingBlock rows={6} />;
+  if (isError || !data) {
+    return <ErrorState message={error instanceof Error ? error.message : "无法读取项目总览"} onRetry={() => refetch()} />;
+  }
 
+  const stageMeta = metaFor(flywheelStageLabels, data.flywheelStage, "等待");
+  const cycleStatus = metaFor(cycleStatusLabels, data.currentCycle?.status, "未知");
   const b = data.gateBudget;
-  const usedPct = Math.min(100, Math.round((b.used / b.budget) * 100));
   const llm = data.llmBudget;
-  const llmPct = Math.min(100, Math.round((llm.usedUsd / Math.max(llm.budgetUsd, 0.01)) * 100));
-  const stage = data.flywheelStage;
+  const lastMeta = metaFor(schedulerActionLabels, lastResult?.action, "尚未推进");
+  const hasBlocking = data.blockingRisks > 0 || b.safetyMode || (llm.overBudget && llm.pendingBudgetGate);
 
   return (
-    <div data-testid="page-dashboard">
-      <PageHeader
-        title="Dashboard"
-        sub={`${data.project.name} · ${data.cycleCount} 轮飞轮 · 当前 cycle #${data.currentCycle?.idx ?? "—"} (${data.currentCycle?.status ?? "—"})`}
-        right={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {lastSchedulerAction && (
-              <span data-testid="text-last-scheduler-action" className="rounded-md border border-border bg-card px-2.5 py-1.5 text-[11px] font-mono text-muted-foreground">
-                {lastSchedulerAction}
-              </span>
-            )}
-            <button
-              data-testid="button-advance-cycle"
-              onClick={advanceCycle}
-              disabled={advancing}
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover-elevate active-elevate-2 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {advancing ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-              推进
-            </button>
-          </div>
-        }
-      />
-
-      {b.safetyMode && (
-        <div className="mb-5 flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive" data-testid="banner-safety-mode">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          <span><span className="font-semibold">安全模式已触发</span> · 待处理 blocking 闸门 {b.pendingBlocking} 条 (&gt;3),已冻结新立项。</span>
-        </div>
+    <PageShell
+      title={data.project.name}
+      eyebrow="飞轮总览"
+      description={
+        <>
+          {stageMeta.label}。当前第 {data.currentCycle?.idx ?? "—"} 轮，
+          累计 {data.cycleCount} 轮；系统只在方向、意义和风险卡点请求人类介入。
+        </>
+      }
+      action={
+        <Button
+          data-testid="button-advance-cycle"
+          onClick={advanceCycle}
+          disabled={advancing}
+          className="gap-2"
+        >
+          {advancing ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+          推进飞轮一轮
+        </Button>
+      }
+      className="pb-8"
+      testId="page-dashboard"
+    >
+      {hasBlocking && (
+        <InlineNotice tone="danger">
+          {b.safetyMode
+            ? `安全模式已触发：待处理阻塞闸门 ${b.pendingBlocking} 条，系统暂停新立项。`
+            : llm.overBudget && llm.pendingBudgetGate
+              ? `LLM 本周预算已超出：$${llm.usedUsd.toFixed(4)} / $${llm.budgetUsd.toFixed(2)}。`
+              : `当前有 ${data.blockingRisks} 个阻塞风险，需要先处理人类闸门。`}
+        </InlineNotice>
       )}
 
-      {llm.overBudget && llm.pendingBudgetGate && (
-        <div className="mb-5 flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive" data-testid="banner-llm-budget">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          <span><span className="font-semibold">LLM 成本预算已触发</span> · 本周 ${llm.usedUsd.toFixed(4)} / ${llm.budgetUsd.toFixed(2)}，已暂停自动推进。</span>
-        </div>
+      {lastResult && (
+        <InlineNotice tone={lastMeta.tone ?? "primary"}>
+          <span data-testid="text-last-scheduler-action">{schedulerResultText(lastResult.action, lastResult.note)}</span>
+        </InlineNotice>
       )}
 
-      {/* KPI row */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="待人工闸门" value={data.pendingHuman} tone={data.pendingHuman > 0 ? "text-chart-4" : ""} sub="pending human gates" />
-        <Stat label="开放预测" value={data.openPredictions} sub="open predictions" />
-        <Stat label="阻塞风险" value={data.blockingRisks} tone={data.blockingRisks > 0 ? "text-destructive" : ""} sub="blocking risks" />
-        <Stat label="知识 / strong" value={`${data.knowledgeCount} / ${data.strongCount}`} sub="knowledge items" />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <MetricTile label="当前周期" value={`C${data.currentCycle?.idx ?? "—"}`} sub={<StatusBadge meta={cycleStatus} />} icon={<GitBranch className="h-4 w-4" />} />
+        <MetricTile label="累计周期" value={data.cycleCount} sub="已进入飞轮账本" icon={<Timer className="h-4 w-4" />} />
+        <MetricTile label="待审批" value={data.pendingHuman} tone={data.pendingHuman > 0 ? "warning" : "default"} sub="人类闸门" icon={<ShieldCheck className="h-4 w-4" />} />
+        <MetricTile label="阻塞风险" value={data.blockingRisks} tone={data.blockingRisks > 0 ? "danger" : "default"} sub="必须先处理" icon={<AlertTriangle className="h-4 w-4" />} />
+        <MetricTile label="开放预测" value={data.openPredictions} sub="等待观察闭环" icon={<CheckCircle2 className="h-4 w-4" />} />
+        <MetricTile label="知识 / strong" value={`${data.knowledgeCount}/${data.strongCount}`} sub="可复用信念" icon={<Brain className="h-4 w-4" />} />
       </div>
 
-      {/* flywheel + budget */}
-      <div className="mt-5 grid gap-4 lg:grid-cols-4">
-        <Panel className="lg:col-span-2">
-          <PanelHeader>飞轮阶段 · flywheel stage</PanelHeader>
-          <div className="flex flex-wrap items-center gap-1.5 p-4">
-            {AGENT_ORDER.map((a, i) => {
-              const active = a === stage;
+      <div className="grid gap-4 xl:grid-cols-[1.4fr_0.8fr]">
+        <SectionCard
+          title="飞轮正在做什么"
+          description="高亮的是最近一次 Agent 运行阶段；每一轮都会留下预测、观察、知识和审计记录。"
+        >
+          <div className="space-y-4 p-4">
+            <FlywheelStageMap stage={data.flywheelStage} />
+            <div className="rounded-lg border border-border bg-muted/25 p-4">
+              <div className="text-xs text-muted-foreground">本轮目标</div>
+              <div className="mt-1 text-sm font-medium leading-6" data-testid="text-current-goal">
+                {data.currentCycle?.goal || "等待 Orchestrator 生成方向"}
+              </div>
+              {data.currentCycle?.eCycle != null && (
+                <div className="mt-3 flex flex-wrap gap-3 text-xs">
+                  <span>预测误差 <span className="font-mono text-foreground">{fmtNum(data.currentCycle.eCycle)}</span></span>
+                  <span>最差 claim <span className="font-mono text-foreground">{fmtNum(data.currentCycle.worstClaimError)}</span></span>
+                </div>
+              )}
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard title="预算约束" description="Alaya 只在预算允许时自动推进；超限会打开风险闸。">
+          <div className="space-y-5 p-4">
+            <BudgetRing label="人类闸门预算" value={b.used} total={b.budget} suffix="分钟/周" tone={b.used > b.budget ? "danger" : b.used > b.budget * 0.8 ? "warning" : "primary"} />
+            <BudgetRing
+              label="LLM 成本预算"
+              value={Number(llm.usedCents.toFixed(0))}
+              total={Math.max(1, llm.budgetCents)}
+              suffix="cents/周"
+              tone={llm.overBudget ? "danger" : "success"}
+            />
+            <div className="rounded-md border border-border bg-muted/25 px-3 py-2 text-xs leading-5 text-muted-foreground">
+              待处理: blocking {b.pendingBlocking}，非阻塞 {b.pendingNonBlocking}；本周剩余人工 {b.remaining} 分钟。
+            </div>
+          </div>
+        </SectionCard>
+      </div>
+
+      <SectionCard
+        title="最近沉淀的知识"
+        description="这些信念会影响下一轮方向；过期、隔离、冲突或被合并的知识不会默认进入高风险证据集。"
+        action={
+          <Link href="/knowledge" className="inline-flex items-center gap-1 text-sm font-medium text-primary" data-testid="link-view-knowledge">
+            查看知识库 <ArrowUpRight className="h-4 w-4" />
+          </Link>
+        }
+      >
+        {data.recentKnowledge.length === 0 ? (
+          <EmptyState title="还没有知识" description="飞轮闭环后，Distiller 和 Librarian 会在这里留下可审计的知识。" illustrated />
+        ) : (
+          <div className="divide-y divide-card-border">
+            {data.recentKnowledge.map((k) => {
+              const status = metaFor(knowledgeStatusLabels, k.status);
               return (
-                <div key={a} className="flex items-center gap-1.5">
-                  <span
-                    data-testid={`stage-${a}`}
-                    className={`rounded-md border px-2.5 py-1.5 text-xs font-mono ${
-                      active
-                        ? "border-primary/50 bg-primary/15 text-primary"
-                        : "border-border bg-card text-muted-foreground"
-                    }`}
-                  >
-                    {AGENT_LABEL[a]}
-                  </span>
-                  {i < AGENT_ORDER.length - 1 && <span className="text-muted-foreground">→</span>}
+                <div key={k.id} className="grid gap-2 px-4 py-3 md:grid-cols-[1fr_auto]" data-testid={`row-knowledge-${k.id}`}>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusBadge meta={status} />
+                      <span className="text-[11px] text-muted-foreground">C{k.createdByCycle}</span>
+                    </div>
+                    <div className="mt-1 truncate text-sm font-medium">{k.title}</div>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs">
+                    <span className={`font-mono tabular-nums ${CONFIDENCE_TONE[k.confidenceLevel] ?? ""}`}>{fmtNum(k.confidenceScore, 2)}</span>
+                    <span className={`rounded-md border px-2 py-0.5 text-[11px] ${STATUS_TONE[k.status] ?? "border-border text-muted-foreground"}`}>{k.confidenceLevel}</span>
+                  </div>
                 </div>
               );
             })}
           </div>
-          <div className="border-t border-card-border px-4 py-3 text-sm">
-            <div className="text-muted-foreground text-xs font-mono mb-1">current goal</div>
-            <div data-testid="text-current-goal">{data.currentCycle?.goal || "—"}</div>
-            {data.currentCycle?.eCycle != null && (
-              <div className="mt-2 flex gap-4 text-xs font-mono">
-                <span className="text-muted-foreground">E_cycle <span className="text-foreground">{fmtNum(data.currentCycle.eCycle)}</span></span>
-                <span className="text-muted-foreground">worst <span className="text-foreground">{fmtNum(data.currentCycle.worstClaimError)}</span></span>
-              </div>
-            )}
-          </div>
-        </Panel>
-
-        <Panel>
-          <PanelHeader right={<Gauge className="h-3.5 w-3.5 text-muted-foreground" />}>
-            人工预算 · gate budget
-          </PanelHeader>
-          <div className="p-4">
-            <div className="flex items-baseline justify-between font-mono">
-              <span className="text-2xl font-semibold tabular-nums" data-testid="text-budget-used">{b.used}</span>
-              <span className="text-sm text-muted-foreground">/ {b.budget} min/周</span>
-            </div>
-            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className={`h-full rounded-full ${usedPct > 80 ? "bg-chart-4" : "bg-primary"}`}
-                style={{ width: `${usedPct}%` }}
-              />
-            </div>
-            <div className="mt-2 flex justify-between text-[11px] font-mono text-muted-foreground">
-              <span>已用 {usedPct}%</span>
-              <span>剩余 {b.remaining} min</span>
-            </div>
-            <div className="mt-3 text-xs text-muted-foreground">
-              意义闸按主题合并 · 低风险候选批量展示以降噪。
-            </div>
-          </div>
-        </Panel>
-
-        <Panel>
-          <PanelHeader right={<CircleDollarSign className="h-3.5 w-3.5 text-muted-foreground" />}>
-            LLM 预算 · cost budget
-          </PanelHeader>
-          <div className="p-4">
-            <div className="flex items-baseline justify-between font-mono">
-              <span className={`text-2xl font-semibold tabular-nums ${llm.overBudget ? "text-destructive" : ""}`} data-testid="text-llm-budget-used">
-                ${llm.usedUsd.toFixed(4)}
-              </span>
-              <span className="text-sm text-muted-foreground">/ ${llm.budgetUsd.toFixed(2)}/周</span>
-            </div>
-            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className={`h-full rounded-full ${llm.overBudget || llmPct > 80 ? "bg-destructive" : "bg-chart-2"}`}
-                style={{ width: `${llmPct}%` }}
-              />
-            </div>
-            <div className="mt-2 flex justify-between text-[11px] font-mono text-muted-foreground">
-              <span>已用 {llmPct}%</span>
-              <span>剩余 ${(llm.remainingCents / 100).toFixed(2)}</span>
-            </div>
-            <div className="mt-3 text-xs text-muted-foreground">
-              超预算会进入 blocking risk gate，同周确认后不重复开闸。
-            </div>
-          </div>
-        </Panel>
-      </div>
-
-      {/* recent knowledge */}
-      <Panel className="mt-5">
-        <PanelHeader right={<Link href="/knowledge" className="text-xs font-mono text-primary hover-elevate rounded px-1.5 py-0.5 inline-flex items-center gap-1" data-testid="link-view-knowledge">查看全部 <ArrowUpRight className="h-3 w-3" /></Link>}>
-          最近知识更新 · recent knowledge
-        </PanelHeader>
-        {data.recentKnowledge.length === 0 ? (
-          <Empty>暂无知识</Empty>
-        ) : (
-          <ul className="divide-y divide-card-border">
-            {data.recentKnowledge.map((k) => (
-              <li key={k.id} className="flex items-center gap-3 px-4 py-3" data-testid={`row-knowledge-${k.id}`}>
-                <span className="font-mono text-[11px] text-muted-foreground w-28 shrink-0 truncate" title={k.id}>{k.id}</span>
-                <span className="flex-1 truncate text-sm">{k.title}</span>
-                <span className={`font-mono text-xs tabular-nums ${CONFIDENCE_TONE[k.confidenceLevel] ?? ""}`}>{fmtNum(k.confidenceScore, 2)}</span>
-                <Tag className={STATUS_TONE[k.status] ?? "border-border text-muted-foreground"}>{k.status}</Tag>
-              </li>
-            ))}
-          </ul>
         )}
-      </Panel>
-    </div>
+      </SectionCard>
+
+      <SectionCard title="项目边界" description="红线是自动化不能跨过的物理边界。">
+        <div className="grid gap-3 p-4 md:grid-cols-[1fr_1fr]">
+          <div>
+            <div className="text-xs text-muted-foreground">目标用户</div>
+            <div className="mt-1 text-sm">{data.project.targetUser}</div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground">红线</div>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {data.project.redlines.length === 0 ? (
+                <span className="text-sm text-muted-foreground">未设置</span>
+              ) : data.project.redlines.map((line) => (
+                <StatusBadge key={line} meta={{ label: line, tone: "danger" }} />
+              ))}
+            </div>
+          </div>
+        </div>
+      </SectionCard>
+    </PageShell>
   );
 }

@@ -18,7 +18,7 @@ export interface KnowledgeItem {
   humanApprovedCount: number; externalVerifiedCount: number; validFrom: string;
   validUntil: string | null; lastValidatedCycle: number; createdByCycle: number;
   createdBy: string; approvedBy: string | null; usageCount: number;
-  tags: string[]; notes: string; version: number;
+  tags: string[]; notes: string; supersededBy?: string | null; semanticKey?: string; version: number;
   referencedByAgents?: { agent: string; cycleIdx: number; action: string }[];
   referencedByAgentsLimit?: number;
   referencedByAgentsTruncated?: boolean;
@@ -69,6 +69,18 @@ export interface HumanGate {
 export interface AgentRun {
   id: number; cycleId: string; cycleIdx: number; agent: string; action: string;
   outputSummary: string; knowledgeRefsUsed: string[]; ts: string;
+}
+export interface EventLogItem {
+  id: number; cycleIdx: number; actor: string; tableName: string; op: string;
+  before: string | null; after: string | null; ts: string;
+}
+export interface DecisionLogItem {
+  id: string; cycleId: string; gateType: string; decision: string; rationale: string; ts: string;
+}
+export interface LlmCall {
+  id: number; cycleId: string; agent: string; promptVersion: string;
+  inputSummary: string; outputSummary: string; schemaValid: number;
+  retryCount: number; latencyMs: number; tokenCount: number; estimatedCost: number; ts: string;
 }
 export interface Dashboard {
   project: Project; currentCycle: Cycle; cycleCount: number; flywheelStage: string;
@@ -156,4 +168,8 @@ export const ERROR_TYPE_TONE: Record<string, string> = {
 export function errorToAccuracy(e: number | null): number | null {
   if (e == null) return null;
   return Math.max(0, 1 - e);
+}
+
+export function evidenceCount(k: Pick<KnowledgeItem, "evidenceAlpha" | "evidenceBeta">): number {
+  return Math.max(0, (k.evidenceAlpha ?? 1) - 1) + Math.max(0, (k.evidenceBeta ?? 1) - 1);
 }

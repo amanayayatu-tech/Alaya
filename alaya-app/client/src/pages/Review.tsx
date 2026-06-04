@@ -1,13 +1,36 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, MessageSquare, Lightbulb } from "lucide-react";
+import { ArrowRight, BookOpenCheck, GitBranch, MessageSquare, ScrollText, Sparkles } from "lucide-react";
 import { useProject } from "@/components/Layout";
-import { PageHeader, Panel, PanelHeader, Stat, Tag, Empty, SkeletonRows } from "@/components/bits";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingBlock,
+  MetricTile,
+  PageShell,
+  SectionCard,
+  StatusBadge,
+  toneClasses,
+} from "@/components/AppPrimitives";
 import { apiRequest } from "@/lib/queryClient";
 import {
-  AGENT_ORDER, AGENT_LABEL, STATUS_TONE, fmtNum, fmtPct, errorToAccuracy,
-  type Cycle, type CycleReview,
+  AGENT_ORDER,
+  errorToAccuracy,
+  evidenceCount,
+  fmtNum,
+  fmtPct,
+  type Cycle,
+  type CycleReview,
 } from "@/lib/alaya";
+import {
+  actorLabels,
+  confidenceLabels,
+  cycleStatusLabels,
+  errorTypeLabels,
+  gateTypeLabels,
+  knowledgeStatusLabels,
+  metaFor,
+} from "@/lib/labels";
 
 export default function Review() {
   const { projectId } = useProject();
@@ -18,252 +41,242 @@ export default function Review() {
     enabled: !!projectId,
   });
 
-  useEffect(() => {
-    if (cycles.length > 0 && (!cycleId || !cycles.some((c) => c.id === cycleId))) {
-      const closed = cycles.filter((c) => c.status === "closed");
-      const pick = closed.length ? closed[closed.length - 1] : cycles[cycles.length - 1];
-      setCycleId(pick.id);
-    }
-  }, [cycles, cycleId]);
+  const orderedCycles = useMemo(() => [...cycles].sort((a, b) => a.idx - b.idx), [cycles]);
 
-  const { data: review, isLoading } = useQuery<CycleReview>({
+  useEffect(() => {
+    if (orderedCycles.length === 0) return;
+    if (cycleId && orderedCycles.some((cycle) => cycle.id === cycleId)) return;
+    const closed = orderedCycles.filter((cycle) => cycle.status === "closed");
+    setCycleId((closed.at(-1) ?? orderedCycles.at(-1) ?? null)?.id ?? null);
+  }, [orderedCycles, cycleId]);
+
+  const {
+    data: review,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery<CycleReview>({
     queryKey: ["/api/cycles", cycleId, "review"],
     queryFn: async () => {
-      const r = await apiRequest("GET", `/api/cycles/${cycleId}/review`);
-      return r.json();
+      const response = await apiRequest("GET", `/api/cycles/${cycleId}/review`);
+      return response.json();
     },
     enabled: !!cycleId,
   });
 
-  if (!projectId) return <Empty>选择一个项目</Empty>;
-
-  const ordered = [...cycles].sort((a, b) => a.idx - b.idx);
+  if (!projectId) return <EmptyState title="先选择项目" description="周期评审需要读取该项目的 cycles 和 review 记录。" />;
+  if (orderedCycles.length === 0) return <EmptyState title="还没有周期" description="项目创建后会自动生成第一轮候选周期。" illustrated />;
 
   return (
-    <div data-testid="page-review">
-      <PageHeader
-        title="Cycle Review"
-        sub="单轮复盘:反馈 → 预测/观察 → 5-Agent 运行 → 决策 → 知识更新与引用(复利证据)"
-        right={
-          <select
-            data-testid="select-cycle"
-            value={cycleId ?? ""}
-            onChange={(e) => setCycleId(e.target.value)}
-            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm text-foreground font-mono"
-          >
-            {ordered.map((c) => (
-              <option key={c.id} value={c.id}>
-                第 {c.idx} 轮 · {c.status}
-              </option>
-            ))}
-          </select>
-        }
-      />
-
-      {isLoading || !review ? (
-        <SkeletonRows rows={6} />
+    <PageShell
+      title="周期评审"
+      eyebrow="Cycle Review"
+      description="按单轮查看反馈、预测、Agent 运行、知识引用和人工决策，确认飞轮是否真的产生复利证据。"
+      action={
+        <select
+          data-testid="select-cycle"
+          value={cycleId ?? ""}
+          onChange={(event) => setCycleId(event.target.value)}
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+          aria-label="选择周期"
+        >
+          {orderedCycles.map((cycle) => (
+            <option key={cycle.id} value={cycle.id}>
+              第 {cycle.idx} 轮 · {metaFor(cycleStatusLabels, cycle.status).label}
+            </option>
+          ))}
+        </select>
+      }
+      className="pb-8"
+      testId="page-review"
+    >
+      {isError ? (
+        <ErrorState message={error instanceof Error ? error.message : "无法读取周期评审"} onRetry={() => refetch()} />
+      ) : isLoading || !review ? (
+        <LoadingBlock rows={7} />
       ) : (
-        <div className="space-y-5">
-          {/* goal + metrics */}
-          <Panel>
-            <PanelHeader>
-              第 {review.cycle.idx} 轮目标 · cycle goal
-            </PanelHeader>
-            <div className="p-4">
-              <p className="text-sm font-medium leading-relaxed" data-testid="text-cycle-goal">{review.cycle.goal}</p>
-              {review.cycle.reasoning && (
-                <p className="mt-1.5 text-xs text-muted-foreground">{review.cycle.reasoning}</p>
-              )}
-              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <Stat label="status" value={review.cycle.status} mono />
-                <Stat label="E_cycle" value={fmtNum(review.cycle.eCycle)} />
-                <Stat label="worst claim" value={fmtNum(review.cycle.worstClaimError)} />
-                <Stat label="预测数" value={review.predictions.length} />
-              </div>
-            </div>
-          </Panel>
+        <ReviewContent review={review} />
+      )}
+    </PageShell>
+  );
+}
 
-          {/* compounding: referenced knowledge */}
-          <Panel className={review.referencedKnowledge.length > 0 ? "ring-1 ring-primary/30" : ""}>
-            <PanelHeader right={<Lightbulb className="h-3.5 w-3.5 text-primary" />}>
-              本轮引用的既有知识 · 复利证据 (referenced knowledge)
-            </PanelHeader>
-            {review.referencedKnowledge.length === 0 ? (
-              <Empty>本轮未引用既有知识</Empty>
-            ) : (
-              <div className="divide-y divide-card-border">
-                {review.referencedKnowledge.map((k) => (
-                  <div key={k.id} className="flex flex-wrap items-center gap-2 px-4 py-2.5" data-testid={`referenced-knowledge-${k.id}`}>
-                    <span className="font-mono text-[11px] text-primary">{k.id}</span>
-                    <Tag className={STATUS_TONE[k.status] ?? "border-border"}>{k.status}</Tag>
-                    <span className="text-sm">{k.title}</span>
-                    <span className="ml-auto font-mono text-[11px] text-muted-foreground">
-                      创建于 C{k.createdByCycle} · conf {fmtNum(k.confidenceScore, 2)}
-                    </span>
-                  </div>
-                ))}
-                <div className="px-4 py-2 text-[11px] font-mono text-muted-foreground">
-                  ↑ 这些知识来自更早的轮次,被本轮规划/预测复用 — 体现飞轮复利
+function ReviewContent({ review }: { review: CycleReview }) {
+  const resolved = review.predictions.filter((prediction) => prediction.predictionError != null);
+  const avgAccuracy = resolved.length
+    ? resolved.reduce((sum, prediction) => sum + (errorToAccuracy(prediction.predictionError) ?? 0), 0) / resolved.length
+    : null;
+  const cycleStatus = metaFor(cycleStatusLabels, review.cycle.status);
+
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <MetricTile label="周期" value={`C${review.cycle.idx}`} sub={<StatusBadge meta={cycleStatus} />} icon={<GitBranch className="h-4 w-4" />} />
+        <MetricTile label="反馈" value={review.feedback.length} sub={`${review.bugs.length} 个 bug 信号`} icon={<MessageSquare className="h-4 w-4" />} />
+        <MetricTile label="预测" value={review.predictions.length} sub={`${resolved.length} 条已结算`} icon={<ScrollText className="h-4 w-4" />} />
+        <MetricTile label="准确率" value={fmtPct(avgAccuracy)} sub={`E_cycle ${fmtNum(review.cycle.eCycle)}`} icon={<Sparkles className="h-4 w-4" />} />
+        <MetricTile label="引用知识" value={review.referencedKnowledge.length} sub={`${review.knowledgeUpdated.length} 条本轮更新`} icon={<BookOpenCheck className="h-4 w-4" />} />
+      </div>
+
+      <SectionCard title={`第 ${review.cycle.idx} 轮目标`} description="该目标来自当前 cycle 记录，不做额外推断。">
+        <div className="p-4">
+          <p className="text-base font-medium leading-7" data-testid="text-cycle-goal">{review.cycle.goal}</p>
+          {review.cycle.reasoning && <p className="mt-2 text-sm leading-6 text-muted-foreground">{review.cycle.reasoning}</p>}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <StatusBadge meta={cycleStatus} />
+            <StatusBadge meta={{ label: `worst claim ${fmtNum(review.cycle.worstClaimError)}`, tone: review.cycle.worstClaimError && review.cycle.worstClaimError > 0.3 ? "warning" : "muted" }} />
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="复利证据" description="本轮预测或 Agent 引用的既有知识，是飞轮复用历史经验的核心信号。">
+        {review.referencedKnowledge.length === 0 ? (
+          <EmptyState title="本轮未引用既有知识" description="早期周期可能只依赖 onboarding seed，后续闭环会逐步积累引用。" illustrated />
+        ) : (
+          <div className="grid gap-3 p-4 lg:grid-cols-2">
+            {review.referencedKnowledge.map((item) => (
+              <article key={item.id} className="rounded-lg border border-card-border bg-card p-4" data-testid={`referenced-knowledge-${item.id}`}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusBadge meta={metaFor(knowledgeStatusLabels, item.status)} />
+                  <StatusBadge meta={metaFor(confidenceLabels, item.confidenceLevel)} />
+                  <StatusBadge meta={{ label: `C${item.createdByCycle}`, tone: "muted" }} />
                 </div>
-              </div>
-            )}
-          </Panel>
+                <h2 className="mt-3 line-clamp-2 text-sm font-semibold leading-6">{item.title}</h2>
+                <p className="mt-1 line-clamp-3 text-xs leading-5 text-muted-foreground">{item.content}</p>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <StatusBadge meta={{ label: `${evidenceCount(item)} 证据`, tone: "primary" }} />
+                  <StatusBadge meta={{ label: `conf ${fmtNum(item.confidenceScore, 2)}`, tone: "muted" }} />
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </SectionCard>
 
-          {/* feedback */}
-          <Panel>
-            <PanelHeader right={<MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />}>
-              反馈输入 · feedback ({review.feedback.length})
-            </PanelHeader>
-            {review.feedback.length === 0 ? (
-              <Empty>无反馈</Empty>
-            ) : (
-              <div className="divide-y divide-card-border">
-                {review.feedback.map((f) => (
-                  <div key={f.id} className="flex items-start gap-2 px-4 py-2.5 text-sm" data-testid={`feedback-${f.id}`}>
-                    <Tag className={
-                      f.sentiment === "positive" ? "border-chart-5/30 bg-chart-5/10 text-chart-5"
-                      : f.sentiment === "negative" ? "border-destructive/30 bg-destructive/10 text-destructive"
-                      : "border-border bg-muted text-muted-foreground"
-                    }>{f.category}</Tag>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap gap-1.5">
-                        <Tag className="border-border bg-muted text-muted-foreground">{f.sourceType}</Tag>
-                        {f.sourceRef && <Tag className="border-border bg-muted text-muted-foreground">{f.sourceRef}</Tag>}
-                        {f.topicKey && <Tag className="border-border bg-muted text-muted-foreground">topic:{f.topicKey}</Tag>}
-                      </div>
-                      <div className="mt-1 break-words">{f.text}</div>
-                      {f.sourceUrl && (
-                        <a href={f.sourceUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block break-all font-mono text-[11px] text-primary hover:underline">
-                          {f.sourceUrl}
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Panel>
-
-          {/* predictions */}
-          <Panel>
-            <PanelHeader>预测与观察 · prediction ledger</PanelHeader>
-            {review.predictions.length === 0 ? (
-              <Empty>无预测</Empty>
-            ) : (
-              <div className="divide-y divide-card-border">
-                {review.predictions.map((p) => {
-                  const acc = errorToAccuracy(p.predictionError);
-                  return (
-                    <div key={p.id} className="p-4" data-testid={`review-prediction-${p.id}`}>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-[11px] text-muted-foreground">{p.id}</span>
-                        {p.errorType ? (
-                          <Tag className="border-chart-3/30 bg-chart-3/10 text-chart-3">{p.errorType} error</Tag>
-                        ) : (
-                          <Tag className="border-chart-5/30 bg-chart-5/10 text-chart-5">命中</Tag>
-                        )}
-                        {p.knowledgeRefs.map((r) => (
-                          <Tag key={r} className="border-primary/30 bg-primary/10 text-primary">{r}</Tag>
-                        ))}
-                        <span className="ml-auto font-mono text-xs tabular-nums">
-                          acc <span className={acc != null && acc >= 0.7 ? "text-primary" : "text-chart-4"}>{fmtPct(acc)}</span>
-                        </span>
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm">
-                        <span className="text-muted-foreground">{p.belief}</span>
-                        <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" />
-                        <span>{p.prediction}</span>
-                      </div>
-                      {p.observation && (
-                        <div className="mt-1 font-mono text-xs text-muted-foreground">obs: {p.observation}</div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </Panel>
-
-          {/* agent runs */}
-          <Panel>
-            <PanelHeader>5-Agent 运行序列 · agent runs ({review.agentRuns.length})</PanelHeader>
+      <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
+        <SectionCard title={`反馈输入 (${review.feedback.length})`} description="保留来源、类别、情绪、主题和外部链接。">
+          {review.feedback.length === 0 ? (
+            <EmptyState title="本轮暂无反馈" description="Sensor 没有导入新的外部信号。" />
+          ) : (
             <div className="divide-y divide-card-border">
-              {[...review.agentRuns]
-                .sort((a, b) => AGENT_ORDER.indexOf(a.agent) - AGENT_ORDER.indexOf(b.agent))
-                .map((r, i) => (
-                <div key={r.id} className="flex items-start gap-3 px-4 py-2.5" data-testid={`agent-run-${r.agent}`}>
-                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/15 font-mono text-[10px] text-primary">{i + 1}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-medium">{AGENT_LABEL[r.agent] ?? r.agent}</span>
-                      <span className="font-mono text-[11px] text-muted-foreground">{r.action}</span>
-                    </div>
-                    <div className="mt-0.5 text-xs text-muted-foreground">{r.outputSummary}</div>
-                    {r.knowledgeRefsUsed.length > 0 && (
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {r.knowledgeRefsUsed.map((k) => (
-                          <Tag key={k} className="border-primary/30 bg-primary/10 text-primary">{k}</Tag>
-                        ))}
-                      </div>
-                    )}
+              {review.feedback.map((feedback) => (
+                <article key={feedback.id} className="px-4 py-3" data-testid={`feedback-${feedback.id}`}>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <StatusBadge meta={{ label: feedback.category, tone: feedback.category === "bug" ? "danger" : "primary" }} />
+                    <StatusBadge meta={{ label: feedback.sentiment, tone: feedback.sentiment === "negative" ? "warning" : feedback.sentiment === "positive" ? "success" : "muted" }} />
+                    <StatusBadge meta={{ label: feedback.sourceType, tone: "muted" }} />
+                    {feedback.topicKey && <StatusBadge meta={{ label: `主题 ${feedback.topicKey}`, tone: "muted" }} />}
                   </div>
-                </div>
+                  <p className="mt-2 text-sm leading-6">{feedback.text}</p>
+                  {feedback.sourceUrl && (
+                    <a href={feedback.sourceUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block break-all text-xs text-primary hover:underline">
+                      {feedback.sourceUrl}
+                    </a>
+                  )}
+                </article>
               ))}
             </div>
-          </Panel>
-
-          {/* decisions + knowledge updated */}
-          <div className="grid gap-5 md:grid-cols-2">
-            <Panel>
-              <PanelHeader>人工决策 · decisions</PanelHeader>
-              {review.decisions.length === 0 ? (
-                <Empty>无决策记录</Empty>
-              ) : (
-                <div className="divide-y divide-card-border">
-                  {review.decisions.map((d) => (
-                    <div key={d.id} className="px-4 py-2.5 text-sm" data-testid={`decision-${d.id}`}>
-                      <div className="flex items-center gap-2">
-                        <Tag className="border-border bg-muted text-muted-foreground">{d.gateType}</Tag>
-                        <span className="font-mono text-xs text-primary">{d.decision}</span>
-                      </div>
-                      {d.rationale && <div className="mt-1 text-xs text-muted-foreground">{d.rationale}</div>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Panel>
-
-            <Panel>
-              <PanelHeader>本轮知识更新 · knowledge updated</PanelHeader>
-              {review.knowledgeUpdated.length === 0 ? (
-                <Empty>无更新</Empty>
-              ) : (
-                <div className="divide-y divide-card-border">
-                  {review.knowledgeUpdated.map((k) => (
-                    <div key={k.id} className="flex flex-wrap items-center gap-2 px-4 py-2.5" data-testid={`updated-knowledge-${k.id}`}>
-                      <span className="font-mono text-[11px] text-muted-foreground">{k.id}</span>
-                      <Tag className={STATUS_TONE[k.status] ?? "border-border"}>{k.status}</Tag>
-                      <span className="min-w-0 truncate text-sm">{k.title}</span>
-                      <span className="ml-auto font-mono text-[11px] text-muted-foreground">{fmtNum(k.confidenceScore, 2)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Panel>
-          </div>
-
-          {review.bugs.length > 0 && (
-            <Panel>
-              <PanelHeader>Bug 记录</PanelHeader>
-              <div className="divide-y divide-card-border">
-                {review.bugs.map((b) => (
-                  <div key={b.id} className="px-4 py-2.5 text-sm" data-testid={`bug-${b.id}`}>{b.text}</div>
-                ))}
-              </div>
-            </Panel>
           )}
-        </div>
-      )}
+        </SectionCard>
+
+        <SectionCard title={`预测与观察 (${review.predictions.length})`} description="每条预测都展示信念、预测、观察、误差类型和准确率。">
+          {review.predictions.length === 0 ? (
+            <EmptyState title="本轮暂无预测" description="Orchestrator 尚未为本轮生成预测。" />
+          ) : (
+            <div className="divide-y divide-card-border">
+              {review.predictions.map((prediction) => {
+                const accuracy = errorToAccuracy(prediction.predictionError);
+                return (
+                  <article key={prediction.id} className="px-4 py-3" data-testid={`review-prediction-${prediction.id}`}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {prediction.errorType ? <StatusBadge meta={metaFor(errorTypeLabels, prediction.errorType)} /> : <StatusBadge meta={{ label: "未分类", tone: "muted" }} />}
+                      <StatusBadge meta={{ label: `acc ${fmtPct(accuracy)}`, tone: accuracy != null && accuracy >= 0.7 ? "success" : "warning" }} />
+                      {prediction.knowledgeRefs.map((ref) => <StatusBadge key={ref} meta={{ label: ref, tone: "primary" }} />)}
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm">
+                      <span className="text-muted-foreground">{prediction.belief}</span>
+                      <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span>{prediction.prediction}</span>
+                    </div>
+                    {prediction.observation && <div className="mt-2 text-xs leading-5 text-muted-foreground">观察: {prediction.observation}</div>}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </SectionCard>
+      </div>
+
+      <SectionCard title={`5-Agent 运行序列 (${review.agentRuns.length})`} description="按既有 Agent 顺序展示实际运行记录和知识引用。">
+        {review.agentRuns.length === 0 ? (
+          <EmptyState title="本轮暂无 Agent 运行记录" description="周期仍在规划或等待闸门处理。" illustrated />
+        ) : (
+          <div className="grid gap-3 p-4 lg:grid-cols-2">
+            {[...review.agentRuns]
+              .sort((a, b) => AGENT_ORDER.indexOf(a.agent) - AGENT_ORDER.indexOf(b.agent))
+              .map((run, index) => {
+                const meta = metaFor(actorLabels, run.agent);
+                return (
+                  <article key={run.id} className={`rounded-lg border p-4 ${toneClasses(meta.tone)}`} data-testid={`agent-run-${run.agent}`}>
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-md border border-current/25 text-xs font-semibold">{index + 1}</span>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold">{meta.label}</div>
+                        <div className="truncate text-xs opacity-80">{run.action}</div>
+                      </div>
+                    </div>
+                    <p className="mt-3 text-sm leading-6 opacity-90">{run.outputSummary}</p>
+                    {run.knowledgeRefsUsed.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {run.knowledgeRefsUsed.map((ref) => <StatusBadge key={ref} meta={{ label: ref, tone: "primary" }} />)}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+          </div>
+        )}
+      </SectionCard>
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <SectionCard title={`人工决策 (${review.decisions.length})`} description="本轮 gate 处理写入的 decision-log 摘要。">
+          {review.decisions.length === 0 ? (
+            <EmptyState title="本轮没有人工决策" description="没有需要人类确认的方向、意义或风险闸。" />
+          ) : (
+            <div className="divide-y divide-card-border">
+              {review.decisions.map((decision) => (
+                <article key={decision.id} className="px-4 py-3" data-testid={`decision-${decision.id}`}>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <StatusBadge meta={metaFor(gateTypeLabels, decision.gateType)} />
+                    <StatusBadge meta={{ label: decision.decision, tone: decision.decision === "reject" ? "danger" : "success" }} />
+                  </div>
+                  {decision.rationale && <p className="mt-2 text-sm leading-6 text-muted-foreground">{decision.rationale}</p>}
+                </article>
+              ))}
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard title={`本轮知识更新 (${review.knowledgeUpdated.length})`} description="由本轮创建或验证的知识条目。">
+          {review.knowledgeUpdated.length === 0 ? (
+            <EmptyState title="本轮暂无知识更新" description="Distiller 或 Librarian 尚未写入新知识。" />
+          ) : (
+            <div className="divide-y divide-card-border">
+              {review.knowledgeUpdated.map((item) => (
+                <article key={item.id} className="px-4 py-3" data-testid={`updated-knowledge-${item.id}`}>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <StatusBadge meta={metaFor(knowledgeStatusLabels, item.status)} />
+                    <StatusBadge meta={metaFor(confidenceLabels, item.confidenceLevel)} />
+                    <span className="ml-auto font-mono text-xs text-muted-foreground">{fmtNum(item.confidenceScore, 2)}</span>
+                  </div>
+                  <div className="mt-2 truncate text-sm font-medium">{item.title}</div>
+                </article>
+              ))}
+            </div>
+          )}
+        </SectionCard>
+      </div>
     </div>
   );
 }
