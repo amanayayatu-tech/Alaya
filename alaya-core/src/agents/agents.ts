@@ -15,6 +15,7 @@ import { classifyError, routeError } from "../core/classify_error.js";
 import { applyEvidence } from "../core/update_confidence.js";
 import { transitionState } from "../core/transition_state.js";
 import { evidenceCount } from "../core/types.js";
+import { computeSemanticKey, isContradiction, isSemanticDuplicate } from "./knowledge_similarity.js";
 import type {
   Claim,
   Prediction,
@@ -711,9 +712,72 @@ export async function runLibrarian(store: Store, sc: CycleScenario, llm: LLMProv
   const transitions: string[] = [];
 
   for (const k of store.knowledge.values()) {
+    if (!k.semanticKey) {
+      store.upsertKnowledge("librarian", sc.index, { ...k, semanticKey: computeSemanticKey(k.title, k.content) });
+    }
+  }
+
+  const levelFor = (score: number, ev: number, humanApproved: boolean) => {
+    if (score >= 0.85 && ev >= 5 && humanApproved) return "verified" as const;
+    if (score >= 0.75 && ev >= 3) return "high" as const;
+    if (score >= 0.6 && ev >= 1) return "medium" as const;
+    return "low" as const;
+  };
+
+  const mergePair = (a: KnowledgeItem, b: KnowledgeItem) => {
+    const keeper = a.status === "strong" || (a.status === b.status && a.confidenceScore >= b.confidenceScore) ? a : b;
+    const duplicate = keeper.id === a.id ? b : a;
+    const alpha = 1 + Math.max(0, keeper.evidenceAlpha - 1) + Math.max(0, duplicate.evidenceAlpha - 1);
+    const beta = 1 + Math.max(0, keeper.evidenceBeta - 1) + Math.max(0, duplicate.evidenceBeta - 1);
+    const ev = evidenceCount({ evidenceAlpha: alpha, evidenceBeta: beta });
+    const score = alpha / (alpha + beta);
+    store.upsertKnowledge("librarian", sc.index, {
+      ...keeper,
+      evidenceAlpha: alpha,
+      evidenceBeta: beta,
+      confidenceScore: score,
+      confidenceLevel: levelFor(score, ev, keeper.humanApprovedCount + duplicate.humanApprovedCount > 0),
+      humanApprovedCount: keeper.humanApprovedCount + duplicate.humanApprovedCount,
+      externalVerifiedCount: keeper.externalVerifiedCount + duplicate.externalVerifiedCount,
+      tags: Array.from(new Set([...keeper.tags, ...duplicate.tags])),
+      sourceRef: Array.from(new Set(`${keeper.sourceRef},${duplicate.sourceRef}`.split(",").map((item) => item.trim()).filter(Boolean))).join(","),
+      notes: `${keeper.notes}\nLibrarian merge: absorbed ${duplicate.id}; evidence preserved.`.trim(),
+      semanticKey: keeper.semanticKey || duplicate.semanticKey || computeSemanticKey(keeper.title, keeper.content),
+    });
+    store.upsertKnowledge("librarian", sc.index, {
+      ...duplicate,
+      supersededBy: keeper.id,
+      notes: `${duplicate.notes}\nLibrarian merge: superseded by ${keeper.id}, not physically deleted.`.trim(),
+      semanticKey: duplicate.semanticKey || keeper.semanticKey || computeSemanticKey(duplicate.title, duplicate.content),
+    });
+    transitions.push(`${duplicate.id}: merged->${keeper.id}`);
+  };
+
+  let candidates = [...store.knowledge.values()].filter((k) => !k.supersededBy && !["expired", "quarantined", "conflict"].includes(k.status));
+  for (let i = 0; i < candidates.length; i += 1) {
+    for (let j = i + 1; j < candidates.length; j += 1) {
+      const a = candidates[i];
+      const b = candidates[j];
+      if (isContradiction(a, b)) continue;
+      if (!isSemanticDuplicate(a, b, 0.72)) continue;
+      mergePair(a, b);
+      candidates = [...store.knowledge.values()].filter((k) => !k.supersededBy && !["expired", "quarantined", "conflict"].includes(k.status));
+      i = -1;
+      break;
+    }
+  }
+
+  const strongKnowledge = [...store.knowledge.values()].filter((k) => !k.supersededBy && k.status === "strong");
+  for (const k of [...store.knowledge.values()].filter((item) => !item.supersededBy)) {
+    const conflictsWithStrong = strongKnowledge.some((strong) => (
+      strong.id !== k.id &&
+      evidenceCount(k) >= 1 &&
+      evidenceCount(strong) >= 1 &&
+      isContradiction(k, strong)
+    ));
     const r = transitionState(k, {
       currentCycle: sc.index,
-      conflictsWithStrong: false,
+      conflictsWithStrong,
       humanApprovedStrongPromotion: k.humanApprovedCount >= 1, // 第3轮人类已批准
     });
     if (r.changed) {

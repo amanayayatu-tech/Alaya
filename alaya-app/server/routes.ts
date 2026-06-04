@@ -338,7 +338,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.patch("/api/knowledge/:id", (req, res) => {
     const patch = { ...req.body };
     if (patch.tags && Array.isArray(patch.tags)) patch.tags = JSON.stringify(patch.tags);
-    const k = storage.updateKnowledge(req.params.id, patch);
+    const k = storage.updateKnowledge(req.params.id, { ...patch, actor: "human" });
     if (!k) return res.status(404).json({ message: "not found" });
     res.json(parseJsonFields(k, ["tags"]));
   });
@@ -355,13 +355,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       evidenceAlpha: r.next.evidenceAlpha, evidenceBeta: r.next.evidenceBeta,
       confidenceScore: r.next.confidenceScore, confidenceLevel: r.next.confidenceLevel,
       humanApprovedCount: r.next.humanApprovedCount, approvedBy: "owner",
+      actor: "human",
       status: t.changed ? t.nextStatus : (k.status === "draft" ? "active" : k.status),
     });
     storage.recordEvent({ cycleIdx: k.lastValidatedCycle, actor: "human", tableName: "knowledge_items", op: "approve", before: JSON.stringify({ status: k.status }), after: JSON.stringify({ status: updated?.status }), ts: now() });
     res.json(parseJsonFields(updated as any, ["tags"]));
   });
   app.post("/api/knowledge/:id/quarantine", (req, res) => {
-    const k = storage.updateKnowledge(req.params.id, { status: "quarantined" });
+    const k = storage.updateKnowledge(req.params.id, { status: "quarantined", actor: "human" });
     if (!k) return res.status(404).json({ message: "not found" });
     storage.recordEvent({ cycleIdx: k.lastValidatedCycle, actor: "human", tableName: "knowledge_items", op: "quarantine", before: null, after: JSON.stringify({ id: k.id }), ts: now() });
     res.json(parseJsonFields(k, ["tags"]));

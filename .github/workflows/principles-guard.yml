@@ -45,6 +45,10 @@ jobs:
       - name: Script tests
         run: node --test scripts/tests/*.test.mjs
 
+      # 5.5 长程自主进化：第5轮起由自主目标生成器接管，验证熵减与反空转
+      - name: Long autonomous evolution E2E
+        run: npm run e2e:long-evolution
+
       # 6. 类型检查：core + app
       - name: Typecheck
         run: npm --prefix alaya-core run typecheck && npm --prefix alaya-app run check

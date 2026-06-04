@@ -169,8 +169,10 @@ const checks = [
       has("alaya-app/server/flywheel.ts", /pred_c4_rollback_/) &&
       has("alaya-app/server/flywheel.ts", /rollbackReadyChangePackage/) &&
       has("alaya-app/server/flywheel.ts", /高风险动作进入执行前必须具备可回滚路径与审计摘要/) &&
-      has("alaya-app/server/scheduler.ts", /scenario_exhausted/) &&
-      has("alaya-app/server/scheduler.ts", /refusing to reuse the last cycle template/) &&
+      has("alaya-app/server/flywheel.ts", /resolveCycleStimulus/) &&
+      has("alaya-app/server/scheduler.ts", /buildNextGoalInput/) &&
+      has("alaya-app/server/scheduler.ts", /generateNextGoal/) &&
+      has("alaya-app/server/scheduler.ts", /evolution_stalled/) &&
       has("alaya-core/src/sim/scenario.ts", /index:\s*4/) &&
       has("alaya-core/src/sim/scenario.ts", /可回滚变更包 \+ 审计摘要/) &&
       has("alaya-core/src/agents/agents.ts", /gate_dir_c4_rollback/) &&
@@ -183,7 +185,8 @@ const checks = [
       has("alaya-app/tests/external_feedback_scheduler.test.ts", /cycle4Payload\.rollbackPlan/) &&
       has("alaya-app/tests/external_feedback_scheduler.test.ts", /cycle4Payload\.auditSummary/) &&
       has("alaya-app/tests/external_feedback_scheduler.test.ts", /createdByCycle === 4 && k\.type === "principle"/) &&
-      has("alaya-app/tests/external_feedback_scheduler.test.ts", /scenario_exhausted/),
+      has("alaya-app/tests/evolution_engine.test.ts", /scheduler creates autonomous cycle 5 instead of scenario_exhausted/) &&
+      has("scripts/e2e-long-evolution.mjs", /TOTAL_CYCLES = 20/),
     evidence: "Cycle 4 is locked as a rollback-ready change package + audit summary stage, with app/core tests proving it is not a copy of cycle 3",
   },
   {
@@ -300,7 +303,7 @@ const result = {
   ok: structuralFailures.length === 0,
   complete,
   summary: complete
-    ? "All upgrade layers are structurally present and live external prerequisites are available."
+    ? "All upgrade layers are structurally present and local live credential prerequisites are present; run live E2E to prove provider access."
     : structuralFailures.length > 0
       ? "Structural upgrade checks failed; fix these before live E2E."
       : "Structural upgrade checks passed, but live external E2E prerequisites are missing.",

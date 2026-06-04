@@ -4,10 +4,11 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "NODE_ENV=development tsx server/index.ts",
-    "build": "tsx script/build.ts",
+    "dev": "NODE_ENV=development node --import tsx server/index.ts",
+    "build": "node --import tsx script/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
     "test": "node --import tsx --test tests/*.test.ts",
+    "e2e:long-evolution": "node --import tsx ../scripts/e2e-long-evolution.mjs",
     "e2e:ui-freeze": "node ../scripts/e2e-ui-freeze-smoke.mjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",
