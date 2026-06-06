@@ -24,6 +24,9 @@ jobs:
       - name: Install root tools
         run: npm install
 
+      - name: Secret scan
+        run: npm run secret:scan
+
       - name: Install app dependencies
         working-directory: alaya-app
         run: npm ci
@@ -62,6 +65,9 @@ jobs:
 
       - name: Benchmark smoke
         run: npm run benchmark:smoke
+
+      - name: Docker build
+        run: docker build -t alaya:ci .
 
       - name: Flywheel simulation
         run: npm --prefix alaya-core run flywheel

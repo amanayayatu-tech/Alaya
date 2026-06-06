@@ -80,7 +80,9 @@ export interface DecisionLogItem {
 export interface LlmCall {
   id: number; cycleId: string; agent: string; promptVersion: string;
   inputSummary: string; outputSummary: string; schemaValid: number;
-  retryCount: number; latencyMs: number; tokenCount: number; estimatedCost: number; ts: string;
+  retryCount: number; latencyMs: number;
+  inputTokenCount: number; outputTokenCount: number; tokenCount: number;
+  estimatedCost: number; ts: string;
 }
 export interface Dashboard {
   project: Project; currentCycle: Cycle; cycleCount: number; flywheelStage: string;

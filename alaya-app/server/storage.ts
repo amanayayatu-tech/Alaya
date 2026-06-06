@@ -1,17 +1,79 @@
 import Database from "better-sqlite3";
+import { assertEnvValid, isLongRunMode, isSchemaMigrationAllowed, runModeFromEnv } from "./config/env";
+import { redactSensitiveData, redactSensitiveText } from "./security/redact";
 import type {
   Project, Cycle, Agent, Task, FeedbackItem, Prediction, Observation,
   KnowledgeItem, HumanGateItem, DecisionLogItem, EventLogItem, LlmCall, AgentRun,
   ExternalFeedbackSource, TraceEventItem, ActionLedgerRow,
 } from "@shared/schema";
 
+assertEnvValid();
+
 const sqlite = new Database(process.env.ALAYA_DB_PATH ?? "data.db");
 sqlite.pragma("journal_mode = WAL");
 
 export const rawDb = sqlite;
 
+const REQUIRED_TABLES = [
+  "projects",
+  "cycles",
+  "agents",
+  "tasks",
+  "feedback_items",
+  "predictions",
+  "observations",
+  "knowledge_items",
+  "human_gate_items",
+  "decision_log",
+  "event_log",
+  "llm_calls",
+  "agent_runs",
+  "external_feedback_sources",
+  "trace_events",
+  "action_ledger",
+];
+
+const REQUIRED_COLUMNS: Record<string, string[]> = {
+  llm_calls: ["input_token_count", "output_token_count"],
+  knowledge_items: ["usage_count", "last_injected_at", "last_verified_at", "last_decayed_at", "semantic_key"],
+  external_feedback_sources: ["config", "status", "last_synced_at"],
+  action_ledger: ["idempotency_key", "status", "payload"],
+  trace_events: ["trace_id", "span_id", "attributes"],
+};
+
+function shouldRunImportMigrations(): boolean {
+  const mode = runModeFromEnv();
+  return !isLongRunMode(mode) || isSchemaMigrationAllowed();
+}
+
+function assertSchemaReady() {
+  const rows = sqlite.prepare(`
+    SELECT name FROM sqlite_master WHERE type IN ('table', 'virtual table')
+  `).all() as Array<{ name: string }>;
+  const existing = new Set(rows.map((row) => row.name));
+  const missing = REQUIRED_TABLES.filter((table) => !existing.has(table));
+  const missingColumns = Object.entries(REQUIRED_COLUMNS).flatMap(([table, columns]) => {
+    if (!existing.has(table)) return [];
+    const tableColumns = new Set((sqlite.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((row) => row.name));
+    return columns.filter((column) => !tableColumns.has(column)).map((column) => `${table}.${column}`);
+  });
+  if (missing.length > 0 || missingColumns.length > 0) {
+    throw new Error(
+      `Database schema is not initialized for ${runModeFromEnv()} mode. ` +
+      `Missing tables: ${missing.join(", ") || "none"}; missing columns: ${missingColumns.join(", ") || "none"}. ` +
+      "Run npm run ops:migrate with ALAYA_CAP_DATABASE_MIGRATION=true during a reviewed migration window.",
+    );
+  }
+}
+
 // ---------------- DDL ----------------
-function migrate() {
+export function runSchemaMigrations() {
+  if (isLongRunMode(runModeFromEnv()) && !isSchemaMigrationAllowed()) {
+    throw new Error(
+      `Database schema migration is disabled in ${runModeFromEnv()} mode. ` +
+      "Run scripts/pre-upgrade-check.mjs, back up state, then run npm run ops:migrate with ALAYA_CAP_DATABASE_MIGRATION=true for the reviewed migration window.",
+    );
+  }
   sqlite.exec(`
   CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, direction TEXT NOT NULL,
@@ -97,6 +159,7 @@ function migrate() {
     prompt_version TEXT NOT NULL, input_summary TEXT NOT NULL DEFAULT '',
     output_summary TEXT NOT NULL DEFAULT '', schema_valid INTEGER NOT NULL DEFAULT 1,
     retry_count INTEGER NOT NULL DEFAULT 0, latency_ms INTEGER NOT NULL DEFAULT 0,
+    input_token_count INTEGER NOT NULL DEFAULT 0, output_token_count INTEGER NOT NULL DEFAULT 0,
     token_count INTEGER NOT NULL DEFAULT 0, estimated_cost REAL NOT NULL DEFAULT 0, ts TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS trace_events (
@@ -173,10 +236,17 @@ function migrate() {
     ["provider", "TEXT NOT NULL DEFAULT 'mock'"],
     ["model", "TEXT NOT NULL DEFAULT 'mock'"],
     ["route_reason", "TEXT NOT NULL DEFAULT 'default'"],
+    ["input_token_count", "INTEGER NOT NULL DEFAULT 0"],
+    ["output_token_count", "INTEGER NOT NULL DEFAULT 0"],
   ];
   for (const [name, spec] of llmColumnSpecs) {
     if (!llmColumns.has(name)) sqlite.exec(`ALTER TABLE llm_calls ADD COLUMN ${name} ${spec}`);
   }
+  sqlite.exec(`
+    UPDATE llm_calls
+    SET input_token_count = token_count, output_token_count = 0
+    WHERE input_token_count = 0 AND output_token_count = 0 AND token_count > 0;
+  `);
 
   // FTS5 virtual table mirroring knowledge_items + sync triggers
   sqlite.exec(`
@@ -215,17 +285,26 @@ function migrate() {
   CREATE INDEX IF NOT EXISTS idx_action_ledger_project ON action_ledger(project_id, created_at);
   `);
 }
-migrate();
+
+if (shouldRunImportMigrations()) {
+  runSchemaMigrations();
+} else {
+  assertSchemaReady();
+}
 
 const now = () => new Date().toISOString();
 
 function safeJson(value: unknown): string | null {
   if (value == null) return null;
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(redactSensitiveData(value));
   } catch {
     return JSON.stringify({ unstringifiable: true });
   }
+}
+
+function safeLogText(value: string | null | undefined): string | null {
+  return value == null ? null : redactSensitiveText(value);
 }
 
 function parseJsonObject(value: string): Record<string, any> {
@@ -325,7 +404,10 @@ function rowToLlm(r: any): LlmCall {
     provider: r.provider ?? "mock", model: r.model ?? "mock", routeReason: r.route_reason ?? "default",
     promptVersion: r.prompt_version,
     inputSummary: r.input_summary, outputSummary: r.output_summary, schemaValid: r.schema_valid,
-    retryCount: r.retry_count, latencyMs: r.latency_ms, tokenCount: r.token_count,
+    retryCount: r.retry_count, latencyMs: r.latency_ms,
+    inputTokenCount: r.input_token_count ?? r.token_count ?? 0,
+    outputTokenCount: r.output_token_count ?? 0,
+    tokenCount: r.token_count,
     estimatedCost: r.estimated_cost, ts: r.ts,
   };
 }
@@ -358,7 +440,8 @@ function rowToExternalFeedbackSource(r: any): ExternalFeedbackSource {
   };
 }
 
-type LlmCallInsert = Omit<LlmCall, "id" | "provider" | "model" | "routeReason"> & Partial<Pick<LlmCall, "provider" | "model" | "routeReason">>;
+type LlmCallInsert = Omit<LlmCall, "id" | "provider" | "model" | "routeReason" | "inputTokenCount" | "outputTokenCount"> &
+  Partial<Pick<LlmCall, "provider" | "model" | "routeReason" | "inputTokenCount" | "outputTokenCount">>;
 
 export interface IStorage {
   // projects
@@ -742,7 +825,8 @@ export class DatabaseStorage implements IStorage {
   }
   // ---- event log ----
   recordEvent(e: Omit<EventLogItem, "id">): void {
-    rawDb.prepare(`INSERT INTO event_log (cycle_idx,actor,table_name,op,before,after,ts) VALUES (?,?,?,?,?,?,?)`).run(e.cycleIdx, e.actor, e.tableName, e.op, e.before ?? null, e.after ?? null, e.ts);
+    rawDb.prepare(`INSERT INTO event_log (cycle_idx,actor,table_name,op,before,after,ts) VALUES (?,?,?,?,?,?,?)`)
+      .run(e.cycleIdx, e.actor, e.tableName, e.op, safeLogText(e.before), safeLogText(e.after), e.ts);
   }
   listEvents(): EventLogItem[] {
     return rawDb.prepare(`SELECT * FROM event_log ORDER BY id DESC LIMIT 500`).all().map(rowToEvent);
@@ -753,13 +837,15 @@ export class DatabaseStorage implements IStorage {
       provider: c.provider ?? "mock",
       model: c.model ?? "mock",
       routeReason: c.routeReason ?? "default",
+      inputTokenCount: c.inputTokenCount ?? c.tokenCount ?? 0,
+      outputTokenCount: c.outputTokenCount ?? 0,
       ...c,
     };
-    rawDb.prepare(`INSERT INTO llm_calls (cycle_id,agent,provider,model,route_reason,prompt_version,input_summary,output_summary,schema_valid,retry_count,latency_ms,token_count,estimated_cost,ts)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    rawDb.prepare(`INSERT INTO llm_calls (cycle_id,agent,provider,model,route_reason,prompt_version,input_summary,output_summary,schema_valid,retry_count,latency_ms,input_token_count,output_token_count,token_count,estimated_cost,ts)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
       n.cycleId, n.agent, n.provider, n.model, n.routeReason, n.promptVersion,
       n.inputSummary, n.outputSummary, n.schemaValid, n.retryCount, n.latencyMs,
-      n.tokenCount, n.estimatedCost, n.ts,
+      n.inputTokenCount, n.outputTokenCount, n.tokenCount, n.estimatedCost, n.ts,
     );
     this.auditWrite(c.agent || "llm", "llm_calls", "insert", null, n, this.cycleIdxFor(c.cycleId));
   }

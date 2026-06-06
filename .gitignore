@@ -24,5 +24,7 @@ coverage/
 .nyc_output/
 tmp/
 temp/
+backups/
+tmp/alaya-backups/
 .codex-screenshots/
 alaya-app/.codex-screenshots/

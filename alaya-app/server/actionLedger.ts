@@ -1,6 +1,7 @@
 import { actionRiskSummary, makeIdempotencyKey } from "@shared/core/action_risk.js";
 import { storage, now } from "./storage";
 import { recordTrace } from "./trace";
+import { redactSensitiveData } from "./security/redact";
 import type { ActionLedgerRow, HumanGateItem } from "@shared/schema";
 import type { RiskLevel } from "@shared/core/types.js";
 
@@ -75,7 +76,9 @@ function ensureRiskGate(input: RecordActionProposalInput, riskLevel: RiskLevel, 
 }
 
 export function recordActionProposal(input: RecordActionProposalInput): ActionLedgerRow {
-  const payload = input.payload ?? {};
+  const payload = redactSensitiveData(input.payload ?? {}) as Record<string, unknown>;
+  const rollbackPlan = input.rollbackPlan == null ? null : redactSensitiveData(input.rollbackPlan);
+  const auditSummary = input.auditSummary == null ? null : redactSensitiveData(input.auditSummary);
   const idempotencyKey = makeIdempotencyKey({
     projectId: input.projectId,
     cycleId: input.cycleId,
@@ -107,8 +110,8 @@ export function recordActionProposal(input: RecordActionProposalInput): ActionLe
     approvalGateId: approvalGate?.id ?? null,
     idempotencyKey,
     status,
-    rollbackPlan: input.rollbackPlan == null ? null : JSON.stringify(input.rollbackPlan),
-    auditSummary: input.auditSummary == null ? null : JSON.stringify(input.auditSummary),
+    rollbackPlan: rollbackPlan == null ? null : JSON.stringify(rollbackPlan),
+    auditSummary: auditSummary == null ? null : JSON.stringify(auditSummary),
     payload: JSON.stringify(payload),
     createdAt,
     updatedAt: createdAt,

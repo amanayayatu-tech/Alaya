@@ -1,0 +1,52 @@
+services:
+  alaya:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: alaya:shadow
+    env_file:
+      - ./env/alaya.env.example
+    environment:
+      ALAYA_MODE: shadow
+      NODE_ENV: production
+      ALAYA_AUTO_SEED_DEMO: "false"
+      ALAYA_DB_PATH: /var/lib/alaya/alaya.db
+      ALAYA_CAP_DATABASE_MIGRATION: "false"
+      ALAYA_CAP_SCHEDULER_LOOP: "false"
+      ALAYA_CAP_LLM_CALL: "false"
+      ALAYA_CAP_KNOWLEDGE_WRITE: dry_run
+      ALAYA_CAP_GITHUB_WRITE: "false"
+      ALAYA_CAP_SHELL_EXECUTION: "false"
+      ALAYA_CAP_EXTERNAL_NOTIFICATION: "false"
+    ports:
+      - "${ALAYA_SHADOW_PORT:-5000}:5000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid,nodev
+    volumes:
+      - alaya-data:/var/lib/alaya
+      - alaya-logs:/var/log/alaya
+      - alaya-cache:/var/cache/alaya
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 1.0
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 8192
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5000/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  alaya-data:
+  alaya-logs:
+  alaya-cache:

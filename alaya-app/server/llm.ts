@@ -2,6 +2,7 @@ import { storage, now } from "./storage";
 import { readFileSync } from "node:fs";
 import { resolveModelRoute } from "@shared/core/model_router.js";
 import { recordTrace } from "./trace";
+import { assertNetworkAllowed, requireCapability } from "./security/capabilities";
 import type { ModelRoute } from "@shared/core/types.js";
 
 const DEFAULT_OPENAI_API_KEY_FILE = "/private/tmp/alaya-minimax-key";
@@ -149,7 +150,19 @@ function promptVersion(promptName: string) {
   return `${promptName}@v1`;
 }
 
-function record(input: LlmCallInput, route: ModelRoute, data: Record<string, unknown>, schemaValid: boolean, retryCount: number, latencyMs: number, tokenCount: number) {
+function llmInputForLog(input: LlmCallInput) {
+  return {
+    input: input.inputSummary,
+    context: input.context ?? {},
+    knowledgeSummary: input.knowledgeSummary ?? "",
+    prohibited: input.prohibited ?? [],
+  };
+}
+
+function record(input: LlmCallInput, route: ModelRoute, data: Record<string, unknown>, schemaValid: boolean, retryCount: number, latencyMs: number) {
+  const inputTokenCount = approxTokens(llmInputForLog(input));
+  const outputTokenCount = approxTokens(data);
+  const tokenCount = inputTokenCount + outputTokenCount;
   storage.recordLlmCall({
     cycleId: input.cycleId,
     agent: input.agent,
@@ -157,16 +170,13 @@ function record(input: LlmCallInput, route: ModelRoute, data: Record<string, unk
     model: route.model,
     routeReason: route.routeReason,
     promptVersion: promptVersion(input.promptName),
-    inputSummary: summarize({
-      input: input.inputSummary,
-      context: input.context ?? {},
-      knowledgeSummary: input.knowledgeSummary ?? "",
-      prohibited: input.prohibited ?? [],
-    }),
+    inputSummary: summarize(llmInputForLog(input)),
     outputSummary: summarize(sanitizeValue(data)),
     schemaValid: schemaValid ? 1 : 0,
     retryCount,
     latencyMs,
+    inputTokenCount,
+    outputTokenCount,
     tokenCount,
     estimatedCost: estimateCost(tokenCount),
     ts: now(),
@@ -189,6 +199,8 @@ function record(input: LlmCallInput, route: ModelRoute, data: Record<string, unk
         routeReason: route.routeReason,
         schemaValid,
         retryCount,
+        inputTokenCount,
+        outputTokenCount,
         tokenCount,
         estimatedCost: estimateCost(tokenCount),
       },
@@ -221,16 +233,28 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
 
   if (provider !== "openai") {
     const schemaValid = validate(input.mockOutput, schema);
-    const tokenCount = approxTokens({ input: safeInput, output: input.mockOutput });
-    record(safeInput, route, input.mockOutput, schemaValid, 0, Date.now() - started, tokenCount);
+    record(safeInput, route, input.mockOutput, schemaValid, 0, Date.now() - started);
     if (!schemaValid) createDegradedGate(safeInput, "mock output failed schema validation");
     return input.mockOutput;
+  }
+
+  const capability = requireCapability({
+    actor: input.agent,
+    capability: "llm_call",
+    target: route.model,
+    cycleId: input.cycleId,
+    payload: { provider: route.provider, model: route.model, promptName: input.promptName },
+  });
+  if (capability.dryRun) {
+    const data = { summary: `LLM dry-run: ${route.provider}/${route.model} was not called` };
+    record(safeInput, route, data, false, 0, Date.now() - started);
+    return data;
   }
 
   const apiKey = openAiApiKey();
   if (!apiKey) {
     const data = { summary: `OpenAI disabled: missing OPENAI_API_KEY` };
-    record(safeInput, route, data, false, 0, Date.now() - started, approxTokens({ input: safeInput, data }));
+    record(safeInput, route, data, false, 0, Date.now() - started);
     createDegradedGate(safeInput, "OPENAI_API_KEY is not set");
     return data;
   }
@@ -241,7 +265,7 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
       const data = await callOpenAI(safeInput, schema, redactSensitiveText(lastError), apiKey, route.model);
       const errors = validationErrors(data, schema);
       if (errors.length === 0) {
-        record(safeInput, route, data, true, attempt, Date.now() - started, approxTokens({ input: safeInput, data }));
+        record(safeInput, route, data, true, attempt, Date.now() - started);
         return data;
       }
       lastError = `schema validation failed: ${errors.join("; ")}. Include every required key; use [] for empty arrays.`;
@@ -262,10 +286,10 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
     if (validate(simpleData, simpleSchema)) {
       const originalErrors = validationErrors(simpleData, schema);
       if (originalErrors.length === 0) {
-        record(safeInput, route, simpleData, true, 2, Date.now() - started, approxTokens({ input: safeInput, simpleData }));
+        record(safeInput, route, simpleData, true, 2, Date.now() - started);
         return simpleData;
       }
-      record(safeInput, route, simpleData, false, 2, Date.now() - started, approxTokens({ input: safeInput, simpleData }));
+      record(safeInput, route, simpleData, false, 2, Date.now() - started);
       createDegradedGate(safeInput, `degraded to simplified schema after: ${lastError || "schema validation failed"}`);
       return simpleData;
     }
@@ -275,7 +299,7 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
   }
 
   const simplified = { summary: `LLM degraded for ${input.agent}/${input.promptName}: ${lastError}` };
-  record(safeInput, route, simplified, false, 3, Date.now() - started, approxTokens({ input: safeInput, simplified }));
+  record(safeInput, route, simplified, false, 3, Date.now() - started);
   createDegradedGate(safeInput, lastError || "schema validation failed");
   return simplified;
 }
@@ -417,6 +441,7 @@ function providerChatExtras(model: string, endpoint: string): Record<string, unk
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  assertNetworkAllowed(url, { actor: "llm", payload: { method: init.method ?? "GET" } });
   const timeoutMs = requestTimeoutMs();
   const controller = new AbortController();
   const timer = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null;

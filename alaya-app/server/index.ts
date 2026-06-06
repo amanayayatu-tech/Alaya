@@ -1,10 +1,15 @@
 import "dotenv/config";
 import express, { Response, NextFunction } from 'express';
 import type { Request } from 'express';
+import { assertEnvValid } from "./config/env";
+import { checkCapability, CapabilityDeniedError } from "./security/capabilities";
+import { redactError, redactSensitiveData, redactSensitiveText } from "./security/redact";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "node:http";
 import { startCycleScheduler } from "./scheduler";
+
+const envConfig = assertEnvValid();
 
 const app = express();
 const httpServer = createServer(app);
@@ -26,20 +31,18 @@ app.use(
 app.use(express.urlencoded({ extended: false }));
 
 export function log(message: string, source = "express") {
-  const formattedTime = new Date().toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
-
-  console.log(`${formattedTime} [${source}] ${message}`);
+  console.log(JSON.stringify({
+    ts: new Date().toISOString(),
+    level: "info",
+    source,
+    message: redactSensitiveText(message),
+  }));
 }
 
 function summarizeJsonForLog(value: unknown, maxLength = 1_200) {
   let text = "";
   try {
-    text = JSON.stringify(value);
+    text = JSON.stringify(redactSensitiveData(value));
   } catch {
     text = "[unserializable response]";
   }
@@ -77,10 +80,13 @@ app.use((req, res, next) => {
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+    if (err instanceof CapabilityDeniedError) {
+      return res.status(403).json({ message: err.message, capability: err.decision.capability, mode: err.decision.mode });
+    }
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
-    console.error("Internal Server Error:", err);
+    console.error(JSON.stringify({ ts: new Date().toISOString(), level: "error", source: "express", error: redactError(err) }));
 
     if (res.headersSent) {
       return next(err);
@@ -109,7 +115,7 @@ app.use((req, res, next) => {
       : { port, host };
 
   httpServer.listen(listenOptions, () => {
-    log(`serving on ${host}:${port}`);
+    log(`serving on ${host}:${port} mode=${envConfig.mode}`);
   });
 
   // Auto-seed the demo project after the server is reachable. In live E2E the
@@ -129,8 +135,18 @@ app.use((req, res, next) => {
   }
 
   if (process.env.ALAYA_SCHEDULER !== "false") {
-    const scheduler = startCycleScheduler();
-    scheduler.unref?.();
-    log(`cycle scheduler enabled (${process.env.ALAYA_SCHEDULER_INTERVAL_MS ?? 60_000}ms)`, "scheduler");
+    const decision = checkCapability({
+      actor: "scheduler",
+      capability: "scheduler_loop",
+      target: "startCycleScheduler",
+      payload: { intervalMs: process.env.ALAYA_SCHEDULER_INTERVAL_MS ?? 60_000 },
+    });
+    if (decision.allowed) {
+      const scheduler = startCycleScheduler();
+      scheduler.unref?.();
+      log(`cycle scheduler enabled (${process.env.ALAYA_SCHEDULER_INTERVAL_MS ?? 60_000}ms)`, "scheduler");
+    } else {
+      log(`cycle scheduler not started: ${decision.reason}`, "scheduler");
+    }
   }
 })();

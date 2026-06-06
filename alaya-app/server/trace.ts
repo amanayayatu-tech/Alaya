@@ -1,4 +1,5 @@
 import { storage, now } from "./storage";
+import { redactSensitiveData } from "./security/redact";
 import type { TraceEventItem } from "@shared/schema";
 
 type TraceStatus = "ok" | "error" | "blocked";
@@ -22,7 +23,7 @@ let traceCounter = 0;
 
 function safeJson(value: unknown): string {
   try {
-    return JSON.stringify(value ?? {});
+    return JSON.stringify(redactSensitiveData(value ?? {}));
   } catch {
     return JSON.stringify({ unstringifiable: true });
   }
@@ -43,7 +44,7 @@ function traceIdFor(input: RecordTraceInput): string {
 
 function spanIdFor(input: RecordTraceInput, createdAt: string): string {
   traceCounter += 1;
-  return hashHex(`${traceIdFor(input)}:${input.kind}:${input.name}:${createdAt}:${traceCounter}:${JSON.stringify(input.attributes ?? {})}`, 16);
+  return hashHex(`${traceIdFor(input)}:${input.kind}:${input.name}:${createdAt}:${traceCounter}:${safeJson(input.attributes ?? {})}`, 16);
 }
 
 export function recordTrace(input: RecordTraceInput): TraceEventItem {

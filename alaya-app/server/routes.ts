@@ -1,6 +1,10 @@
 import type { Express, Request, Response } from "express";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
+import { buildHealthz, buildReadyz } from "./observability/health";
+import { buildMetricsSnapshot, renderPrometheusMetrics } from "./observability/metrics";
+import { isLongRunMode, runModeFromEnv } from "./config/env";
+import { auditCapabilityDecision, evaluateCapability, type CapabilityName } from "./security/capabilities";
 import { storage, now } from "./storage";
 import { onboardingSchema } from "@shared/schema";
 import { createProjectFromOnboarding } from "./onboarding";
@@ -36,7 +40,56 @@ function numericLimit(value: unknown, fallback = 1000): number {
   return Number.isFinite(n) ? Math.min(Math.max(Math.trunc(n), 1), 5000) : fallback;
 }
 
+function mutatingCapabilityForRequest(req: Request): CapabilityName {
+  if (req.path.includes("/scheduler")) return "scheduler_loop";
+  if (req.path.includes("/seed-demo")) return "knowledge_write";
+  if (req.path.includes("/knowledge")) return "knowledge_write";
+  if (req.path.includes("/integrations") || req.path.includes("/feedback")) return "knowledge_write";
+  if (req.path.includes("/human-gates")) return "knowledge_write";
+  if (req.path.includes("/cycles") || req.path.includes("/predictions") || req.path.includes("/projects")) return "knowledge_write";
+  return "filesystem_write";
+}
+
+function isReadOnlyApiRequest(req: Request): boolean {
+  if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return true;
+  return req.method === "POST" && req.path === "/knowledge/search";
+}
+
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
+  app.get("/healthz", (_req, res) => res.json(buildHealthz()));
+  app.get("/readyz", (_req, res) => {
+    const ready = buildReadyz();
+    res.status(ready.status === "ready" ? 200 : 503).json(ready);
+  });
+  app.get("/metrics", (req, res) => {
+    if (req.query.format === "json") return res.json(buildMetricsSnapshot());
+    res.type("text/plain; version=0.0.4").send(renderPrometheusMetrics());
+  });
+
+  app.use("/api", (req, res, next) => {
+    const mode = runModeFromEnv();
+    if (!isLongRunMode(mode) || isReadOnlyApiRequest(req)) return next();
+    const capability = mutatingCapabilityForRequest(req);
+    const decision = evaluateCapability(capability);
+    auditCapabilityDecision({
+      actor: "api",
+      capability,
+      target: `${req.method} ${req.path}`,
+      payload: { params: req.params, query: req.query, body: req.body },
+    }, decision);
+    if (decision.dryRun) {
+      return res.status(202).json({
+        status: "dry_run",
+        mode,
+        capability,
+        target: `${req.method} ${req.path}`,
+        message: `${mode} mode recorded the requested write in action_ledger and did not execute it.`,
+      });
+    }
+    if (!decision.allowed) return res.status(403).json({ message: decision.reason, capability });
+    return next();
+  });
+
   // ---------------- seed demo ----------------
   app.post("/api/seed-demo", async (_req, res) => {
     const r = await seedDemo();
@@ -268,6 +321,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!project) return res.status(404).json({ message: "not found" });
     res.json(storage.listTraceEventsByProject(project.id, numericLimit(req.query.limit)).map(parseTraceEvent));
   });
+  app.get("/api/action-ledger", (req, res) => {
+    const projectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
+    res.json(storage.listActionLedger(projectId).slice(-numericLimit(req.query.limit, 200)).reverse());
+  });
 
   // ---------------- human gates ----------------
   app.get("/api/human-gates", (req, res) => {
@@ -430,6 +487,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({
       count: calls.length,
       totalTokens: calls.reduce((s, c) => s + c.tokenCount, 0),
+      inputTokens: calls.reduce((s, c) => s + c.inputTokenCount, 0),
+      outputTokens: calls.reduce((s, c) => s + c.outputTokenCount, 0),
       totalCost: +calls.reduce((s, c) => s + c.estimatedCost, 0).toFixed(6),
       byAgent: Object.fromEntries(["orchestrator", "sensor", "builder", "distiller", "librarian"].map((a) => [a, calls.filter((c) => c.agent === a).length])),
       byModel: sumBy((c) => c.model, () => 1),

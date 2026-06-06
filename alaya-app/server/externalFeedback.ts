@@ -2,6 +2,7 @@ import { storage, now } from "./storage";
 import { callLlm } from "./llm";
 import type { Cycle, ExternalFeedbackSource } from "@shared/schema";
 import { readFileSync } from "node:fs";
+import { assertNetworkAllowed } from "./security/capabilities";
 
 const DEFAULT_GITHUB_TOKEN_FILE = "/private/tmp/alaya-github-token";
 
@@ -431,6 +432,7 @@ export async function syncGithubIssuesForSource(
   };
 
   try {
+    assertNetworkAllowed(endpoint, { actor: "sensor", projectId: source.projectId, cycleId, payload: { sourceId: source.id, kind: source.kind } });
     const response = await fetch(endpoint, { headers });
     if (!response.ok) throw new Error(`GitHub ${response.status}: ${safeErrorMessage(await response.text())}`);
     const issues = await response.json() as GitHubIssue[];

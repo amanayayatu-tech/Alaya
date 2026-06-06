@@ -86,6 +86,8 @@ export default function Ledger() {
     error: Number(((prediction.predictionError ?? 0) * 100).toFixed(1)),
   }));
   const totalTokens = projectLlmCalls.reduce((sum, call) => sum + call.tokenCount, 0);
+  const totalInputTokens = projectLlmCalls.reduce((sum, call) => sum + call.inputTokenCount, 0);
+  const totalOutputTokens = projectLlmCalls.reduce((sum, call) => sum + call.outputTokenCount, 0);
   const totalCost = projectLlmCalls.reduce((sum, call) => sum + call.estimatedCost, 0);
 
   return (
@@ -101,7 +103,7 @@ export default function Ledger() {
         <MetricTile label="平均准确率" value={fmtPct(avgAccuracy)} sub="1 - predictionError" icon={<Activity className="h-4 w-4" />} />
         <MetricTile label="人类决策" value={decisions.length} sub="来自闸门处理" icon={<ReceiptText className="h-4 w-4" />} />
         <MetricTile label="全局事件" value={events.length} sub="storage diagnostics" icon={<History className="h-4 w-4" />} />
-        <MetricTile label="项目 LLM 成本" value={`$${totalCost.toFixed(4)}`} sub={`${totalTokens} tokens，不含 onboarding`} icon={<Brain className="h-4 w-4" />} />
+        <MetricTile label="项目 LLM 成本" value={`$${totalCost.toFixed(4)}`} sub={`${totalTokens} tokens · in ${totalInputTokens} / out ${totalOutputTokens}`} icon={<Brain className="h-4 w-4" />} />
       </div>
 
       <SectionCard title="预测准确率趋势" description="每个点来自已结算 predictionError；70% 参考线用于快速判断趋势。">
@@ -247,6 +249,7 @@ function LlmLedger({ calls, cycleById }: { calls: LlmCall[]; cycleById: Map<stri
           </div>
           <div className="space-y-1 text-right font-mono text-xs text-muted-foreground">
             <div>{call.tokenCount} tokens</div>
+            <div>in {call.inputTokenCount} / out {call.outputTokenCount}</div>
             <div>${call.estimatedCost.toFixed(5)}</div>
             <div>{call.latencyMs}ms</div>
           </div>

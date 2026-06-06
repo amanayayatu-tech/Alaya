@@ -1,0 +1,28 @@
+[Unit]
+Description=Alaya long-run service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alaya
+Group=alaya
+WorkingDirectory=/opt/alaya/alaya-app
+EnvironmentFile=/etc/alaya/alaya.env
+ExecStart=/usr/bin/node /opt/alaya/alaya-app/dist/index.cjs
+Restart=on-failure
+RestartSec=10
+KillSignal=SIGTERM
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/alaya /var/log/alaya /var/cache/alaya
+StateDirectory=alaya
+LogsDirectory=alaya
+CacheDirectory=alaya
+LimitNOFILE=8192
+
+[Install]
+WantedBy=multi-user.target

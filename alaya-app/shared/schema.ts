@@ -182,6 +182,8 @@ export const llmCalls = sqliteTable("llm_calls", {
   schemaValid: integer("schema_valid").notNull().default(1),
   retryCount: integer("retry_count").notNull().default(0),
   latencyMs: integer("latency_ms").notNull().default(0),
+  inputTokenCount: integer("input_token_count").notNull().default(0),
+  outputTokenCount: integer("output_token_count").notNull().default(0),
   tokenCount: integer("token_count").notNull().default(0),
   estimatedCost: real("estimated_cost").notNull().default(0),
   ts: text("ts").notNull(),

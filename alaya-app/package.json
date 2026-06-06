@@ -7,6 +7,7 @@
     "dev": "NODE_ENV=development node --import tsx server/index.ts",
     "build": "node --import tsx script/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
+    "migrate": "node --import tsx server/migrate.ts",
     "test": "node --import tsx --test tests/*.test.ts",
     "flywheel:live": "cd .. && npm run e2e:live",
     "e2e:long-evolution": "node --import tsx ../scripts/e2e-long-evolution.mjs",

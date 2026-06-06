@@ -22,8 +22,9 @@ Alaya = 本地 SQLite 记忆层 + 5 个 Agent 飞轮 + 人工闸门 + 预测账�
 | Scheduler | 可运行 | 自动推进 cycle；第 5 轮起可由自主目标生成器接管，受 blocking gate、预算和反空转风险闸约束 |
 | Sensor | 可运行 | 支持 GitHub Issues 与表单反馈 |
 | Knowledge | 可运行 | SQLite FTS5 搜索、任务前知识注入、近义合并、`supersededBy` 保留、冲突隔离、时间衰减和详情引用上限保护 |
-| Health | 可运行 | `/health` 页面与 `/api/flywheel/health` API 展示复利、知识成熟和 human gate 压力 |
-| Governance | 可运行 | `PRINCIPLES.md`、guard 脚本、CI 和 24h 验证脚本约束核心底线 |
+| Health | 可运行 | `/healthz`、`/readyz`、`/metrics` 提供运行探针；`/health` 页面与 `/api/flywheel/health` API 展示复利、知识成熟和 human gate 压力 |
+| Governance | 可运行 | `PRINCIPLES.md`、guard 脚本、CI、secret scan、capability gate 和验证脚本约束核心底线 |
+| Long-run Hardening | 可运行 | 显式运行模式、env fail-fast、脱敏、action ledger、health/ready/metrics、Docker shadow compose 和备份/恢复脚本 |
 
 ## 目录
 
@@ -34,6 +35,10 @@ Alaya = 本地 SQLite 记忆层 + 5 个 Agent 飞轮 + 人工闸门 + 预测账�
 - [自主进化与长期验证](#自主进化与长期验证)
 - [Web 功能地图](#web-功能地图)
 - [常用命令](#常用命令)
+- [运行模式与安全模型](#运行模式与安全模型)
+- [数据库迁移、备份与恢复](#数据库迁移备份与恢复)
+- [Docker Shadow 部署与 smoke 验证](#docker-shadow-部署与-smoke-验证)
+- [可观测性与审计账本](#可观测性与审计账本)
 - [真实 LLM 与 Secret](#真实-llm-与-secret)
 - [CI 与 24h 验证](#ci-与-24h-验证)
 - [本地数据](#本地数据)
@@ -158,7 +163,7 @@ React/Vite -> Express API -> SQLite/FTS5 -> Scheduler -> 5 Agents -> LLM Provide
 
 Librarian 会对近义知识做熵减合并：保留主条目，给被合并条目写入 `supersededBy`，不做物理删除。检索和高风险证据集默认排除 stale、quarantined、conflict 和 superseded 条目。
 
-任务前知识注入由 `alaya-app/server/knowledgeInjection.ts` 负责：系统根据当前任务文本从 FTS5 检索 active/strong 且未被 supersede 的知识，构造有上限的 `[PRIOR KNOWLEDGE]` 上下文并写回 `usageCount`、`lastInjectedAt` 和审计事件。数据库启动迁移会执行 FTS5 `rebuild`，确保旧库已有知识也能被新建索引检索到。
+任务前知识注入由 `alaya-app/server/knowledgeInjection.ts` 负责：系统根据当前任务文本从 FTS5 检索 active/strong 且未被 supersede 的知识，构造有上限的 `[PRIOR KNOWLEDGE]` 上下文并写回 `usageCount`、`lastInjectedAt` 和审计事件。显式 schema migration 会执行 FTS5 `rebuild`，确保旧库已有知识也能被新建索引检索到；shadow/staging/production 的常态启动只校验 schema readiness。
 
 时间衰减由 `applyTimeDecay` 和 Scheduler 共同执行。`lastVerifiedAt` 保留真实验证时间，`lastDecayedAt` 记录最近一次自动衰减时间，避免周期性 tick 对同一历史区间重复衰减。被衰减到阈值以下的知识会降级为 stale，并通过 `time_decay_scheduler` 写入审计日志。
 
@@ -219,9 +224,209 @@ npm run benchmark:smoke      # P0/P1 deterministic benchmark
 npm run trace:export -- --cycle <cycleId>  # 导出 cycle trace JSONL
 npm run audit:upgrade       # 升级 readiness 审计
 npm run validation:summary  # 汇总 validation-logs 下最新 SUMMARY.csv
+npm run secret:scan         # 高置信 secret 扫描
+npm run ops:pre-upgrade     # 升级前状态检查
+npm run ops:backup          # SQLite state 备份
+npm run ops:migrate         # 显式 schema migration
+npm run ops:restore -- --backup tmp/alaya-backups/<backup>  # 默认 dry-run 恢复
+npm run ops:post-upgrade    # 升级后 guard/core/probe 验证
+npm run shadow:report -- --out tmp/shadow-report.md
 ```
 
 TypeScript 运行入口统一使用 `node --import tsx`。这避免在受限环境里直接调用 `tsx` CLI 时创建 IPC pipe 失败，同时保留同样的 TS/ESM 加载能力。核心入口包括 app dev/build、core flywheel、真实 LLM E2E 和长程自主进化 E2E。
+
+## 运行模式与安全模型
+
+Alaya 现在有明确的运行模式。模式由 `ALAYA_MODE` 控制；如果未设置，`NODE_ENV=test` 映射到 `test`，`NODE_ENV=production` 映射到 `production`，其他情况默认为 `development`。
+
+| 模式 | 典型用途 | 默认安全策略 |
+| --- | --- | --- |
+| `development` | 本地开发、快速调试 | 允许本地写和 mock LLM；外部真实写仍需显式路径 |
+| `test` | 单元测试、集成测试 | 不需要真实外部 secret；测试 fixture 可以使用安全假值 |
+| `shadow` | 影子运行、只观察不真实写 | 非只读 API 默认 dry-run；写入意图进入 `action_ledger` |
+| `staging` | 受控预发 | 高风险能力默认 deny，需要显式 capability flag |
+| `production` | 生产长期运行 | env fail-fast；demo seed 禁用；高风险能力最小权限 |
+
+Capability gate 覆盖高风险动作。所有 flag 都通过环境变量开启，默认不要在长期运行里打开。
+
+| Capability | Env | 默认 long-run 行为 | 当前接入点 |
+| --- | --- | --- | --- |
+| filesystem write | `ALAYA_CAP_FILESYSTEM_WRITE` | deny | 预留给本地写 adapter；shadow API 兜底 dry-run |
+| shell execution | `ALAYA_CAP_SHELL_EXECUTION` | deny | 当前业务未接 shell adapter；若新增必须先 gate |
+| GitHub write | `ALAYA_CAP_GITHUB_WRITE` | deny | 当前 GitHub 路径只读 issue sensor；写 adapter 必须先 gate |
+| database migration | `ALAYA_CAP_DATABASE_MIGRATION` | deny | 只用于显式 `ops:migrate` / `dist/migrate.cjs` |
+| unknown network | `ALAYA_CAP_NETWORK_UNKNOWN` | deny | LLM/OpenAI-compatible fetch 与 GitHub fetch 之前检查 |
+| LLM call | `ALAYA_CAP_LLM_CALL` | deny in production unless enabled | `callLlm()` 的真实 provider 路径 |
+| knowledge write | `ALAYA_CAP_KNOWLEDGE_WRITE` | shadow dry-run, staging/prod deny | 非只读 API、知识/项目/cycle/反馈写路径 |
+| scheduler loop | `ALAYA_CAP_SCHEDULER_LOOP` | deny | `startCycleScheduler()` 启动前检查 |
+| external notification | `ALAYA_CAP_EXTERNAL_NOTIFICATION` | deny | 当前未接真实通知 adapter；若新增必须先 gate |
+
+Shadow 模式下，`POST /api/knowledge` 这类 mutating API 会返回：
+
+```json
+{
+  "status": "dry_run",
+  "mode": "shadow",
+  "capability": "knowledge_write",
+  "target": "POST /knowledge"
+}
+```
+
+同时 `action_ledger` 会写入 `capability.knowledge_write`，`status=dry_run`，包含 actor、mode、capability、target、input hash、结果和时间戳。handler 不会执行真实写入。
+
+生产模式下，相同的默认行为是 `403`，除非显式设置对应 capability。这个设计避免“只在测试里测 gate，但真实路由没接入”的假通过。
+
+## 数据库迁移、备份与恢复
+
+开发和测试模式可以在启动时自动创建/补齐 SQLite schema。`shadow`、`staging`、`production` 的稳态启动不会静默执行 DDL；如果 schema 缺表或缺关键列，启动会 fail fast，提示运行显式迁移。
+
+本地迁移流程：
+
+```bash
+npm run ops:pre-upgrade
+npm run ops:backup
+ALAYA_CAP_DATABASE_MIGRATION=true npm run ops:migrate
+npm run ops:post-upgrade
+```
+
+`ops:migrate` 会运行 `alaya-app/server/migrate.ts`。生产构建后对应入口是 `dist/migrate.cjs`，Docker shadow 初始化使用这个入口。
+
+备份：
+
+```bash
+npm run ops:backup
+```
+
+默认输出到：
+
+```text
+tmp/alaya-backups/backup-<timestamp>/
+```
+
+备份内容包括 SQLite DB 和 WAL/SHM sidecar。脚本会写 `manifest.json`，只记录出现过的 env 变量名，不记录 env 值；`.env` 和 secret 文件不会被备份。
+
+恢复默认是 dry-run：
+
+```bash
+npm run ops:restore -- --backup tmp/alaya-backups/<backup-dir>
+```
+
+确认恢复前必须停止服务，然后显式加 `--confirm`：
+
+```bash
+npm run ops:restore -- --backup tmp/alaya-backups/<backup-dir> --confirm
+```
+
+SQLite 备份一致性在服务停止或 WAL checkpoint 后最强。生产/长期 shadow 运行前应先停服务或确认没有活跃写入，再做关键备份。
+
+## Docker Shadow 部署与 smoke 验证
+
+本节是短 smoke，不是 7 天 shadow run。7 天 shadow run 文档在 [docs/ops/05-shadow-run-7d.md](./docs/ops/05-shadow-run-7d.md)，本次不自动执行。
+
+构建镜像：
+
+```bash
+docker build -t alaya:local .
+docker tag alaya:local alaya:shadow
+```
+
+渲染 compose：
+
+```bash
+docker compose -f deploy/docker-compose.shadow.yml config
+```
+
+第一次使用新的 shadow volume，或升级后需要 schema 变更时，先运行一次显式迁移：
+
+```bash
+ALAYA_SHADOW_PORT=5055 docker compose -f deploy/docker-compose.shadow.yml run --rm \
+  -e ALAYA_CAP_DATABASE_MIGRATION=true \
+  alaya node dist/migrate.cjs
+```
+
+正常启动保持 `ALAYA_CAP_DATABASE_MIGRATION=false`：
+
+```bash
+ALAYA_SHADOW_PORT=5055 docker compose -f deploy/docker-compose.shadow.yml up -d --no-build
+curl -fsS http://localhost:5055/healthz
+curl -fsS http://localhost:5055/readyz
+curl -fsS http://localhost:5055/metrics
+```
+
+证明 shadow 写操作不会真实执行：
+
+```bash
+curl -fsS -X POST http://localhost:5055/api/knowledge \
+  -H 'Content-Type: application/json' \
+  --data '{"id":"kb_shadow_probe","projectId":"proj_shadow","title":"probe","content":"dry run only"}'
+
+curl -fsS 'http://localhost:5055/api/action-ledger?limit=5'
+```
+
+预期：第一个请求返回 `202 dry_run`；第二个请求能看到 `capability.knowledge_write` 且 `status=dry_run`。
+
+停止：
+
+```bash
+ALAYA_SHADOW_PORT=5055 docker compose -f deploy/docker-compose.shadow.yml down
+```
+
+容器安全属性：
+
+- Dockerfile 使用 `node:20-bookworm-slim`，没有 `latest`。
+- build/runtime 分阶段，runtime 运行用户是 `alaya`，不是 root。
+- `.dockerignore` 排除 `.env`、数据库、日志、缓存、tmp、coverage、node_modules 和 `.git`。
+- compose 使用 read-only root filesystem。
+- 可写位置限制在 named volumes：`/var/lib/alaya`、`/var/log/alaya`、`/var/cache/alaya`。
+- shadow compose 不挂载宿主根目录，不使用 privileged。
+
+## 可观测性与审计账本
+
+运行端点：
+
+```text
+GET /healthz   # 进程活着，尽量不因依赖失败而 500
+GET /readyz    # 配置、数据库、关键目录可写性、schema readiness
+GET /metrics   # Prometheus text
+```
+
+`/metrics` 包含：
+
+```text
+alaya_uptime_seconds
+alaya_mode_info
+alaya_scheduler_cycles_total
+alaya_scheduler_cycle_duration_ms
+alaya_actions_total
+alaya_actions_denied_total
+alaya_capability_denials_total
+alaya_llm_requests_total
+alaya_llm_tokens_input_total
+alaya_llm_tokens_output_total
+alaya_llm_estimated_cost_usd_total
+alaya_external_feedback_items_total
+alaya_knowledge_injections_total
+alaya_stall_events_total
+alaya_errors_total
+alaya_last_successful_cycle_timestamp
+```
+
+LLM 调用现在同时保存：
+
+- `input_token_count`
+- `output_token_count`
+- `token_count`
+- `estimated_cost`
+
+前端 Ledger 和 `/api/llm-calls/summary` 都会展示 input/output split，不再只能看 aggregate token。
+
+审计持久化：
+
+- `event_log`：storage 写路径的 before/after diagnostics，写入前脱敏。
+- `trace_events`：cycle、agent、LLM、知识注入、风险动作等 OTel-compatible trace，attributes 写入前脱敏。
+- `action_ledger`：高风险动作和 capability decision，包含 status、risk、approval gate、rollback plan、payload 和 idempotency key，payload/audit/rollback 写入前脱敏。
+
+脱敏覆盖 bearer token、Cookie/Set-Cookie、GitHub/OpenAI/Slack token、AWS key id、数据库 URL 密码、private key block，以及对象中 `apiKey/token/secret/password/database_url` 等 secret-like key。
 
 Web 开发：
 
@@ -316,10 +521,11 @@ npm run e2e:llm-flywheel
 
 ## CI 与本地长程验证
 
-GitHub Actions 工作流位于 `.github/workflows/ci.yml`：
+GitHub Actions 工作流位于 `.github/workflows/ci.yml` 和 `.github/workflows/deploy-readiness.yml`：
 
 - `unit-and-integration`：安装 root/app/core 依赖，运行 guard、app focused regression、app full test、app typecheck、core test、core typecheck、script tests 和 core flywheel simulation。
 - `live-llm-validation`：只在 `main` 分支 push 后尝试运行真实 LLM/GitHub live validation；缺少 secret 时明确跳过。
+- `deploy-readiness`：默认不需要真实 secret，运行 secret scan、env/redaction/capability/health focused tests、pre-upgrade check、Docker build、shadow compose config 和 principles guard。
 
 Actions secrets：
 
@@ -525,6 +731,9 @@ bash scripts/12h_validation.sh
 - `npm run benchmark:smoke`
 - `npm run flywheel`
 - `npm run e2e:long-evolution`
+- `npm run secret:scan`
+- `npm run ops:migrate`
+- Docker shadow migration + health/ready/metrics smoke
 - `npm run e2e:ui-freeze`
 - `cd alaya-app && node --import tsx --test tests/schema_migration.test.ts tests/update_confidence.decay.test.ts`
 - `node --test scripts/tests/live-readiness.test.mjs`
@@ -544,7 +753,6 @@ bash scripts/12h_validation.sh
 
 ## 路线图
 
-- 把 SQLite 启动时 DDL 升级为显式 migration。
 - 增强知识冲突检测、过期提醒和复核任务。
 - 为 Builder 接入真实 Codex/Codex CLI 变更包 adapter。
 - 增加 provider canary、分 Agent latency 报表和更细的 LLM 失败恢复策略。
@@ -560,6 +768,14 @@ bash scripts/12h_validation.sh
 | [alaya-core/README.md](./alaya-core/README.md) | Core 内核说明 |
 | [alaya-app/BUILD_SPEC.md](./alaya-app/BUILD_SPEC.md) | Web MVP 构建规格 |
 | [alaya-app/BUILD_REPORT.md](./alaya-app/BUILD_REPORT.md) | 构建与验证报告 |
+| [docs/ops/00-baseline-audit.md](./docs/ops/00-baseline-audit.md) | hardening 前仓库基线与入口图 |
+| [docs/ops/01-secrets-and-env.md](./docs/ops/01-secrets-and-env.md) | env、secret、capability 和脱敏说明 |
+| [docs/ops/02-deployment.md](./docs/ops/02-deployment.md) | Docker/systemd 部署与升级流程 |
+| [docs/ops/03-state-backup-rollback.md](./docs/ops/03-state-backup-rollback.md) | 状态盘点、备份、恢复和迁移策略 |
+| [docs/ops/04-validation-matrix.md](./docs/ops/04-validation-matrix.md) | development/test/shadow/staging/production 验证矩阵 |
+| [docs/ops/05-shadow-run-7d.md](./docs/ops/05-shadow-run-7d.md) | 7 天 shadow run 操作手册。本次提交不执行该长跑 |
+| [docs/ops/98-verification-ledger.md](./docs/ops/98-verification-ledger.md) | 交叉验证证据台账 |
+| [docs/ops/99-long-run-readiness-report.md](./docs/ops/99-long-run-readiness-report.md) | long-run readiness 审计报告 |
 
 ## License
 

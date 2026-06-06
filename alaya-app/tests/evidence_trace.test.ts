@@ -124,6 +124,9 @@ test("model routing metadata is persisted with llm calls", async () => {
   assert.equal(call?.provider, "mock");
   assert.equal(call?.model, "mock-sensor-v2");
   assert.equal(call?.routeReason, "routing_json_role");
+  assert.ok((call?.inputTokenCount ?? 0) > 0);
+  assert.ok((call?.outputTokenCount ?? 0) > 0);
+  assert.equal(call?.tokenCount, (call?.inputTokenCount ?? 0) + (call?.outputTokenCount ?? 0));
 });
 
 test("destructive action without approved gate is blocked in action ledger", () => {

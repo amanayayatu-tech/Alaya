@@ -11,6 +11,7 @@ import { syncConfiguredFeedbackForProject } from "./externalFeedback";
 import type { ExternalFeedbackSyncResult, SyncGithubIssuesOptions } from "./externalFeedback";
 import { applyTimeDecay } from "@shared/core/update_confidence.js";
 import { recordTrace } from "./trace";
+import { observeSchedulerCycle } from "./observability/metrics";
 import type { HumanGateItem, KnowledgeItem, Task } from "@shared/schema";
 
 export interface GateBudgetState {
@@ -1418,9 +1419,12 @@ export function startCycleScheduler(intervalMs = Number(process.env.ALAYA_SCHEDU
   return setInterval(async () => {
     if (running) return;
     running = true;
+    const started = Date.now();
     try {
       await schedulerTickAllProjects();
+      observeSchedulerCycle({ ok: true, durationMs: Date.now() - started });
     } catch (err) {
+      observeSchedulerCycle({ ok: false, durationMs: Date.now() - started });
       storage.recordEvent({
         cycleIdx: 0,
         actor: "scheduler",

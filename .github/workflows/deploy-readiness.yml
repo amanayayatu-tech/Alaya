@@ -1,0 +1,58 @@
+name: Alaya Deploy Readiness
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**", "codex/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  deploy-readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: |
+            alaya-app/package-lock.json
+            alaya-core/package-lock.json
+
+      - name: Install root tools
+        run: npm install
+
+      - name: Install app dependencies
+        working-directory: alaya-app
+        run: npm ci
+
+      - name: Install core dependencies
+        working-directory: alaya-core
+        run: npm ci
+
+      - name: Secret scan
+        run: npm run secret:scan
+
+      - name: Environment, redaction, capability and health tests
+        working-directory: alaya-app
+        run: >
+          node --import tsx --test
+          tests/env.validation.test.ts
+          tests/secret.redaction.test.ts
+          tests/capabilityGate.test.ts
+          tests/shadowMode.test.ts
+          tests/healthMetrics.test.ts
+
+      - name: Pre-upgrade check
+        run: npm run ops:pre-upgrade
+
+      - name: Docker build
+        run: docker build -t alaya:deploy-readiness .
+
+      - name: Shadow compose config
+        run: docker compose -f deploy/docker-compose.shadow.yml config
+
+      - name: Principles guard
+        run: npm run guard
