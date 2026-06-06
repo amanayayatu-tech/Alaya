@@ -193,6 +193,13 @@ test("12h validation runner keeps non-critical failures non-blocking", () => {
   assert.match(source, /npm run e2e:llm-flywheel/);
   assert.match(source, /ALERT: 3 consecutive non-critical validation errors/);
   assert.match(source, /continuing\./);
+  assert.match(source, /FLYWHEEL_CONSEC=0/);
+  assert.match(source, /LIVE_CONNECTIVITY_CONSEC=0/);
+  assert.match(source, /LIVE_E2E_CONSEC=0/);
+  assert.match(source, /HEALTH_CONSEC=0/);
+  assert.match(source, /record_noncritical_failure "live connectivity" "\$ROUND"/);
+  assert.match(source, /record_noncritical_failure "flywheel health" "\$ROUND"/);
+  assert.match(source, /record_noncritical_success "flywheel health"/);
   assert.doesNotMatch(source, /Stopping after .*consecutive/);
   assert.doesNotMatch(source, /Validation failed with \$ERRORS failed step/);
 });

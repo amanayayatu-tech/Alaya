@@ -1,5 +1,32 @@
 # Alaya Validation Report
 
+## 2026-06-06 Update: 12h Real LLM Long-Run
+
+The latest completed long-run validation is recorded in `docs/validation/2026-06-06-12h-real-llm-validation.md`.
+
+Summary:
+
+- 12h runner completed from 2026-06-05 17:53:53 CST to 2026-06-06 05:57:32 CST.
+- 69 total rounds; the 12-hour duration gate was reached before the 72-round cap.
+- Principles guard: 69/69 PASS.
+- Mock flywheel simulation: 69/69 PASS.
+- Real LLM flywheel: 23/23 PASS on rounds 3/6/.../69.
+- Real LLM calls: 460, totaling 280,935 tokens and 0.057997 USD estimated cost.
+- Alerts: 0.
+- No residual validation process or screen session remained after completion.
+- No `fetch failed`, `ETIMEDOUT`, `ECONNRESET`, `ENETUNREACH`, or TCP 443 timeout pattern was found in the run logs.
+
+Interpretation:
+
+- Within the `npm run e2e:llm-flywheel` acceptance boundary, the core design supports sustainable cognitive iteration and knowledge-base entropy reduction: later cycles reuse prior knowledge to change decisions, rejected directions are bounded, prediction errors route back into distillation/world-model updates, and cycle 4 compounds into a rollback/audit principle.
+- This does not claim the full `npm run e2e:live` / GitHub issue sensor business chain has passed. GitHub API connectivity was checked, but no GitHub issue sensor mutation path was executed.
+- Health was not serving during the 12h run, so `delta=NA` for all rows. The entropy-reduction conclusion is based on live E2E assertions rather than `compoundingProof.round1vs4KnowledgeDelta` from the health API.
+
+Post-run fix:
+
+- `scripts/12h_validation.sh` now tracks consecutive non-critical failures per check (`flywheel`, `live connectivity`, `e2e:llm-flywheel`, `flywheel health`) instead of using a single global counter.
+- A 9-round forced-failure smoke verified that `live connectivity` and `flywheel health` each alert after 3 consecutive same-check failures and the runner continues to completion.
+
 Date: 2026-06-04
 
 ## Secret Handling

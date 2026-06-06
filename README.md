@@ -314,7 +314,7 @@ OPENAI_MODEL=MiniMax-M3 \
 npm run e2e:llm-flywheel
 ```
 
-## CI 与 24h 验证
+## CI 与本地长程验证
 
 GitHub Actions 工作流位于 `.github/workflows/ci.yml`：
 
@@ -330,7 +330,7 @@ Actions secrets：
 | `OPENAI_BASE_URL` | 可选，默认 `https://api.minimax.io/openai` |
 | `OPENAI_MODEL` | 可选，默认 `MiniMax-M3` |
 
-24h 本地验证脚本：
+24h fail-closed 本地验证脚本：
 
 ```bash
 ./scripts/24h_validation.sh
@@ -345,7 +345,24 @@ ALAYA_HEALTH_URL=http://127.0.0.1:5000/api/flywheel/health?projectId=... \
 ./scripts/24h_validation.sh
 ```
 
-脚本每轮运行 principles guard 和 mock flywheel simulation，每 3 轮尝试 live validation。缺少 secret 时标记 `SKIP`，有 secret 但 API 网络不可达时标记 `SKIP_NET`。如果 guard、simulation 或 live 步骤出现 `FAIL`，最终退出码为非零；连续 3 次 live failure 会提前停止。
+24h 脚本每轮运行 principles guard 和 mock flywheel simulation，每 3 轮尝试 live validation。缺少 secret 时标记 `SKIP`，有 secret 但 API 网络不可达时标记 `SKIP_NET`。如果 guard、simulation 或 live 步骤出现 `FAIL`，最终退出码为非零；连续 3 次 live failure 会提前停止。
+
+12h 长程观测脚本：
+
+```bash
+./scripts/12h_validation.sh
+```
+
+常用参数：
+
+```bash
+ALAYA_VALIDATION_DURATION_SECONDS=43200 \
+ALAYA_VALIDATION_SLEEP_SECONDS=600 \
+ALAYA_VALIDATION_MAX_ROUNDS=72 \
+./scripts/12h_validation.sh
+```
+
+12h 脚本用于长时间稳定性观察：principles guard 失败仍然立即停止；simulation、live、live connectivity `SKIP_NET` 和 flywheel health 属于非关键检查，同一检查项连续 3 次失败会写入 `alerts.log`，但不会中断 runner。连续计数按检查项独立维护，避免 health failure 被 unrelated live/sim success 清零。
 
 汇总最近一次验证：
 
@@ -432,6 +449,72 @@ POST /api/projects/:id/feedback/form
 - `alaya-app/server/externalFeedback.ts`
 
 ## 验证记录
+
+### 2026-06-05/06 12h real LLM validation
+
+本地完成一次完整 12 小时长程验证，真实 LLM 路径接入 MiniMax OpenAI-compatible endpoint，GitHub API 连通性预检通过。
+
+```bash
+ALAYA_VALIDATION_DURATION_SECONDS=43200 \
+ALAYA_VALIDATION_SLEEP_SECONDS=600 \
+ALAYA_VALIDATION_MAX_ROUNDS=72 \
+bash scripts/12h_validation.sh
+```
+
+结果摘要：
+
+| 项目 | 结果 |
+| --- | --- |
+| 时间窗口 | 2026-06-05 17:53:53 - 2026-06-06 05:57:32 CST |
+| 总时长 | 12h 03m 39s |
+| 总轮次 | 69，12 小时时长门限先于 72 轮上限触发 |
+| Principles guard | 69/69 PASS |
+| Mock flywheel simulation | 69/69 PASS |
+| Real LLM flywheel live | 23/23 PASS, rounds 3/6/.../69 |
+| Planned live skips | 46 |
+| Real LLM calls | 460 |
+| Tokens | 280,935 |
+| Estimated cost | 0.057997 USD |
+| Alerts | 0 |
+| Residual runner/process | 0 |
+| Summary | `validation-logs/12h_20260605_175353/SUMMARY.csv` |
+| Detailed report | `docs/validation/2026-06-06-12h-real-llm-validation.md` |
+
+23 个 live 轮次均返回 `ok: true`，每次包含 `llmCalls.count=20`、`eventLogCount=56`、`decisionLogCount=4`。日志扫描未发现 `fetch failed`、`ETIMEDOUT`、`ECONNRESET`、`ENETUNREACH` 或 TCP 443 timeout 类失败。
+
+认知迭代结论：在 `e2e:llm-flywheel` 验收范围内，4-cycle 多 Agent 飞轮可持续运行；后续 cycle 会引用前序知识改变决策，不重复 rejected direction，预测误差会回流到 distiller/world-model 更新，cycle 4 形成 rollback/audit 导向的新原则。这支持“核心设计符合预期、认知可持续迭代、知识库呈现熵减配平特征”的阶段性结论。
+
+边界说明：本次验证不等同于完整 `npm run e2e:live` / GitHub issue sensor 业务链路通过。Health endpoint 未运行，23 次 health probe 均为空响应，`delta=NA`；本次熵减结论来自 live E2E 行为断言，而不是 health API 的 `compoundingProof.round1vs4KnowledgeDelta` 量化指标。
+
+Post-run 修复：审计发现旧版 12h runner 的非关键失败计数是全局计数，health 连续失败会被 unrelated sim/live success 清零，导致三连 health alert 不触发。当前版本已改为按检查项独立计数，并用 9 轮 forced-failure smoke 验证：`live connectivity` 与 `flywheel health` 都在第 9 轮写入 alert，脚本仍正常完成。
+
+### 2026-06-05 3h real LLM validation
+
+本地使用 12h validation runner 压缩为 3 小时窗口完成一次真实 LLM 验证循环：
+
+```bash
+ALAYA_VALIDATION_DURATION_SECONDS=10800 \
+ALAYA_VALIDATION_SLEEP_SECONDS=600 \
+ALAYA_VALIDATION_MAX_ROUNDS=18 \
+bash scripts/12h_validation.sh
+```
+
+结果摘要：
+
+| 项目 | 结果 |
+| --- | --- |
+| 时间窗口 | 2026-06-05 07:45:06 - 10:45:29 CST |
+| 总轮次 | 18 |
+| Principles guard | 18/18 PASS |
+| Mock flywheel simulation | 18/18 PASS |
+| Real LLM flywheel live | 6/6 PASS, rounds 3/6/9/12/15/18 |
+| Non-critical errors | 0 |
+| Alerts | 0 |
+| Summary | `validation-logs/12h_20260605_074506/SUMMARY.csv` |
+
+6 个 live 轮次均返回 `ok: true`，每次包含 `llmCalls.count=20`，合计约 73,327 tokens，未出现 `fetch failed`、`ETIMEDOUT` 或 TCP 443 超时类错误。本机连通性检查中 MiniMax endpoint 可达，GitHub API 返回 HTTP 200。
+
+边界说明：本次验证覆盖的是 `npm run e2e:llm-flywheel` 的真实 LLM 路径，并证明当前机器能访问真实模型端点；它不等同于完整 `npm run e2e:live` / GitHub issue sensor 端到端业务链路通过。GitHub 业务链路仍需单独跑完整 live E2E 验收。
 
 最近本地验证覆盖：
 

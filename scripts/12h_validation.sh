@@ -72,17 +72,58 @@ live_connectivity_available() {
 record_noncritical_failure() {
   local label="$1"
   local round="$2"
-  NONCRITICAL_CONSEC=$((NONCRITICAL_CONSEC + 1))
-  if [ "$NONCRITICAL_CONSEC" -ge 3 ]; then
-    local message="ALERT: 3 consecutive non-critical validation errors through round ${round}; latest=${label}; continuing."
+  local count
+
+  case "$label" in
+    flywheel)
+      FLYWHEEL_CONSEC=$((FLYWHEEL_CONSEC + 1))
+      count="$FLYWHEEL_CONSEC"
+      ;;
+    "live connectivity")
+      LIVE_CONNECTIVITY_CONSEC=$((LIVE_CONNECTIVITY_CONSEC + 1))
+      count="$LIVE_CONNECTIVITY_CONSEC"
+      ;;
+    "e2e:llm-flywheel")
+      LIVE_E2E_CONSEC=$((LIVE_E2E_CONSEC + 1))
+      count="$LIVE_E2E_CONSEC"
+      ;;
+    "flywheel health")
+      HEALTH_CONSEC=$((HEALTH_CONSEC + 1))
+      count="$HEALTH_CONSEC"
+      ;;
+    *)
+      OTHER_NONCRITICAL_CONSEC=$((OTHER_NONCRITICAL_CONSEC + 1))
+      count="$OTHER_NONCRITICAL_CONSEC"
+      ;;
+  esac
+
+  if [ "$count" -ge 3 ]; then
+    local message="ALERT: 3 consecutive non-critical validation errors for ${label} through round ${round}; continuing."
     echo "$message"
     echo "$(date -u +%Y-%m-%dT%H:%M:%SZ),round=${round},latest=${label}" >> "$ALERTS"
-    NONCRITICAL_CONSEC=0
+    record_noncritical_success "$label"
   fi
 }
 
 record_noncritical_success() {
-  NONCRITICAL_CONSEC=0
+  local label="$1"
+  case "$label" in
+    flywheel)
+      FLYWHEEL_CONSEC=0
+      ;;
+    "live connectivity")
+      LIVE_CONNECTIVITY_CONSEC=0
+      ;;
+    "e2e:llm-flywheel")
+      LIVE_E2E_CONSEC=0
+      ;;
+    "flywheel health")
+      HEALTH_CONSEC=0
+      ;;
+    *)
+      OTHER_NONCRITICAL_CONSEC=0
+      ;;
+  esac
 }
 
 extract_health_delta() {
@@ -99,7 +140,11 @@ fi
 
 ROUND=0
 ERRORS=0
-NONCRITICAL_CONSEC=0
+FLYWHEEL_CONSEC=0
+LIVE_CONNECTIVITY_CONSEC=0
+LIVE_E2E_CONSEC=0
+HEALTH_CONSEC=0
+OTHER_NONCRITICAL_CONSEC=0
 
 while [ "$(date +%s)" -lt "$END_TIME" ] && [ "$ROUND" -lt "$MAX_ROUNDS" ]; do
   ROUND=$((ROUND + 1))
@@ -122,7 +167,7 @@ while [ "$(date +%s)" -lt "$END_TIME" ] && [ "$ROUND" -lt "$MAX_ROUNDS" ]; do
 
   if npm run flywheel >"$LOG_DIR/r${ROUND}_sim.log" 2>&1; then
     SIM=PASS
-    record_noncritical_success
+    record_noncritical_success "flywheel"
     echo "sim PASS"
   else
     SIM=FAIL
@@ -137,28 +182,34 @@ while [ "$(date +%s)" -lt "$END_TIME" ] && [ "$ROUND" -lt "$MAX_ROUNDS" ]; do
       echo "live SKIP"
     elif ! live_connectivity_available; then
       LIVE=SKIP_NET
+      ERRORS=$((ERRORS + 1))
+      record_noncritical_failure "live connectivity" "$ROUND"
       {
         echo "Live validation skipped because API connectivity is unavailable."
         echo "LLM connectivity URL: $LLM_CONNECTIVITY_URL"
         echo "GitHub connectivity URL: $GITHUB_CONNECTIVITY_URL"
       } >"$LOG_DIR/r${ROUND}_live.log"
       echo "live SKIP_NET"
-    elif npm run e2e:llm-flywheel >"$LOG_DIR/r${ROUND}_live.log" 2>&1; then
-      LIVE=PASS
-      record_noncritical_success
-      echo "live PASS"
     else
-      LIVE=FAIL
-      ERRORS=$((ERRORS + 1))
-      record_noncritical_failure "e2e:llm-flywheel" "$ROUND"
-      echo "live FAIL"
+      record_noncritical_success "live connectivity"
+      if npm run e2e:llm-flywheel >"$LOG_DIR/r${ROUND}_live.log" 2>&1; then
+        LIVE=PASS
+        record_noncritical_success "e2e:llm-flywheel"
+        echo "live PASS"
+      else
+        LIVE=FAIL
+        ERRORS=$((ERRORS + 1))
+        record_noncritical_failure "e2e:llm-flywheel" "$ROUND"
+        echo "live FAIL"
+      fi
     fi
 
     if curl -sf "$HEALTH_URL" >"$LOG_DIR/r${ROUND}_health.json" 2>/dev/null; then
       DELTA="$(extract_health_delta "$LOG_DIR/r${ROUND}_health.json")"
-      record_noncritical_success
+      record_noncritical_success "flywheel health"
       echo "delta=$DELTA"
     else
+      ERRORS=$((ERRORS + 1))
       record_noncritical_failure "flywheel health" "$ROUND"
       echo "health SKIP"
     fi
