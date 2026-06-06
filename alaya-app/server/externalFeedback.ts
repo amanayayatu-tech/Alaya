@@ -4,8 +4,6 @@ import type { Cycle, ExternalFeedbackSource } from "@shared/schema";
 import { readFileSync } from "node:fs";
 import { assertNetworkAllowed } from "./security/capabilities";
 
-const DEFAULT_GITHUB_TOKEN_FILE = "/private/tmp/alaya-github-token";
-
 const CLASSIFY_SCHEMA = {
   type: "object" as const,
   required: ["summary", "category", "sentiment", "topicKey"],
@@ -100,7 +98,6 @@ function githubToken(explicit?: string): string {
     process.env.GITHUB_TOKEN,
     readSecretFile(process.env.ALAYA_GITHUB_TOKEN_FILE),
     readSecretFile(process.env.GITHUB_TOKEN_FILE),
-    readSecretFile(DEFAULT_GITHUB_TOKEN_FILE),
   ].map((value) => value?.trim() ?? "").find(Boolean) ?? "";
 }
 

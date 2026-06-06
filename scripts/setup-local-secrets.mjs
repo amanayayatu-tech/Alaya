@@ -1,8 +1,11 @@
 #!/usr/bin/env node
-import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
-const minimaxKeyFile = process.env.OPENAI_API_KEY_FILE?.trim() || "/private/tmp/alaya-minimax-key";
-const githubTokenFile = process.env.GITHUB_TOKEN_FILE?.trim() || "/private/tmp/alaya-github-token";
+const defaultSecretDir = process.env.ALAYA_SECRETS_DIR?.trim() || join(homedir(), ".config", "alaya");
+const minimaxKeyFile = process.env.OPENAI_API_KEY_FILE?.trim() || join(defaultSecretDir, "openai-api-key");
+const githubTokenFile = process.env.GITHUB_TOKEN_FILE?.trim() || join(defaultSecretDir, "github-token");
 const checkOnly = process.argv.includes("--check");
 const overwrite = process.argv.includes("--overwrite");
 
@@ -106,6 +109,7 @@ function readHidden(prompt) {
 
 function writeSecret(path, value) {
   if (!value) return false;
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   writeFileSync(path, `${value}\n`, { encoding: "utf8", mode: 0o600 });
   chmodSync(path, 0o600);
   return true;

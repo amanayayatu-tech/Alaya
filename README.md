@@ -247,6 +247,28 @@ Alaya 现在有明确的运行模式。模式由 `ALAYA_MODE` 控制；如果未
 | `staging` | 受控预发 | 高风险能力默认 deny，需要显式 capability flag |
 | `production` | 生产长期运行 | env fail-fast；demo seed 禁用；高风险能力最小权限 |
 
+### API 鉴权与内置 UI
+
+`/api/*` 在 `shadow`、`staging`、`production` 中默认需要 API key。服务端接受两种等价形式：
+
+```bash
+Authorization: Bearer $ALAYA_API_KEY
+X-Alaya-API-Key: $ALAYA_API_KEY
+```
+
+`development` 和 `test` 只有在设置了 `ALAYA_API_KEY` 或 `ALAYA_REQUIRE_API_AUTH=true` 时才强制鉴权。`/healthz` 与 `/readyz` 不需要 API key；`/metrics` 使用 loopback/CIDR allowlist 单独保护。
+
+内置 React UI 不会把 API key 打进 bundle，也不会从服务端公开读取 key。生产或 shadow 静态 UI 打开后，在左侧 Project 区域的 `API Key` 输入框填入 key 并保存；前端会把 key 保存在当前浏览器 tab 的 `sessionStorage`，并自动为 React Query、`apiRequest()` 和手写 API fetch 加上 `Authorization: Bearer ...`。关闭 tab 后需要重新输入。点击“清除”会移除本 tab 的 key 并刷新查询。
+
+命令行检查：
+
+```bash
+curl -fsS http://127.0.0.1:5000/healthz
+curl -fsS -H "Authorization: Bearer $ALAYA_API_KEY" http://127.0.0.1:5000/api/projects
+```
+
+`shadow`、`staging`、`production` 缺少 `ALAYA_API_KEY` 会在 env validation 阶段 fail fast。这样不会出现 `/readyz` 看起来正常、但所有 `/api/*` 请求返回 `503 api authentication is not configured` 的半可用状态。
+
 Capability gate 覆盖高风险动作。所有 flag 都通过环境变量开启，默认不要在长期运行里打开。
 
 | Capability | Env | 默认 long-run 行为 | 当前接入点 |
@@ -275,6 +297,15 @@ Shadow 模式下，`POST /api/knowledge` 这类 mutating API 会返回：
 同时 `action_ledger` 会写入 `capability.knowledge_write`，`status=dry_run`，包含 actor、mode、capability、target、input hash、结果和时间戳。handler 不会执行真实写入。
 
 生产模式下，相同的默认行为是 `403`，除非显式设置对应 capability。这个设计避免“只在测试里测 gate，但真实路由没接入”的假通过。
+
+高成本端点限速：
+
+```text
+ALAYA_COST_RATE_LIMIT_WINDOW_MS=60000
+ALAYA_COST_RATE_LIMIT_MAX=10
+```
+
+如果这两个变量被误写成非数字，运行时会回退到默认值而不是关闭 limiter。`POST /api/cycles/:id/run-full` 和 `POST /api/scheduler/tick` 都走这个保护；`/healthz`、`/readyz`、`/metrics` 不受高成本限速影响。
 
 ## 数据库迁移、备份与恢复
 
@@ -426,7 +457,7 @@ LLM 调用现在同时保存：
 - `trace_events`：cycle、agent、LLM、知识注入、风险动作等 OTel-compatible trace，attributes 写入前脱敏。
 - `action_ledger`：高风险动作和 capability decision，包含 status、risk、approval gate、rollback plan、payload 和 idempotency key，payload/audit/rollback 写入前脱敏。
 
-脱敏覆盖 bearer token、Cookie/Set-Cookie、GitHub/OpenAI/Slack token、AWS key id、数据库 URL 密码、private key block，以及对象中 `apiKey/token/secret/password/database_url` 等 secret-like key。
+脱敏覆盖 bearer token、Cookie/Set-Cookie、GitHub/OpenAI/Slack token、AWS key id、数据库 URL 密码、private key block、email、明显 phone number，以及对象中 `apiKey/token/secret/password/database_url` 等 secret-like key。Phone redaction 需要至少 10 位数字并带有 `+` 或多个分隔符，因此普通日期如 `2026-06-06`、分组编号如 `1234-5678` 会保留上下文，不会被误替换为 `[redacted-phone]`。
 
 Web 开发：
 
@@ -487,11 +518,12 @@ npm run setup:secrets
 npm run setup:secrets:check
 ```
 
-该工具只写：
+该工具默认只写用户配置目录，也可用 `OPENAI_API_KEY_FILE` / `GITHUB_TOKEN_FILE`
+显式指定其他本地路径：
 
 ```text
-/private/tmp/alaya-minimax-key
-/private/tmp/alaya-github-token
+$HOME/.config/alaya/openai-api-key
+$HOME/.config/alaya/github-token
 ```
 
 文件权限为 `0600`，不会打印 secret 值。
@@ -502,7 +534,7 @@ GitHub Actions 中请添加 `LLM_API_KEY` 和 `GH_PAT` 两个 Secrets。不要�
 真实 LLM preflight：
 
 ```bash
-OPENAI_API_KEY_FILE=/private/tmp/alaya-minimax-key \
+OPENAI_API_KEY_FILE=$HOME/.config/alaya/openai-api-key \
 OPENAI_BASE_URL=https://api.minimax.io/openai \
 OPENAI_MODEL=MiniMax-M3 \
 npm run e2e:llm
@@ -513,7 +545,7 @@ npm run e2e:llm
 真实 4 轮飞轮：
 
 ```bash
-OPENAI_API_KEY_FILE=/private/tmp/alaya-minimax-key \
+OPENAI_API_KEY_FILE=$HOME/.config/alaya/openai-api-key \
 OPENAI_BASE_URL=https://api.minimax.io/openai \
 OPENAI_MODEL=MiniMax-M3 \
 npm run e2e:llm-flywheel

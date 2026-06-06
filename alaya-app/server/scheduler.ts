@@ -48,7 +48,8 @@ export interface SchedulerTickResult {
     | "waiting_feedback_window"
     | "ran_operational_stages"
     | "created_next_cycle"
-    | "safety_mode";
+    | "safety_mode"
+    | "skipped";
   cycleId?: string;
   nextCycleId?: string;
   budget: GateBudgetState;
@@ -59,6 +60,8 @@ export interface SchedulerTickResult {
 export interface SchedulerTickOptions {
   feedbackSync?: SyncGithubIssuesOptions;
 }
+
+const runningProjectTicks = new Set<string>();
 
 function parsePayload(payload: string): Record<string, any> {
   try {
@@ -1123,7 +1126,7 @@ function hasFeedbackSyncErrors(results: ExternalFeedbackSyncResult[]): boolean {
   return results.some((result) => result.errors.length > 0);
 }
 
-export async function schedulerTickProject(projectId: string, options: SchedulerTickOptions = {}): Promise<SchedulerTickResult> {
+async function schedulerTickProjectUnlocked(projectId: string, options: SchedulerTickOptions = {}): Promise<SchedulerTickResult> {
   decayStaleKnowledge(projectId);
   const budget = executeGateBudget(projectId);
   const humanAttention = enforceHumanAttentionBudget(projectId, budget);
@@ -1404,6 +1407,48 @@ export async function schedulerTickProject(projectId: string, options: Scheduler
     llmBudget: llmBudgetForProject(projectId),
     note: `closed cycle ${result.cycleIdx}; scheduler can create next cycle on next tick`,
   };
+}
+
+export async function schedulerTickProject(projectId: string, options: SchedulerTickOptions = {}): Promise<SchedulerTickResult> {
+  if (runningProjectTicks.has(projectId)) {
+    const cycle = storage.listCycles(projectId).find((c) => c.status !== "closed") ?? storage.listCycles(projectId).at(-1);
+    const payload = { projectId, reason: "tick_in_progress", ts: now() };
+    storage.recordEvent({
+      cycleIdx: cycle?.idx ?? 0,
+      actor: "scheduler",
+      tableName: "scheduler",
+      op: "scheduler_tick_skipped",
+      before: null,
+      after: JSON.stringify(payload),
+      ts: now(),
+    });
+    recordTrace({
+      projectId,
+      cycleId: cycle?.id ?? null,
+      cycleIdx: cycle?.idx ?? null,
+      kind: "scheduler",
+      name: "scheduler_tick_skipped",
+      agent: "scheduler",
+      status: "blocked",
+      attributes: payload,
+    });
+    observeSchedulerCycle({ ok: false, durationMs: 0 });
+    return {
+      projectId,
+      action: "skipped",
+      cycleId: cycle?.id,
+      budget: gateBudgetForProject(projectId),
+      llmBudget: llmBudgetForProject(projectId),
+      note: "tick_in_progress",
+    };
+  }
+
+  runningProjectTicks.add(projectId);
+  try {
+    return await schedulerTickProjectUnlocked(projectId, options);
+  } finally {
+    runningProjectTicks.delete(projectId);
+  }
 }
 
 export async function schedulerTickAllProjects(options: SchedulerTickOptions = {}): Promise<SchedulerTickResult[]> {

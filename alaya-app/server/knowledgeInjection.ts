@@ -30,7 +30,13 @@ function ftsMatchQuery(input: string): string {
   return terms.join(" OR ");
 }
 
-function rowToKnowledge(r: any): KnowledgeItem {
+function rowObject(value: unknown): Record<string, any> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, any>;
+  throw new Error("Invalid knowledge_items row");
+}
+
+function rowToKnowledge(value: unknown): KnowledgeItem {
+  const r = rowObject(value);
   return {
     id: r.id,
     projectId: r.project_id,

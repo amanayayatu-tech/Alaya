@@ -11,8 +11,6 @@
  */
 import { readFileSync } from "node:fs";
 
-const DEFAULT_OPENAI_API_KEY_FILE = "/private/tmp/alaya-minimax-key";
-
 export type JsonSchema = {
   type: "object";
   required?: string[];
@@ -239,7 +237,7 @@ export function resolveOpenAIApiKey(explicit?: string): string {
   if (explicit !== undefined) return explicit.trim();
   const envKey = process.env.OPENAI_API_KEY?.trim();
   if (envKey) return envKey;
-  return readSecretFile(process.env.OPENAI_API_KEY_FILE) || readSecretFile(DEFAULT_OPENAI_API_KEY_FILE);
+  return readSecretFile(process.env.OPENAI_API_KEY_FILE);
 }
 
 /**

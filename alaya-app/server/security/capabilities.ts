@@ -77,6 +77,21 @@ const DEFAULT_ALLOWED_HOSTS = new Set([
   "api.minimaxi.com",
 ]);
 
+function parseAllowedHosts(env: NodeJS.ProcessEnv = process.env): ReadonlySet<string> {
+  const hosts = new Set(DEFAULT_ALLOWED_HOSTS);
+  for (const host of (env.ALAYA_ALLOWED_NETWORK_HOSTS ?? "").split(",")) {
+    const clean = host.trim().toLowerCase();
+    if (!clean) continue;
+    if (!/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(clean)) {
+      throw new Error(`Invalid ALAYA_ALLOWED_NETWORK_HOSTS entry: ${clean}`);
+    }
+    hosts.add(clean);
+  }
+  return Object.freeze(hosts);
+}
+
+const CONFIGURED_ALLOWED_HOSTS = parseAllowedHosts();
+
 function inputHash(value: unknown): string {
   const text = JSON.stringify(redactSensitiveData(value) ?? {});
   let hash = 0x811c9dc5;
@@ -202,15 +217,6 @@ export function requireCapability(input: CapabilityCheckInput): CapabilityDecisi
   return decision;
 }
 
-function allowedHosts(env: NodeJS.ProcessEnv = process.env): Set<string> {
-  const hosts = new Set(DEFAULT_ALLOWED_HOSTS);
-  for (const host of (env.ALAYA_ALLOWED_NETWORK_HOSTS ?? "").split(",")) {
-    const clean = host.trim().toLowerCase();
-    if (clean) hosts.add(clean);
-  }
-  return hosts;
-}
-
 function isLocalHost(hostname: string): boolean {
   return ["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(hostname);
 }
@@ -220,7 +226,7 @@ export function assertNetworkAllowed(url: string, context: Omit<CapabilityCheckI
   const mode = runModeFromEnv();
   const hostname = parsed.hostname.toLowerCase();
   if ((mode === "development" || mode === "test") && isLocalHost(hostname)) return;
-  if (allowedHosts().has(hostname)) return;
+  if (CONFIGURED_ALLOWED_HOSTS.has(hostname)) return;
   const decision = requireCapability({
     ...context,
     capability: "network_unknown",

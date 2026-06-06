@@ -29,6 +29,15 @@ test("redactSensitiveText covers tokens, auth headers, cookies, database URLs an
   assert.match(redacted, /\[redacted-password\]/);
 });
 
+test("redactSensitiveText redacts phone numbers without removing dates or grouped ids", () => {
+  const redacted = redactSensitiveText("Date 2026-06-06 build 1234-5678 phone +1 415 555 1212");
+  assert.equal(redacted.includes("2026-06-06"), true);
+  assert.equal(redacted.includes("1234-5678"), true);
+  assert.equal(redacted.includes("+1 415 555 1212"), false);
+  assert.equal(redacted.includes("+[redacted-phone]"), false);
+  assert.match(redacted, /\[redacted-phone\]/);
+});
+
 test("redactSensitiveData redacts secret-like keys recursively", () => {
   const out = redactSensitiveData({
     ok: "keep",

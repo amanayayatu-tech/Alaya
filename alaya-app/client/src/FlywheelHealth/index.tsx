@@ -4,6 +4,7 @@ import { CompoundingProof } from "./CompoundingProof";
 import { HumanGateQueue, type HumanGate } from "./HumanGateQueue";
 import { KnowledgeStateDonut } from "./KnowledgeStateDonut";
 import { RoundTimeline } from "./RoundTimeline";
+import { apiFetch } from "@/lib/queryClient";
 
 export type FlywheelRoundHealth = {
   roundNumber: number;
@@ -40,7 +41,7 @@ type FlywheelHealthProps = {
 };
 
 async function loadJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+  const response = await apiFetch(url);
   if (!response.ok) throw new Error(`Request failed: ${response.status}`);
   return response.json() as Promise<T>;
 }

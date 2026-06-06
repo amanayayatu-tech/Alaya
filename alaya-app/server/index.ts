@@ -3,6 +3,7 @@ import express, { Response, NextFunction } from 'express';
 import type { Request } from 'express';
 import { assertEnvValid } from "./config/env";
 import { checkCapability, CapabilityDeniedError } from "./security/capabilities";
+import { corsMiddleware, securityHeadersMiddleware } from "./security/http";
 import { redactError, redactSensitiveData, redactSensitiveText } from "./security/redact";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
@@ -19,6 +20,9 @@ declare module "http" {
     rawBody: unknown;
   }
 }
+
+app.use(securityHeadersMiddleware);
+app.use(corsMiddleware);
 
 app.use(
   express.json({

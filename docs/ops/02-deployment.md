@@ -13,6 +13,7 @@ docker build -t alaya:local .
 Validate compose:
 
 ```bash
+ALAYA_API_KEY=<local-shadow-api-key> \
 docker compose -f deploy/docker-compose.shadow.yml config
 ```
 
@@ -30,11 +31,20 @@ The normal service keeps `ALAYA_CAP_DATABASE_MIGRATION=false`; steady-state rest
 Start shadow after migration:
 
 ```bash
+export ALAYA_API_KEY=<local-shadow-api-key>
 docker compose -f deploy/docker-compose.shadow.yml up -d
 curl -fsS http://localhost:5000/healthz
 curl -fsS http://localhost:5000/readyz
-curl -fsS http://localhost:5000/metrics
 ```
+
+`/metrics` is loopback-restricted inside the service by default. From the host, a direct Docker port probe can correctly return `403`. For a local one-shot scrape, run the curl inside the container network:
+
+```bash
+docker compose -f deploy/docker-compose.shadow.yml exec alaya \
+  node -e "fetch('http://127.0.0.1:5000/metrics').then(async r => { console.log(r.status); console.log((await r.text()).slice(0, 200)); })"
+```
+
+If a host or Prometheus collector must scrape metrics, set `ALAYA_METRICS_ALLOWED_CIDRS` to a reviewed source range instead of relying on forwarded headers.
 
 Stop:
 
@@ -57,11 +67,14 @@ ALAYA_SHADOW_PORT=5055 docker compose -f deploy/docker-compose.shadow.yml down
 - Runtime uses non-root user `alaya`.
 - `.env`, database files, logs, backups and node_modules are excluded by `.dockerignore`.
 - `deploy/docker-compose.shadow.yml` sets `read_only: true`.
+- `deploy/docker-compose.shadow.yml` sets `security_opt: ["no-new-privileges:true"]`.
+- Runtime API auth is injected through `ALAYA_API_KEY`; do not bake real keys into the image.
 - Writable state is limited to named volumes:
   - `/var/lib/alaya`
   - `/var/log/alaya`
   - `/var/cache/alaya`
 - Compose sets restart policy, memory/CPU limits, `nofile` ulimit and log rotation.
+- Docker image `ENV` values are low-sensitivity defaults only. Real secrets and deployment-specific origins/CIDRs belong in env files or a secret manager.
 
 ## systemd Deployment
 
@@ -96,6 +109,7 @@ Inspect:
 systemctl status alaya
 journalctl -u alaya -n 200
 curl -fsS http://127.0.0.1:5000/readyz
+curl -fsS -H "Authorization: Bearer $ALAYA_API_KEY" http://127.0.0.1:5000/api/projects
 ```
 
 Stop:

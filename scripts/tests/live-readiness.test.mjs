@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { inferGitHubTarget, parseGitHubRemoteUrl } from "../lib/github-target.mjs";
@@ -87,7 +87,7 @@ test("setup-local-secrets --check fails closed when files are absent", () => {
   assert.equal(status.githubTokenFile.present, false);
 });
 
-test("setup-local-secrets --check falls back to default paths when path env vars are empty", () => {
+test("setup-local-secrets --check uses default user config paths when path env vars are empty", () => {
   const result = spawnSync(process.execPath, ["scripts/setup-local-secrets.mjs", "--check"], {
     cwd: root,
     env: {
@@ -100,8 +100,8 @@ test("setup-local-secrets --check falls back to default paths when path env vars
 
   assert.ok(result.status === 0 || result.status === 2);
   const status = JSON.parse(result.stdout);
-  assert.equal(status.minimaxKeyFile.path, "/private/tmp/alaya-minimax-key");
-  assert.equal(status.githubTokenFile.path, "/private/tmp/alaya-github-token");
+  assert.equal(status.minimaxKeyFile.path.endsWith(`${sep}.config${sep}alaya${sep}openai-api-key`), true);
+  assert.equal(status.githubTokenFile.path.endsWith(`${sep}.config${sep}alaya${sep}github-token`), true);
 });
 
 test("setup-local-secrets --check fails closed when secret file permissions are too broad", () => {

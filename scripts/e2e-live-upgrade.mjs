@@ -18,11 +18,10 @@ function envOrFallback(name, fallback) {
   return value || fallback;
 }
 
-function resolveFile(envName, fallback) {
+function resolveFile(envName) {
   const explicit = process.env[envName]?.trim();
   if (explicit && existsSync(explicit)) return explicit;
-  if (existsSync(fallback)) return fallback;
-  return explicit || fallback;
+  return explicit || "";
 }
 
 function secretFileUsable(path) {
@@ -43,8 +42,8 @@ function secretFileHint(path) {
   return `${path} (mode ${mode}; expected 0600)`;
 }
 
-const openaiKeyFile = resolveFile("OPENAI_API_KEY_FILE", "/private/tmp/alaya-minimax-key");
-const githubTokenFile = resolveFile("GITHUB_TOKEN_FILE", "/private/tmp/alaya-github-token");
+const openaiKeyFile = resolveFile("OPENAI_API_KEY_FILE");
+const githubTokenFile = resolveFile("GITHUB_TOKEN_FILE");
 const githubTarget = inferGitHubTarget({ cwd: root });
 const hasOpenaiKey = hasEnv("OPENAI_API_KEY") || secretFileUsable(openaiKeyFile);
 const hasGithubToken = hasEnv("GITHUB_TOKEN") || hasEnv("ALAYA_GITHUB_TOKEN") ||
@@ -66,10 +65,10 @@ function printPrereqHelp(missing) {
   console.error("");
   console.error("Expected local-only setup, without writing secrets to code or Git:");
   console.error("  GitHub owner/repo are inferred from Git remote origin; override with ALAYA_E2E_GITHUB_OWNER/REPO if needed.");
-  console.error("  OPENAI_API_KEY_FILE=/private/tmp/alaya-minimax-key \\");
+  console.error("  OPENAI_API_KEY_FILE=$HOME/.config/alaya/openai-api-key \\");
   console.error("  OPENAI_BASE_URL=https://api.minimax.io/openai \\");
   console.error("  OPENAI_MODEL=MiniMax-M3 \\");
-  console.error("  GITHUB_TOKEN_FILE=/private/tmp/alaya-github-token \\");
+  console.error("  GITHUB_TOKEN_FILE=$HOME/.config/alaya/github-token \\");
   console.error("  npm run e2e:live");
   if (githubTarget.owner && githubTarget.repo) {
     console.error(`Detected GitHub target from ${githubTarget.source}: ${githubTarget.owner}/${githubTarget.repo}`);

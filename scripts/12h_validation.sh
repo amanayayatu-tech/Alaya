@@ -49,10 +49,10 @@ CONNECT_TIMEOUT_SECONDS="${ALAYA_CONNECT_TIMEOUT_SECONDS:-10}"
 live_prereqs_available() {
   local has_llm=0
   local has_github=0
-  if [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${OPENAI_API_KEY_FILE:-}" ] || [ -s "/private/tmp/alaya-minimax-key" ]; then
+  if [ -n "${OPENAI_API_KEY:-}" ] || { [ -n "${OPENAI_API_KEY_FILE:-}" ] && [ -s "$OPENAI_API_KEY_FILE" ]; }; then
     has_llm=1
   fi
-  if [ -n "${ALAYA_GITHUB_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN_FILE:-}" ] || [ -s "/private/tmp/alaya-github-token" ]; then
+  if [ -n "${ALAYA_GITHUB_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN:-}" ] || { [ -n "${GITHUB_TOKEN_FILE:-}" ] && [ -s "$GITHUB_TOKEN_FILE" ]; } || { [ -n "${ALAYA_GITHUB_TOKEN_FILE:-}" ] && [ -s "$ALAYA_GITHUB_TOKEN_FILE" ]; }; then
     has_github=1
   fi
   [ "$has_llm" -eq 1 ] && [ "$has_github" -eq 1 ]

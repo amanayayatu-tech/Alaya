@@ -41,6 +41,21 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   trace_events: ["trace_id", "span_id", "attributes"],
 };
 
+const REQUIRED_TABLE_SET = new Set(REQUIRED_TABLES);
+
+function tableColumns(table: string): Set<string> {
+  if (!REQUIRED_TABLE_SET.has(table)) {
+    throw new Error(`Refusing PRAGMA table_info for unknown table: ${table}`);
+  }
+  return new Set((sqlite.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((row) => row.name));
+}
+
+for (const table of Object.keys(REQUIRED_COLUMNS)) {
+  if (!REQUIRED_TABLE_SET.has(table)) {
+    throw new Error(`REQUIRED_COLUMNS references unknown table: ${table}`);
+  }
+}
+
 function shouldRunImportMigrations(): boolean {
   const mode = runModeFromEnv();
   return !isLongRunMode(mode) || isSchemaMigrationAllowed();
@@ -54,8 +69,8 @@ function assertSchemaReady() {
   const missing = REQUIRED_TABLES.filter((table) => !existing.has(table));
   const missingColumns = Object.entries(REQUIRED_COLUMNS).flatMap(([table, columns]) => {
     if (!existing.has(table)) return [];
-    const tableColumns = new Set((sqlite.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((row) => row.name));
-    return columns.filter((column) => !tableColumns.has(column)).map((column) => `${table}.${column}`);
+    const columnsForTable = tableColumns(table);
+    return columns.filter((column) => !columnsForTable.has(column)).map((column) => `${table}.${column}`);
   });
   if (missing.length > 0 || missingColumns.length > 0) {
     throw new Error(
@@ -189,7 +204,7 @@ export function runSchemaMigrations() {
   );
   `);
 
-  const projectColumns = new Set((sqlite.prepare(`PRAGMA table_info(projects)`).all() as Array<{ name: string }>).map((c) => c.name));
+  const projectColumns = tableColumns("projects");
   if (!projectColumns.has("weekly_llm_budget_cents")) {
     sqlite.exec(`ALTER TABLE projects ADD COLUMN weekly_llm_budget_cents INTEGER NOT NULL DEFAULT 100`);
   }
@@ -202,7 +217,7 @@ export function runSchemaMigrations() {
     if (!projectColumns.has(name)) sqlite.exec(`ALTER TABLE projects ADD COLUMN ${name} ${spec}`);
   }
 
-  const feedbackColumns = new Set((sqlite.prepare(`PRAGMA table_info(feedback_items)`).all() as Array<{ name: string }>).map((c) => c.name));
+  const feedbackColumns = tableColumns("feedback_items");
   const feedbackColumnSpecs: Array<[string, string]> = [
     ["source_type", "TEXT NOT NULL DEFAULT 'scenario'"],
     ["source_ref", "TEXT NOT NULL DEFAULT ''"],
@@ -215,7 +230,7 @@ export function runSchemaMigrations() {
     if (!feedbackColumns.has(name)) sqlite.exec(`ALTER TABLE feedback_items ADD COLUMN ${name} ${spec}`);
   }
 
-  const knowledgeColumns = new Set((sqlite.prepare(`PRAGMA table_info(knowledge_items)`).all() as Array<{ name: string }>).map((c) => c.name));
+  const knowledgeColumns = tableColumns("knowledge_items");
   const knowledgeColumnSpecs: Array<[string, string]> = [
     ["usage_count", "INTEGER NOT NULL DEFAULT 0"],
     ["last_injected_at", "INTEGER"],
@@ -231,7 +246,7 @@ export function runSchemaMigrations() {
     if (!knowledgeColumns.has(name)) sqlite.exec(`ALTER TABLE knowledge_items ADD COLUMN ${name} ${spec}`);
   }
 
-  const llmColumns = new Set((sqlite.prepare(`PRAGMA table_info(llm_calls)`).all() as Array<{ name: string }>).map((c) => c.name));
+  const llmColumns = tableColumns("llm_calls");
   const llmColumnSpecs: Array<[string, string]> = [
     ["provider", "TEXT NOT NULL DEFAULT 'mock'"],
     ["model", "TEXT NOT NULL DEFAULT 'mock'"],
@@ -341,7 +356,13 @@ function rowToCycle(r: any): Cycle {
     eCycle: r.e_cycle, worstClaimError: r.worst_claim_error, reasoning: r.reasoning, version: r.version,
   };
 }
-function rowToKnowledge(r: any): KnowledgeItem {
+function rowObject(value: unknown, table: string): Record<string, any> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, any>;
+  throw new Error(`Invalid ${table} row`);
+}
+
+function rowToKnowledge(value: unknown): KnowledgeItem {
+  const r = rowObject(value, "knowledge_items");
   return {
     id: r.id, projectId: r.project_id, type: r.type, title: r.title, content: r.content,
     sourceType: r.source_type, sourceRef: r.source_ref, evidenceAlpha: r.evidence_alpha,

@@ -26,6 +26,7 @@ import {
   type Prediction,
 } from "@/lib/alaya";
 import { actorLabels, errorTypeLabels, gateTypeLabels, metaFor, operationLabels } from "@/lib/labels";
+import { apiFetch } from "@/lib/queryClient";
 
 const LEDGER_TABS = [
   { key: "predictions", label: "预测" },
@@ -52,7 +53,7 @@ export default function Ledger() {
     queryKey: ["/api/decision-log", projectId],
     enabled: !!projectId,
     queryFn: async () => {
-      const response = await fetch(`/api/decision-log?projectId=${projectId}`);
+      const response = await apiFetch(`/api/decision-log?projectId=${projectId}`);
       if (!response.ok) throw new Error(await response.text());
       return response.json();
     },

@@ -35,6 +35,14 @@ jobs:
         working-directory: alaya-core
         run: npm ci
 
+      - name: App dependency audit
+        working-directory: alaya-app
+        run: npm audit --audit-level=high
+
+      - name: Core dependency audit
+        working-directory: alaya-core
+        run: npm audit --audit-level=high
+
       - name: PRINCIPLES guard
         run: npm run guard
 

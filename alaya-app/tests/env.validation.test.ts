@@ -18,11 +18,25 @@ test("production fails fast without a configured database path", () => {
   assert.ok(result.errors.some((error) => error.includes("ALAYA_DB_PATH")));
 });
 
+test("long-run modes require an API key", () => {
+  for (const mode of ["shadow", "staging", "production"]) {
+    const result = validateEnv({
+      NODE_ENV: mode === "production" ? "production" : "development",
+      ALAYA_MODE: mode,
+      ...(mode === "shadow" ? {} : { ALAYA_DB_PATH: "/var/lib/alaya/alaya.db" }),
+      ALAYA_AUTO_SEED_DEMO: "false",
+      ALAYA_LLM_PROVIDER: "mock",
+    } as NodeJS.ProcessEnv);
+    assert.ok(result.errors.some((error) => error.includes("ALAYA_API_KEY")), `${mode} should require ALAYA_API_KEY`);
+  }
+});
+
 test("production rejects obvious placeholder secrets", () => {
   const result = validateEnv({
     NODE_ENV: "production",
     ALAYA_MODE: "production",
     ALAYA_DB_PATH: "/var/lib/alaya/alaya.db",
+    ALAYA_API_KEY: "unit-api-key-for-valid-prod-config",
     ALAYA_AUTO_SEED_DEMO: "false",
     ALAYA_LLM_PROVIDER: "mock",
     ALAYA_WEBHOOK_SECRET: "changeme",
@@ -41,6 +55,7 @@ test("valid production mock configuration passes core checks", () => {
     NODE_ENV: "production",
     ALAYA_MODE: "production",
     ALAYA_DB_PATH: "/var/lib/alaya/alaya.db",
+    ALAYA_API_KEY: "unit-api-key-for-valid-prod-config",
     ALAYA_AUTO_SEED_DEMO: "false",
     ALAYA_LLM_PROVIDER: "mock",
   } as NodeJS.ProcessEnv);
@@ -104,6 +119,7 @@ test("long-run storage import requires initialized schema but not an open migrat
       NODE_ENV: "production",
       ALAYA_MODE: "shadow",
       ALAYA_DB_PATH: dbPath,
+      ALAYA_API_KEY: "unit-api-key-for-shadow-schema-check",
       ALAYA_CAP_DATABASE_MIGRATION: "false",
       ALAYA_AUTO_SEED_DEMO: "false",
       ALAYA_LLM_PROVIDER: "mock",
@@ -124,6 +140,7 @@ test("long-run storage import requires initialized schema but not an open migrat
       NODE_ENV: "production",
       ALAYA_MODE: "shadow",
       ALAYA_DB_PATH: join(tmp, "missing-schema.db"),
+      ALAYA_API_KEY: "unit-api-key-for-shadow-schema-check",
       ALAYA_CAP_DATABASE_MIGRATION: "false",
       ALAYA_AUTO_SEED_DEMO: "false",
       ALAYA_LLM_PROVIDER: "mock",

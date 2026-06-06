@@ -9,6 +9,8 @@
 | Logs | `ALAYA_LOG_DIR` or process stdout | JSON structured runtime logs |
 | Validation logs | `validation-logs/` | Not required for restore, useful for audit |
 | Config | env vars / `/etc/alaya/alaya.env` | Secrets are not backed up by scripts |
+| Local temporary secrets | `$HOME/.config/alaya/*` or explicit key-file env | Must be managed outside git and outside backup artifacts |
+| API auth key | `ALAYA_API_KEY` or secret manager | Runtime secret, not stored in DB or backup manifest |
 | Generated build | `alaya-app/dist` | Reproducible from source |
 
 ## Backup
@@ -19,7 +21,7 @@ Run:
 npm run ops:backup
 ```
 
-The script copies the configured SQLite DB and WAL/SHM sidecars into `tmp/alaya-backups/...` and writes `manifest.json`. It records env variable names that were present, but never env values. `.env` files and secret files are excluded.
+The script copies the configured SQLite DB and WAL/SHM sidecars into `tmp/alaya-backups/...` and writes `manifest.json`. It records env variable names that were present, but never env values. `.env` files, API keys, LLM keys, GitHub tokens and local secret files are excluded.
 
 ## Restore
 
@@ -36,6 +38,16 @@ npm run ops:restore -- --backup tmp/alaya-backups/<backup-dir> --confirm
 ```
 
 The restore script requires `--confirm` to copy files.
+
+This pass verified:
+
+```bash
+rm -rf tmp/alaya-backups/verify-goal
+npm run ops:backup -- --out tmp/alaya-backups/verify-goal
+npm run ops:restore -- --backup tmp/alaya-backups/verify-goal
+```
+
+Result: backup succeeded and restore stayed dry-run.
 
 ## Migration Policy
 

@@ -46,11 +46,11 @@ const packageJson = JSON.parse(read("package.json"));
 const scripts = packageJson.scripts ?? {};
 
 const hasOpenAiKey = envPresent("OPENAI_API_KEY") ||
-  [process.env.OPENAI_API_KEY_FILE, "/private/tmp/alaya-minimax-key"].some(secretFileUsable);
+  [process.env.OPENAI_API_KEY_FILE].some(secretFileUsable);
 const githubTarget = inferGitHubTarget({ cwd: root });
 const hasGithubTarget = Boolean(githubTarget.owner && githubTarget.repo);
 const hasGithubToken = envPresent("ALAYA_GITHUB_TOKEN", "GITHUB_TOKEN") ||
-  [process.env.ALAYA_GITHUB_TOKEN_FILE, process.env.GITHUB_TOKEN_FILE, "/private/tmp/alaya-github-token"].some(secretFileUsable);
+  [process.env.ALAYA_GITHUB_TOKEN_FILE, process.env.GITHUB_TOKEN_FILE].some(secretFileUsable);
 
 const checks = [
   {
@@ -63,7 +63,6 @@ const checks = [
       has("alaya-core/src/llm/provider.ts", /degradedToHumanGate/) &&
       has("alaya-core/src/llm/provider.ts", /estimatedCost/) &&
       has("alaya-core/src/llm/provider.ts", /redactSensitiveText/) &&
-      has("alaya-core/src/llm/provider.ts", /\/private\/tmp\/alaya-minimax-key/) &&
       has("alaya-core/src/llm/provider.ts", /OPENAI_REQUEST_TIMEOUT_MS/) &&
       has("alaya-core/tests/llm_provider.test.ts", /times out hung requests/) &&
       has("alaya-core/src/llm/provider.ts", /sanitizeAgentContext/) &&
@@ -88,7 +87,7 @@ const checks = [
     kind: "live",
     ok: hasOpenAiKey,
     evidence: "OPENAI_API_KEY or OPENAI_API_KEY_FILE must be present locally for real MiniMax/OpenAI-compatible E2E",
-    next: "Create /private/tmp/alaya-minimax-key locally, then run OPENAI_API_KEY_FILE=/private/tmp/alaya-minimax-key OPENAI_BASE_URL=https://api.minimax.io/openai OPENAI_MODEL=MiniMax-M3 npm run e2e:llm-flywheel",
+    next: "Create a local 0600 key file outside the repo, then run OPENAI_API_KEY_FILE=$HOME/.config/alaya/openai-api-key OPENAI_BASE_URL=https://api.minimax.io/openai OPENAI_MODEL=MiniMax-M3 npm run e2e:llm-flywheel",
   },
   {
     id: "layer2-onboarding",
@@ -244,22 +243,22 @@ const checks = [
       has("scripts/e2e-live-upgrade.mjs", /GITHUB_TOKEN_FILE/) &&
       has("scripts/e2e-live-upgrade.mjs", /secretFileUsable/) &&
       has("scripts/e2e-live-upgrade.mjs", /envOrFallback/) &&
-      has("scripts/e2e-github-autonomous-sensor.mjs", /\/private\/tmp\/alaya-github-token/) &&
-      has("scripts/e2e-github-issue-sensor.mjs", /\/private\/tmp\/alaya-github-token/) &&
-      has("alaya-app/server/llm.ts", /\/private\/tmp\/alaya-minimax-key/) &&
+      has("scripts/e2e-github-autonomous-sensor.mjs", /ALAYA_GITHUB_TOKEN\/GITHUB_TOKEN/) &&
+      has("scripts/e2e-github-issue-sensor.mjs", /ALAYA_GITHUB_TOKEN\/GITHUB_TOKEN/) &&
+      has("alaya-app/server/llm.ts", /OPENAI_API_KEY_FILE/) &&
       has("alaya-app/server/llm.ts", /OPENAI_REQUEST_TIMEOUT_MS/) &&
       has("alaya-app/tests/external_feedback_scheduler.test.ts", /times out hung provider requests/) &&
-      has("alaya-app/server/externalFeedback.ts", /\/private\/tmp\/alaya-github-token/) &&
+      has("alaya-app/server/externalFeedback.ts", /ALAYA_GITHUB_TOKEN_FILE/) &&
       has("scripts/setup-local-secrets.mjs", /modeSecure/) &&
       has("scripts/setup-local-secrets.mjs", /usable/) &&
-      has("scripts/tests/live-readiness.test.mjs", /falls back to default paths when path env vars are empty/) &&
+      has("scripts/tests/live-readiness.test.mjs", /uses default user config paths when path env vars are empty/) &&
       has("scripts/tests/live-readiness.test.mjs", /permissions are too broad/) &&
       has("scripts/tests/live-readiness.test.mjs", /refuses broad-permission local secret files/) &&
       has("alaya-app/tests/external_feedback_scheduler.test.ts", /app LLM reads the local key file when OPENAI_API_KEY is an empty env var/) &&
       has("alaya-app/tests/external_feedback_scheduler.test.ts", /process\.env\.ALAYA_GITHUB_TOKEN = ""/) &&
       has("alaya-app/tests/external_feedback_scheduler.test.ts", /process\.env\.GITHUB_TOKEN = ""/) &&
       has("scripts/e2e-live-upgrade.mjs", /ALAYA_AUDIT_REQUIRE_COMPLETE/),
-    evidence: "One-command live runner wires real LLM flywheel, UI onboarding, autonomous scheduler, and real GitHub autonomous Sensor E2E using local-only key files, refuses broad-permission secret files, and preserves file fallback when env vars are empty",
+    evidence: "One-command live runner wires real LLM flywheel, UI onboarding, autonomous scheduler, and real GitHub autonomous Sensor E2E using explicit local-only key files and refuses broad-permission secret files",
   },
   {
     id: "layer4-real-github-e2e-config",
@@ -268,8 +267,8 @@ const checks = [
     ok: hasGithubTarget && hasGithubToken,
     evidence: `GitHub target ${hasGithubTarget ? `${githubTarget.owner}/${githubTarget.repo} inferred from ${githubTarget.source}` : "must be supplied via env or Git remote"}; a local GitHub token must be present for real GitHub autonomous E2E`,
     next: hasGithubTarget
-      ? "Create /private/tmp/alaya-github-token locally, then run GITHUB_TOKEN_FILE=/private/tmp/alaya-github-token npm run e2e:github-autonomous"
-      : "Set ALAYA_E2E_GITHUB_OWNER/ALAYA_E2E_GITHUB_REPO or configure a GitHub origin remote, then create /private/tmp/alaya-github-token locally and run npm run e2e:github-autonomous",
+      ? "Create a local 0600 GitHub token file outside the repo, then run GITHUB_TOKEN_FILE=$HOME/.config/alaya/github-token npm run e2e:github-autonomous"
+      : "Set ALAYA_E2E_GITHUB_OWNER/ALAYA_E2E_GITHUB_REPO or configure a GitHub origin remote, then create a local 0600 GitHub token file and run npm run e2e:github-autonomous",
   },
   {
     id: "failure-thresholds",

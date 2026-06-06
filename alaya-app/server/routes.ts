@@ -1,11 +1,15 @@
 import type { Express, Request, Response } from "express";
 import { createServer } from "node:http";
+import { z } from "zod";
 import type { Server } from "node:http";
 import { buildHealthz, buildReadyz } from "./observability/health";
 import { buildMetricsSnapshot, renderPrometheusMetrics } from "./observability/metrics";
 import { isLongRunMode, runModeFromEnv } from "./config/env";
+import { apiAuthMiddleware, metricsAccessMiddleware } from "./security/auth";
 import { auditCapabilityDecision, evaluateCapability, type CapabilityName } from "./security/capabilities";
+import { costEndpointRateLimit } from "./security/http";
 import { storage, now } from "./storage";
+import type { KnowledgeItem } from "@shared/schema";
 import { onboardingSchema } from "@shared/schema";
 import { createProjectFromOnboarding } from "./onboarding";
 import { updateProjectConfig } from "./projectConfig";
@@ -22,10 +26,103 @@ function parseJsonFields<T extends Record<string, any>>(obj: T, fields: string[]
   const out: any = { ...obj };
   for (const f of fields) {
     if (typeof out[f] === "string") {
-      try { out[f] = JSON.parse(out[f]); } catch { /* keep */ }
+      try {
+        out[f] = JSON.parse(out[f]);
+      } catch {
+        console.warn(JSON.stringify({ ts: new Date().toISOString(), level: "warn", source: "routes", message: "json field parse failed", field: f }));
+      }
     }
   }
   return out;
+}
+
+const ID_RE = /^[A-Za-z0-9_-]{1,160}$/;
+
+function rejectDangerousMarkup(value: string): boolean {
+  return !/<\s*script\b/i.test(value) && !/\bjavascript\s*:/i.test(value);
+}
+
+const idSchema = z.string().trim().min(1).max(160).regex(ID_RE);
+const shortTextSchema = z.string().trim().min(1).max(500).refine(rejectDangerousMarkup, "dangerous markup is not allowed");
+const longTextSchema = z.string().trim().max(10_000).refine(rejectDangerousMarkup, "dangerous markup is not allowed");
+const nonEmptyLongTextSchema = z.string().trim().min(1).max(10_000).refine(rejectDangerousMarkup, "dangerous markup is not allowed");
+const tagSchema = z.array(z.string().trim().min(1).max(80).refine(rejectDangerousMarkup)).max(30).default([]);
+const optionalNullableNumber = z.number().finite().nullable().optional();
+
+const predictionCreateSchema = z.object({
+  id: idSchema.optional(),
+  cycleId: idSchema,
+  belief: longTextSchema.default(""),
+  prediction: longTextSchema.default(""),
+  action: longTextSchema.default(""),
+  claims: z.array(z.unknown()).max(50).default([]),
+  observation: longTextSchema.nullable().optional(),
+  predictionError: optionalNullableNumber,
+  worstClaimError: optionalNullableNumber,
+  errorType: z.enum(["perception", "execution", "model", "value"]).nullable().optional(),
+  updateTarget: shortTextSchema.nullable().optional(),
+  status: z.enum(["open", "resolved"]).default("open"),
+  knowledgeRefs: z.array(idSchema).max(100).default([]),
+}).strict();
+
+const predictionObservationSchema = z.object({
+  observation: longTextSchema,
+}).strict();
+
+const predictionErrorSchema = z.object({
+  predictionError: z.number().finite(),
+  worstClaimError: optionalNullableNumber,
+  errorType: z.enum(["perception", "execution", "model", "value"]).nullable().optional(),
+  updateTarget: shortTextSchema.nullable().optional(),
+}).strict();
+
+const knowledgeCreateSchema = z.object({
+  id: idSchema.optional(),
+  projectId: idSchema,
+  type: shortTextSchema.default("fact"),
+  title: shortTextSchema,
+  content: nonEmptyLongTextSchema,
+  sourceType: shortTextSchema.default("agent_observation"),
+  sourceRef: longTextSchema.default(""),
+  cycleIdx: z.number().int().min(0).max(1_000_000).default(0),
+  createdBy: shortTextSchema.default("distiller"),
+  tags: tagSchema,
+  notes: longTextSchema.default(""),
+}).strict();
+
+const knowledgePatchSchema = z.object({
+  type: shortTextSchema.optional(),
+  title: shortTextSchema.optional(),
+  content: nonEmptyLongTextSchema.optional(),
+  sourceType: shortTextSchema.optional(),
+  sourceRef: longTextSchema.optional(),
+  confidenceScore: z.number().finite().min(0).max(1).optional(),
+  confidenceLevel: z.enum(["low", "medium", "high", "verified"]).optional(),
+  status: z.enum(["draft", "active", "strong", "stale", "expired", "quarantined", "conflict", "deprecated", "rejected"]).optional(),
+  humanApprovedCount: z.number().int().min(0).optional(),
+  externalVerifiedCount: z.number().int().min(0).optional(),
+  validFrom: z.string().trim().max(32).optional(),
+  validUntil: z.string().trim().max(32).nullable().optional(),
+  tags: tagSchema.optional(),
+  notes: longTextSchema.optional(),
+  supersededBy: idSchema.nullable().optional(),
+  semanticKey: shortTextSchema.optional(),
+}).strict();
+
+const gateDecisionSchema = z.object({
+  rationale: longTextSchema.default(""),
+}).passthrough();
+
+const feedbackSyncSchema = z.object({
+  token: z.string().trim().max(4096).optional(),
+  githubToken: z.string().trim().max(4096).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  syncFeedback: z.boolean().optional(),
+  projectId: idSchema.optional(),
+}).passthrough();
+
+function validationError(res: Response, error: z.ZodError) {
+  return res.status(400).json({ message: "invalid request body", errors: error.flatten() });
 }
 
 function feedbackSyncOptions(req: Request) {
@@ -61,10 +158,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const ready = buildReadyz();
     res.status(ready.status === "ready" ? 200 : 503).json(ready);
   });
-  app.get("/metrics", (req, res) => {
+  app.get("/metrics", metricsAccessMiddleware, (req, res) => {
     if (req.query.format === "json") return res.json(buildMetricsSnapshot());
     res.type("text/plain; version=0.0.4").send(renderPrometheusMetrics());
   });
+
+  app.param("id", (req, res, next, value) => {
+    const parsed = idSchema.safeParse(value);
+    if (!parsed.success) return res.status(400).json({ message: "invalid id parameter" });
+    req.params.id = parsed.data;
+    return next();
+  });
+
+  app.param("sourceId", (req, res, next, value) => {
+    const parsed = idSchema.safeParse(value);
+    if (!parsed.success) return res.status(400).json({ message: "invalid id parameter" });
+    req.params.sourceId = parsed.data;
+    return next();
+  });
+
+  app.use("/api", apiAuthMiddleware);
 
   app.use("/api", (req, res, next) => {
     const mode = runModeFromEnv();
@@ -264,22 +377,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ---------------- run-full ----------------
-  app.post("/api/cycles/:id/run-full", async (req, res) => {
-    const cycle = storage.getCycle(req.params.id);
+  app.post("/api/cycles/:id/run-full", costEndpointRateLimit("run-full"), async (req, res) => {
+    const cycle = storage.getCycle(String(req.params.id));
     if (!cycle) return res.status(404).json({ message: "not found" });
     const r = await runFullCycle(cycle.projectId, cycle.id);
     res.json(r);
   });
 
   // ---------------- scheduler ----------------
-  app.post("/api/projects/:id/scheduler/tick", async (req, res) => {
-    const project = storage.getProject(req.params.id);
+  app.post("/api/projects/:id/scheduler/tick", costEndpointRateLimit("scheduler-tick"), async (req, res) => {
+    const parsed = feedbackSyncSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return validationError(res, parsed.error);
+    req.body = parsed.data;
+    const project = storage.getProject(String(req.params.id));
     if (!project) return res.status(404).json({ message: "not found" });
     const syncOptions = feedbackSyncOptions(req);
     if (req.body?.syncFeedback !== false) await syncConfiguredFeedbackForProject(project.id, undefined, syncOptions);
     res.json(await schedulerTickProject(project.id, { feedbackSync: syncOptions }));
   });
-  app.post("/api/scheduler/tick", async (req, res) => {
+  app.post("/api/scheduler/tick", costEndpointRateLimit("scheduler-tick"), async (req, res) => {
+    const parsed = feedbackSyncSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return validationError(res, parsed.error);
+    req.body = parsed.data;
     const projectId = req.body?.projectId ?? req.query.projectId;
     const syncOptions = feedbackSyncOptions(req);
     if (projectId) {
@@ -337,10 +456,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(parseJsonFields(g, ["payload"]));
   });
   function resolveGate(req: Request, res: Response, status: string, decision: string) {
+    const parsed = gateDecisionSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return validationError(res, parsed.error);
     const gate = storage.getGate(String(req.params.id));
     if (!gate) return res.status(404).json({ message: "not found" });
-    const dec = (req.body?.decision as string) || decision;
-    const rationale = (req.body?.rationale as string) || "";
+    const dec = decision;
+    const rationale = parsed.data.rationale;
     const updated = storage.updateGate(gate.id, { status, decision: dec });
     storage.createDecision({
       id: `dec_${gate.id}_${Date.now().toString(36)}`, cycleId: gate.cycleId,
@@ -361,7 +482,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(storage.listPredictionsByProject(req.params.id).map((p) => parseJsonFields(p, ["claims", "knowledgeRefs"])));
   });
   app.post("/api/predictions", (req, res) => {
-    const body = req.body;
+    const parsed = predictionCreateSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return validationError(res, parsed.error);
+    const body = parsed.data;
     const pred = storage.createPrediction({
       id: body.id ?? `pred_${Date.now().toString(36)}`, cycleId: body.cycleId,
       belief: body.belief ?? "", prediction: body.prediction ?? "", action: body.action ?? "",
@@ -373,14 +496,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(parseJsonFields(pred, ["claims", "knowledgeRefs"]));
   });
   app.patch("/api/predictions/:id/observation", (req, res) => {
-    const p = storage.updatePrediction(req.params.id, { observation: req.body.observation });
+    const parsed = predictionObservationSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return validationError(res, parsed.error);
+    const p = storage.updatePrediction(req.params.id, { observation: parsed.data.observation });
     if (!p) return res.status(404).json({ message: "not found" });
     res.json(parseJsonFields(p, ["claims", "knowledgeRefs"]));
   });
   app.patch("/api/predictions/:id/error", (req, res) => {
+    const parsed = predictionErrorSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return validationError(res, parsed.error);
     const p = storage.updatePrediction(req.params.id, {
-      predictionError: req.body.predictionError, worstClaimError: req.body.worstClaimError,
-      errorType: req.body.errorType, updateTarget: req.body.updateTarget, status: "resolved",
+      predictionError: parsed.data.predictionError,
+      worstClaimError: parsed.data.worstClaimError,
+      errorType: parsed.data.errorType,
+      updateTarget: parsed.data.updateTarget,
+      status: "resolved",
     });
     if (!p) return res.status(404).json({ message: "not found" });
     res.json(parseJsonFields(p, ["claims", "knowledgeRefs"]));
@@ -406,7 +536,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   });
   app.post("/api/knowledge", (req, res) => {
-    const b = req.body;
+    const parsed = knowledgeCreateSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return validationError(res, parsed.error);
+    const b = parsed.data;
     const k = storage.createKnowledge({
       id: b.id ?? `kb_${Date.now().toString(36)}`, projectId: b.projectId, type: b.type ?? "fact",
       title: b.title, content: b.content, sourceType: b.sourceType ?? "agent_observation", sourceRef: b.sourceRef ?? "",
@@ -418,8 +550,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(parseJsonFields(k, ["tags"]));
   });
   app.patch("/api/knowledge/:id", (req, res) => {
-    const patch = { ...req.body };
-    if (patch.tags && Array.isArray(patch.tags)) patch.tags = JSON.stringify(patch.tags);
+    const parsed = knowledgePatchSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return validationError(res, parsed.error);
+    const { tags, ...rest } = parsed.data;
+    const patch: Partial<KnowledgeItem> = { ...rest };
+    if (tags && Array.isArray(tags)) patch.tags = JSON.stringify(tags);
     const k = storage.updateKnowledge(req.params.id, { ...patch, actor: "human" });
     if (!k) return res.status(404).json({ message: "not found" });
     res.json(parseJsonFields(k, ["tags"]));

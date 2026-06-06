@@ -3,9 +3,8 @@ import { readFileSync } from "node:fs";
 import { resolveModelRoute } from "@shared/core/model_router.js";
 import { recordTrace } from "./trace";
 import { assertNetworkAllowed, requireCapability } from "./security/capabilities";
+import { redactSensitiveData, redactSensitiveText } from "./security/redact";
 import type { ModelRoute } from "@shared/core/types.js";
-
-const DEFAULT_OPENAI_API_KEY_FILE = "/private/tmp/alaya-minimax-key";
 
 type JsonSchema = {
   type: "object";
@@ -56,24 +55,8 @@ function summarize(value: unknown, max = 240): string {
   return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }
 
-function redactSensitiveText(input: string): string {
-  return input
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted-email]")
-    .replace(/\b(?:\+?\d[\d\s().-]{7,}\d)\b/g, "[redacted-phone]")
-    .replace(/\bsk-[A-Za-z0-9][A-Za-z0-9_\-]{20,}\b/g, "[redacted-token]")
-    .replace(/\b(?:ghp|github_pat|sk|xox[abprs])_[A-Za-z0-9_\-]{20,}\b/g, "[redacted-token]")
-    .replace(/\b(?:api[_-]?key|token|password|secret)\s*[:=]\s*["']?[^"'\s]{8,}/gi, "$1=[redacted-secret]");
-}
-
 function sanitizeValue(value: unknown): unknown {
-  if (typeof value === "string") return redactSensitiveText(value);
-  if (Array.isArray(value)) return value.map(sanitizeValue);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, sanitizeValue(item)]),
-    );
-  }
-  return value;
+  return redactSensitiveData(value);
 }
 
 function sanitizeInput(input: LlmCallInput): LlmCallInput {
@@ -117,7 +100,7 @@ function readSecretFile(path: string | undefined): string {
 function openAiApiKey(): string {
   const envKey = process.env.OPENAI_API_KEY?.trim();
   if (envKey) return envKey;
-  return readSecretFile(process.env.OPENAI_API_KEY_FILE) || readSecretFile(DEFAULT_OPENAI_API_KEY_FILE);
+  return readSecretFile(process.env.OPENAI_API_KEY_FILE);
 }
 
 function validate(data: unknown, schema: JsonSchema): boolean {
@@ -260,12 +243,15 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
   }
 
   let lastError = "";
+  let transportRetries = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const data = await callOpenAI(safeInput, schema, redactSensitiveText(lastError), apiKey, route.model);
+      const result = await callOpenAIWithRetry(safeInput, schema, redactSensitiveText(lastError), apiKey, route.model);
+      const data = result.data;
+      transportRetries += result.retries;
       const errors = validationErrors(data, schema);
       if (errors.length === 0) {
-        record(safeInput, route, data, true, attempt, Date.now() - started);
+        record(safeInput, route, data, true, attempt + transportRetries, Date.now() - started);
         return data;
       }
       lastError = `schema validation failed: ${errors.join("; ")}. Include every required key; use [] for empty arrays.`;
@@ -276,20 +262,22 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
 
   try {
     const simpleSchema = input.simplifiedSchema ?? DEFAULT_SIMPLIFIED_SCHEMA;
-    const simpleData = await callOpenAI(
+    const simpleResult = await callOpenAIWithRetry(
       safeInput,
       simpleSchema,
       `response failed JSON schema validation; return simplified JSON summary only. ${redactSensitiveText(lastError)}`,
       apiKey,
       route.model,
     );
+    transportRetries += simpleResult.retries;
+    const simpleData = simpleResult.data;
     if (validate(simpleData, simpleSchema)) {
       const originalErrors = validationErrors(simpleData, schema);
       if (originalErrors.length === 0) {
-        record(safeInput, route, simpleData, true, 2, Date.now() - started);
+        record(safeInput, route, simpleData, true, 2 + transportRetries, Date.now() - started);
         return simpleData;
       }
-      record(safeInput, route, simpleData, false, 2, Date.now() - started);
+      record(safeInput, route, simpleData, false, 2 + transportRetries, Date.now() - started);
       createDegradedGate(safeInput, `degraded to simplified schema after: ${lastError || "schema validation failed"}`);
       return simpleData;
     }
@@ -299,9 +287,52 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
   }
 
   const simplified = { summary: `LLM degraded for ${input.agent}/${input.promptName}: ${lastError}` };
-  record(safeInput, route, simplified, false, 3, Date.now() - started);
+  record(safeInput, route, simplified, false, 3 + transportRetries, Date.now() - started);
   createDegradedGate(safeInput, lastError || "schema validation failed");
   return simplified;
+}
+
+function maxTransportRetries(): number {
+  const raw = Number(process.env.OPENAI_MAX_RETRIES ?? 3);
+  return Number.isFinite(raw) ? Math.min(Math.max(Math.floor(raw), 0), 3) : 3;
+}
+
+function retryDelayMs(attempt: number): number {
+  const base = Math.max(0, Number(process.env.OPENAI_RETRY_BASE_MS ?? 2_000));
+  return Math.min(30_000, base * 2 ** Math.max(0, attempt - 1));
+}
+
+function isRetryableLlmError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b(?:429|5\d\d)\b/.test(message);
+}
+
+function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function callOpenAIWithRetry(
+  input: LlmCallInput,
+  schema: JsonSchema,
+  previousError: string,
+  apiKey: string,
+  model: string,
+): Promise<{ data: Record<string, unknown>; retries: number }> {
+  let retries = 0;
+  let lastError: unknown;
+  const maxRetries = maxTransportRetries();
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    try {
+      return { data: await callOpenAI(input, schema, previousError, apiKey, model), retries };
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableLlmError(error) || attempt === maxRetries) break;
+      retries += 1;
+      await sleep(retryDelayMs(retries));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 async function callOpenAI(input: LlmCallInput, schema: JsonSchema, previousError: string, apiKey: string, model: string): Promise<Record<string, unknown>> {

@@ -2,8 +2,6 @@
 import { readFileSync } from "node:fs";
 import { inferGitHubTarget } from "./lib/github-target.mjs";
 
-const defaultGithubTokenFile = "/private/tmp/alaya-github-token";
-
 function readSecretFile(path) {
   if (!path) return "";
   try {
@@ -26,7 +24,6 @@ const token = firstSecret(
   process.env.GITHUB_TOKEN,
   readSecretFile(process.env.ALAYA_GITHUB_TOKEN_FILE),
   readSecretFile(process.env.GITHUB_TOKEN_FILE),
-  readSecretFile(defaultGithubTokenFile),
 );
 const allowSkip = process.env.ALAYA_E2E_ALLOW_SKIP === "true";
 const keepIssue = process.env.ALAYA_E2E_KEEP_ISSUE === "true";
@@ -45,7 +42,7 @@ if (missing.length > 0) {
     `GitHub Sensor E2E not run. Missing env: ${missing.join(", ")}`,
     "Start Alaya locally, then run for example:",
     "  GitHub owner/repo are inferred from Git remote origin; override with ALAYA_E2E_GITHUB_OWNER/REPO if needed.",
-    "  Token is read from GITHUB_TOKEN_FILE/ALAYA_GITHUB_TOKEN_FILE or /private/tmp/alaya-github-token.",
+    "  Token is read from GITHUB_TOKEN_FILE/ALAYA_GITHUB_TOKEN_FILE or ALAYA_GITHUB_TOKEN/GITHUB_TOKEN.",
     "  ALAYA_E2E_BASE_URL=http://127.0.0.1:5000 \\",
     "  npm run e2e:github",
   ];

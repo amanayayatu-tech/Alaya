@@ -11,6 +11,7 @@ process.env.ALAYA_DB_PATH = join(mkdtempSync(join(tmpdir(), "alaya-shadow-test-"
 process.env.ALAYA_MODE = "shadow";
 process.env.ALAYA_CAP_DATABASE_MIGRATION = "true";
 process.env.ALAYA_LLM_PROVIDER = "mock";
+process.env.ALAYA_API_KEY = "unit-api-key-for-shadow-mode";
 
 const { storage } = await import("../server/storage.ts");
 const { registerRoutes } = await import("../server/routes.ts");
@@ -21,6 +22,11 @@ const server = createServer(app);
 await registerRoutes(server, app);
 await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 
+const authHeaders = {
+  "Content-Type": "application/json",
+  Authorization: `Bearer ${process.env.ALAYA_API_KEY}`,
+};
+
 test.after(async () => {
   await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
 });
@@ -30,7 +36,7 @@ test("shadow mode records mutating API requests as dry-run without executing wri
   const address = server.address() as AddressInfo;
   const response = await fetch(`http://127.0.0.1:${address.port}/api/knowledge`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders,
     body: JSON.stringify({
       id: "kb_shadow_should_not_persist",
       projectId: "proj_shadow",
@@ -52,7 +58,7 @@ test("production mode rejects mutating API requests before handlers write", asyn
   const before = storage.listProjects().length;
   const response = await fetch(`http://127.0.0.1:${address.port}/api/projects`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders,
     body: JSON.stringify({
       name: "prod write should fail",
       oneLiner: "blocked",

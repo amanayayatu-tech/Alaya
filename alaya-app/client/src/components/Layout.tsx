@@ -4,11 +4,12 @@ import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, ShieldCheck, LineChart, Library, ListChecks,
   Moon, Sun, Menu, X, Settings, PlusCircle, Activity, BookOpenText,
+  KeyRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "./Logo";
 import type { Project } from "@/lib/alaya";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, hasApiKey, onApiKeyChange, queryClient, setApiKey } from "@/lib/queryClient";
 
 // ---------- theme ----------
 function useThemeState() {
@@ -42,14 +43,35 @@ export function Layout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [apiKeyDraft, setApiKeyDraft] = useState("");
+  const [apiKeyPresent, setApiKeyPresent] = useState(() => hasApiKey());
 
   const { data: projects = [] } = useQuery<Project[]>({ queryKey: ["/api/projects"] });
+
+  useEffect(() => {
+    return onApiKeyChange(() => {
+      setApiKeyPresent(hasApiKey());
+      setApiKeyDraft("");
+    });
+  }, []);
 
   useEffect(() => {
     if (!projectId && projects.length > 0) setProjectId(projects[0].id);
   }, [projects, projectId]);
 
   const current = projects.find((p) => p.id === projectId);
+  const saveApiKey = () => {
+    setApiKey(apiKeyDraft);
+    setApiKeyPresent(hasApiKey());
+    setApiKeyDraft("");
+    void queryClient.invalidateQueries();
+  };
+  const clearApiKey = () => {
+    setApiKey("");
+    setApiKeyPresent(false);
+    setApiKeyDraft("");
+    void queryClient.invalidateQueries();
+  };
 
   const Sidebar = (
     <aside className="flex h-full w-64 flex-col border-r border-sidebar-border bg-sidebar">
@@ -108,6 +130,50 @@ export function Layout({ children }: { children: ReactNode }) {
           <PlusCircle className="h-3.5 w-3.5" />
           新建项目
         </Link>
+        <div className="space-y-2 rounded-md border border-border bg-background p-2">
+          <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5">
+              <KeyRound className="h-3.5 w-3.5" />
+              API Key
+            </span>
+            <span className={apiKeyPresent ? "text-primary" : "text-muted-foreground"}>
+              {apiKeyPresent ? "已设置" : "未设置"}
+            </span>
+          </div>
+          <input
+            type="password"
+            value={apiKeyDraft}
+            onChange={(e) => setApiKeyDraft(e.target.value)}
+            placeholder={apiKeyPresent ? "输入新 key 可替换" : "输入 API key"}
+            autoComplete="off"
+            spellCheck={false}
+            className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:border-primary"
+            data-testid="input-api-key"
+            aria-label="API Key"
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={saveApiKey}
+              disabled={apiKeyDraft.trim().length === 0}
+              data-testid="button-save-api-key"
+            >
+              保存
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={clearApiKey}
+              disabled={!apiKeyPresent && apiKeyDraft.trim().length === 0}
+              data-testid="button-clear-api-key"
+            >
+              清除
+            </Button>
+          </div>
+        </div>
         <Button
           type="button"
           variant="outline"

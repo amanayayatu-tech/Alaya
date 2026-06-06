@@ -79,6 +79,10 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): EnvValidation
   const port = Number(env.PORT ?? 5000);
   if (!Number.isInteger(port) || port <= 0 || port > 65535) errors.push("PORT must be an integer between 1 and 65535");
 
+  if (isLongRunMode(mode) && !env.ALAYA_API_KEY?.trim()) {
+    errors.push("ALAYA_API_KEY is required in shadow/staging/production");
+  }
+
   if (isProductionLikeMode(mode)) {
     if (!env.ALAYA_DB_PATH?.trim()) errors.push("ALAYA_DB_PATH is required in staging/production");
     if (env.ALAYA_LLM_PROVIDER === "openai") {

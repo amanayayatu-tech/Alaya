@@ -9,6 +9,7 @@ services:
     environment:
       ALAYA_MODE: shadow
       NODE_ENV: production
+      ALAYA_API_KEY: "${ALAYA_API_KEY:-}"
       ALAYA_AUTO_SEED_DEMO: "false"
       ALAYA_DB_PATH: /var/lib/alaya/alaya.db
       ALAYA_CAP_DATABASE_MIGRATION: "false"
@@ -18,9 +19,15 @@ services:
       ALAYA_CAP_GITHUB_WRITE: "false"
       ALAYA_CAP_SHELL_EXECUTION: "false"
       ALAYA_CAP_EXTERNAL_NOTIFICATION: "false"
+      ALAYA_CORS_ORIGINS: "${ALAYA_CORS_ORIGINS:-}"
+      ALAYA_METRICS_ALLOWED_CIDRS: "${ALAYA_METRICS_ALLOWED_CIDRS:-}"
+      ALAYA_COST_RATE_LIMIT_WINDOW_MS: "${ALAYA_COST_RATE_LIMIT_WINDOW_MS:-60000}"
+      ALAYA_COST_RATE_LIMIT_MAX: "${ALAYA_COST_RATE_LIMIT_MAX:-10}"
     ports:
       - "${ALAYA_SHADOW_PORT:-5000}:5000"
     read_only: true
+    security_opt:
+      - no-new-privileges:true
     tmpfs:
       - /tmp:size=64m,noexec,nosuid,nodev
     volumes:

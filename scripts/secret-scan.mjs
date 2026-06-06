@@ -12,6 +12,10 @@ const patterns = [
   { name: "github_token", re: /\b(?:ghp|gho|ghu|ghs)_[A-Za-z0-9_]{20,}\b/ },
   { name: "github_pat", re: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/ },
   { name: "openai_style_key", re: /\bsk-[A-Za-z0-9][A-Za-z0-9_-]{24,}\b/ },
+  { name: "minimax_style_key", re: /\b(?:minimax|mm)[-_][A-Za-z0-9_-]{24,}\b/i },
+  { name: "bearer_token", re: /\bBearer\s+(?!\$|\[|<|your|redacted|test|dummy)[A-Za-z0-9._~+/=-]{24,}\b/i },
+  { name: "database_url_password", re: /\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis):\/\/[^:\s/@]+:[^@\s]+@/i },
+  { name: "cookie_secret", re: /\b(?:Cookie|Set-Cookie):\s*[^;\n=]+=[A-Za-z0-9._~+/=-]{20,}/i },
   { name: "slack_token", re: /\bxox[abprs]-[A-Za-z0-9-]{20,}\b/ },
 ];
 
