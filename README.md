@@ -20,11 +20,12 @@ Alaya = 本地 SQLite 记忆层 + 5 个 Agent 飞轮 + 人工闸门 + 预测账�
 | Web App | 可运行 | Express + React + SQLite，本地完整 MVP |
 | LLM | mock / OpenAI-compatible | 默认 mock，可切 OpenAI / MiniMax 等兼容端点 |
 | Scheduler | 可运行 | 自动推进 cycle；第 5 轮起可由自主目标生成器接管，受 blocking gate、预算和反空转风险闸约束 |
-| Sensor | 可运行 | 支持 GitHub Issues 与表单反馈 |
+| Prediction Ledger | 可运行 | Claim schema 强制 `operator >=/<=`、scale 正下限、metric weight 下限、完整预测契约和 `worstClaimError` |
+| Sensor | 可运行 | 支持 GitHub Issues 与表单反馈；GitHub issue 可走入库、Sensor 提炼、Meaning Gate、人工批准、知识库、下轮注入完整链路 |
 | Notifications | 可运行 | Telegram 单向通知与双向审批卡片；支持 Human Gate 推送、`/status`、`/gates`、长轮询 callback 和 offset 持久化 |
 | Knowledge | 可运行 | SQLite FTS5 搜索、任务前知识注入、近义合并、`supersededBy` 保留、冲突隔离、时间衰减和详情引用上限保护 |
 | Health | 可运行 | `/healthz`、`/readyz`、`/metrics` 提供运行探针；`/health` 页面与 `/api/flywheel/health` API 展示复利、知识成熟和 human gate 压力 |
-| Governance | 可运行 | `PRINCIPLES.md`、guard 脚本、CI、secret scan、capability gate 和验证脚本约束核心底线 |
+| Governance | 可运行 | `PRINCIPLES.md`、guard 脚本、CI、secret scan、capability gate、autonomous stop risks 和验证脚本约束核心底线 |
 | Long-run Hardening | 可运行 | 显式运行模式、env fail-fast、脱敏、action ledger、health/ready/metrics、Docker shadow compose 和备份/恢复脚本 |
 
 ## 目录
@@ -161,9 +162,30 @@ React/Vite -> Express API -> SQLite/FTS5 -> Scheduler -> 5 Agents -> LLM Provide
 
 Human Gate 可以在 Web UI 中处理，也可以通过 Telegram 接收移动端通知。非阻塞 `meaning` gate 会在 Telegram 卡片中显示批准/否决按钮；阻塞型 `direction` / `risk` gate 只显示 Web 深链，避免手机端一键放行高风险阻断闸。
 
+Meaning Gate 被批准后，`HumanGateService` 会把对应外部信号写成 active knowledge，并通过同一条审批服务记录 `decision_log`、`event_log` 和 `action_ledger`。Gate resolve 与知识写入在数据库事务中执行；如果知识写入失败，gate 不会被错误地标记为已批准，后续重试也会幂等补建缺失知识。
+
 ### 4. Prediction Ledger
 
 每个 claim 都要能被观测和计算误差。系统不会把「感觉变好」当作成功证明，而是保存目标、实际值、误差、归因和修正动作。
+
+`metric_threshold` claim 的核心契约：
+
+- `operator` 必填且只能是 `>=` 或 `<=`。误差方向因子由 `operator` 推导：`>=` 表示越大越好，`<=` 表示越小越好；调用方不再手填方向。
+- `scale` 如提供必须 `>= 1e-6`；未提供时使用 `max(abs(target), 1e-6)`，避免 target 为 0 时除零。
+- `metric_threshold` 的 `weight` 必须至少为 3；`E_cycle` 计算也会在 compute 层强制关键指标权重下限，避免大量低价值预测稀释关键失败。
+- `E_cycle` 同时输出 `worstClaimError`，用于连续两轮关键 claim 超阈值的单独判定。
+
+所有可测 claim，包括 `metric_threshold`、`binary`、`categorical` 和 `directional`，都可以携带预测契约字段：
+
+```text
+expectedObservation
+timeWindow
+successThreshold
+failureThreshold
+uncertainty
+```
+
+Scheduler 会用这些字段判断预测是否能成为可靠学习信号。New Project 的 Onboarding Interview 强制用户设置首条可测 claim 的指标、operator 和目标阈值；Project Setup 可后续调整，但同样只允许 `>=` / `<=`。
 
 ### 5. Knowledge Base
 
@@ -202,7 +224,7 @@ npm run e2e:long-evolution
 | Human Gates | 批准、修改或否决方向闸、意义闸、风险闸 |
 | Prediction Ledger | 查看预测、观察、误差和归因 |
 | Knowledge Base | 搜索知识、查看置信度、来源和 Agent 引用 |
-| Cycle Review | 复盘单轮 cycle、Agent 输出和复利证据 |
+| Cycle Review | 复盘单轮 cycle、Agent 输出、复利证据和本轮高风险 action ledger 时间线 |
 | Flywheel Health | 查看每轮新增知识、晋级、纠错、知识注入、知识状态和复利证明 |
 | New Project | Onboarding Interview，创建新项目 |
 | Project Setup | 修正 seed identity、world model、redlines 和第一轮 claim |
@@ -306,6 +328,8 @@ npm run typecheck      # core + app 类型检查
 npm run build          # Web app 生产构建
 npm run flywheel            # 4 轮飞轮模拟
 npm run e2e:long-evolution  # 20 轮自主进化离线验收
+npm run e2e:github          # GitHub Issue Sensor 完整链路，建议指向 sandbox repo
+npm run e2e:github-autonomous # 自主调度 + GitHub Sensor 完整链路
 npm run benchmark:smoke      # P0/P1 deterministic benchmark
 npm run trace:export -- --cycle <cycleId>  # 导出 cycle trace JSONL
 npm run audit:upgrade       # 升级 readiness 审计
@@ -688,6 +712,24 @@ ALAYA_VALIDATION_MAX_ROUNDS=72 \
 
 12h 脚本用于长时间稳定性观察：principles guard 失败仍然立即停止；simulation、live、live connectivity `SKIP_NET` 和 flywheel health 属于非关键检查，同一检查项连续 3 次失败会写入 `alerts.log`，但不会中断 runner。连续计数按检查项独立维护，避免 health failure 被 unrelated live/sim success 清零。
 
+12h/24h 验证脚本会先检查 `ALAYA_READY_URL`，默认 `http://localhost:5000/readyz`。如果没有现成服务且 `ALAYA_VALIDATION_START_APP=true`，脚本会启动 `npm run dev`，等待 `/readyz` 就绪后再进入 runner，确保 `/api/flywheel/health` 可读，`compoundingProof.round1vs4KnowledgeDelta` 不再因为健康 API 未启动而只能显示 `NA`。
+
+GitHub Issue Sensor E2E 默认优先使用 sandbox 环境变量，避免污染真实项目：
+
+```bash
+ALAYA_E2E_GITHUB_SANDBOX_OWNER=<owner> \
+ALAYA_E2E_GITHUB_SANDBOX_REPO=<repo> \
+GH_PAT=<token> \
+npm run e2e:github
+```
+
+完整链路覆盖：
+
+```text
+GitHub Issue 入库 -> Sensor Agent 提炼 -> Human Meaning Gate 推送 ->
+人工批准 -> active knowledge -> 下轮 Cycle 知识注入
+```
+
 汇总最近一次验证：
 
 ```bash
@@ -739,6 +781,7 @@ GET  /api/projects/:id/dashboard
 GET  /api/flywheel/health?projectId=...
 GET  /api/projects/:id/cycles
 GET  /api/projects/:id/predictions
+POST /api/predictions
 POST /api/projects/:id/scheduler/tick
 POST /api/scheduler/tick
 
@@ -779,7 +822,40 @@ POST /api/projects/:id/feedback/form
 - `alaya-app/server/notifications/`
 - `alaya-app/server/humanGateService.ts`
 
+契约要点：
+
+- `POST /api/projects` 使用 onboarding schema，必须提供 `firstClaimMetric`、`firstClaimOperator` 和 `firstClaimTarget`；`firstClaimOperator` 只允许 `>=` / `<=`。
+- `PATCH /api/projects/:id` 的 `redlines` 字段是字符串数组；服务端负责持久化为 JSON 字符串。
+- `POST /api/predictions` 的 `claims` 字段走统一 `claimSchema`，会拒绝缺失 operator、`operator ==`、`scale=0` 和 metric weight 小于 3 的关键指标 claim。
+- `GET /api/cycles/:id/review` 返回 `actionLedger`，前端 Cycle Review 用它展示本轮高风险动作时间线。
+
 ## 验证记录
+
+### 2026-06-07 P0/P1/P2 hardening validation
+
+本次本地验证覆盖数学命门修复、GitHub Sensor 入库链路、四类自主停机风险闸、灰区弱累加三条主路径、Onboarding Claim operator 和 Cycle Review action ledger 可视化。
+
+已通过：
+
+```bash
+npm run test:all
+npm run typecheck
+npm run build
+npm run guard
+```
+
+结果摘要：
+
+| 项目 | 结果 |
+| --- | --- |
+| Core tests | 52/52 PASS |
+| App tests | 125/125 PASS |
+| Script tests | 18/18 PASS |
+| Typecheck | PASS |
+| Production build | PASS |
+| Principles guard | 17/17 PASS |
+
+构建仍会输出一个既有 PostCSS `from` option warning，退出码为 0，不影响本次构建产物。
 
 ### 2026-06-05/06 12h real LLM validation
 

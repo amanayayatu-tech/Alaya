@@ -13,6 +13,7 @@ process.env.ALAYA_LLM_PROVIDER = "mock";
 
 const { storage, now } = await import("../server/storage.ts");
 const { registerRoutes } = await import("../server/routes.ts");
+const { HumanGateService } = await import("../server/humanGateService.ts");
 
 storage.createProject({
   id: "proj_validation",
@@ -85,12 +86,214 @@ test("prediction create requires schema-valid body", async () => {
       belief: "Users need a concise status page.",
       prediction: "Activation will improve.",
       action: "Ship the page.",
-      claims: [{ metric: "activation_rate", operator: ">=", target: 0.3 }],
+      claims: [{
+        id: "claim_activation_valid",
+        type: "metric_threshold",
+        metric: "activation_rate",
+        operator: ">=",
+        target: 0.3,
+        observed: 0.4,
+        scale: 0.3,
+        weight: 3,
+      }],
     }),
   });
   assert.equal(valid.status, 200);
   const body = await valid.json() as any;
   assert.equal(body.cycleId, "cycle_validation");
+});
+
+test("prediction claim schema requires operator, positive scale and metric weight >= 3", async () => {
+  const baseClaim = {
+    id: "claim_schema_guard",
+    type: "metric_threshold",
+    metric: "activation_rate",
+    operator: ">=",
+    target: 0.3,
+    observed: 0.4,
+    scale: 0.3,
+    weight: 3,
+  };
+  const post = (claim: Record<string, unknown>) => fetch(url("/api/predictions"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      cycleId: "cycle_validation",
+      belief: "b",
+      prediction: "p",
+      action: "a",
+      claims: [claim],
+    }),
+  });
+
+  assert.equal((await post({ ...baseClaim, operator: undefined })).status, 400);
+  assert.equal((await post({ ...baseClaim, operator: "==" })).status, 400);
+  assert.equal((await post({ ...baseClaim, scale: 0 })).status, 400);
+  assert.equal((await post({ ...baseClaim, weight: 1 })).status, 400);
+
+  const smallerIsBetter = await post({
+    ...baseClaim,
+    id: "claim_latency_valid",
+    metric: "p95_latency_ms",
+    operator: "<=",
+    target: 200,
+    observed: 180,
+    scale: 200,
+  });
+  assert.equal(smallerIsBetter.status, 200);
+});
+
+test("prediction claim schema accepts prediction contracts on non-metric measurable claims", async () => {
+  const post = (claim: Record<string, unknown>) => fetch(url("/api/predictions"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      cycleId: "cycle_validation",
+      belief: "non-metric claims can still be audited",
+      prediction: "the claim will resolve with a complete contract",
+      action: "observe the outcome",
+      claims: [claim],
+    }),
+  });
+  const contract = {
+    expectedObservation: "review gate is approved in this cycle",
+    timeWindow: "cycle_validation_window",
+    successThreshold: "approved",
+    failureThreshold: "not approved",
+    uncertainty: 0.25,
+  };
+
+  const binary = await post({
+    id: "claim_binary_contract",
+    type: "binary",
+    expected: "approved",
+    actual: "approved",
+    ...contract,
+  });
+  assert.equal(binary.status, 200);
+
+  const directional = await post({
+    id: "claim_directional_contract",
+    type: "directional",
+    expectedDirection: "up",
+    actualDirection: "up",
+    ...contract,
+  });
+  assert.equal(directional.status, 200);
+});
+
+test("project onboarding requires an explicit first claim operator", async () => {
+  const payload = {
+    name: "Onboarding Claim Required",
+    oneLiner: "Validate onboarding claim schema",
+    targetUser: "operators",
+    currentHypothesis: "first claim must be explicit",
+    firstClaimMetric: "activation_rate",
+    firstClaimTarget: 0.3,
+    firstSignal: "activation_rate is observable",
+  };
+  const missingOperator = await fetch(url("/api/projects"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  assert.equal(missingOperator.status, 400);
+
+  const equalityOperator = await fetch(url("/api/projects"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...payload, firstClaimOperator: "==" }),
+  });
+  assert.equal(equalityOperator.status, 400);
+});
+
+test("project patch accepts redline arrays and rejects json encoded redlines", async () => {
+  const encoded = await fetch(url("/api/projects/proj_validation"), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ redlines: JSON.stringify(["no unreviewed external writes"]) }),
+  });
+  assert.equal(encoded.status, 400);
+
+  const valid = await fetch(url("/api/projects/proj_validation"), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      redlines: ["no unreviewed external writes", "no silent schema drift"],
+      firstClaimOperator: "<=",
+      firstClaimTarget: 200,
+    }),
+  });
+  assert.equal(valid.status, 200);
+  const body = await valid.json() as any;
+  assert.deepEqual(body.redlines, ["no unreviewed external writes", "no silent schema drift"]);
+  assert.equal(body.firstClaimOperator, "<=");
+});
+
+test("meaning gate approval rolls back gate decision when knowledge creation fails", () => {
+  let gate: any = {
+    id: "gate_meaning_rollback",
+    cycleId: "cycle_validation",
+    type: "meaning",
+    blocking: 0,
+    title: "Meaning gate rollback",
+    payload: JSON.stringify({ summary: "rollback this approval", externalId: "test:rollback" }),
+    status: "pending",
+    estimatedMinutes: 5,
+    decision: null,
+    version: 1,
+  };
+  let decisions: unknown[] = [];
+  let events: unknown[] = [];
+  let ledgers: unknown[] = [];
+  const fakeStore: any = {
+    withTransaction<T>(fn: () => T): T {
+      const snapshot = {
+        gate: { ...gate },
+        decisions: [...decisions],
+        events: [...events],
+        ledgers: [...ledgers],
+      };
+      try {
+        return fn();
+      } catch (error) {
+        gate = snapshot.gate;
+        decisions = snapshot.decisions;
+        events = snapshot.events;
+        ledgers = snapshot.ledgers;
+        throw error;
+      }
+    },
+    getGate: (id: string) => (id === gate.id ? gate : undefined),
+    getCycle: (id: string) => (id === "cycle_validation" ? { id, projectId: "proj_validation", idx: 1 } : undefined),
+    updateGate: (_id: string, patch: Record<string, unknown>) => {
+      gate = { ...gate, ...patch, version: gate.version + 1 };
+      return gate;
+    },
+    createDecision: (decision: unknown) => {
+      decisions.push(decision);
+      return decision;
+    },
+    recordEvent: (event: unknown) => {
+      events.push(event);
+    },
+    upsertActionLedger: (entry: unknown) => {
+      ledgers.push(entry);
+      return entry;
+    },
+    getKnowledge: () => undefined,
+    createKnowledge: () => {
+      throw new Error("knowledge insert failed");
+    },
+  };
+
+  const service = new HumanGateService(fakeStore);
+  assert.throws(() => service.approve(gate.id, { rationale: "approve but fail insert" }), /knowledge insert failed/);
+  assert.equal(gate.status, "pending");
+  assert.equal(gate.decision, null);
+  assert.equal(decisions.length, 0);
+  assert.equal(events.length, 0);
+  assert.equal(ledgers.length, 0);
 });
 
 test("knowledge create and patch validate required fields and dangerous markup", async () => {

@@ -111,15 +111,15 @@ async function waitForApp(baseUrl, timeoutMs) {
   let lastError = null;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`${baseUrl}/api/projects`);
+      const response = await fetch(`${baseUrl}/readyz`);
       if (response.ok) return;
-      lastError = new Error(`GET /api/projects ${response.status}`);
+      lastError = new Error(`GET /readyz ${response.status}`);
     } catch (error) {
       lastError = error;
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  throw new Error(`Alaya app did not become ready at ${baseUrl}: ${lastError?.message ?? "timeout"}`);
+  throw new Error(`Alaya app /readyz did not become ready at ${baseUrl}: ${lastError?.message ?? "timeout"}`);
 }
 
 function startApp(env, port) {

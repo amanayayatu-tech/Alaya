@@ -469,6 +469,7 @@ type LlmCallInsert = Omit<LlmCall, "id" | "provider" | "model" | "routeReason" |
   Partial<Pick<LlmCall, "provider" | "model" | "routeReason" | "inputTokenCount" | "outputTokenCount">>;
 
 export interface IStorage {
+  withTransaction?<T>(fn: () => T): T;
   // projects
   createProject(p: Project): Project;
   getProject(id: string): Project | undefined;
@@ -543,6 +544,10 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  withTransaction<T>(fn: () => T): T {
+    return rawDb.transaction(fn)();
+  }
+
   private cycleIdxFor(cycleId?: string | null, fallback = 0): number {
     if (!cycleId) return fallback;
     const row = rawDb.prepare(`SELECT idx FROM cycles WHERE id=?`).get(cycleId) as { idx?: number } | undefined;

@@ -4,6 +4,7 @@ import {
   computeMetricError,
   computeClaimError,
   computeCycleError,
+  METRIC_ERROR_EPS,
 } from "../src/core/compute_error.js";
 import type { Claim } from "../src/core/types.js";
 
@@ -37,10 +38,23 @@ test("漏洞B修复:目标值为 0 不除零崩溃", () => {
   assert.equal(e, 1.0); // 偏离上限被 clip 到 1
 });
 
-test("== 操作符双向偏离都算误差", () => {
-  assert.equal(computeMetricError(10, 10, "=="), 0);
-  assert.equal(computeMetricError(10, 5, "==", 5), 1.0);
-  assert.equal(computeMetricError(10, 15, "==", 5), 1.0);
+test("漏洞B:EPS 是可审计配置常量", () => {
+  assert.equal(METRIC_ERROR_EPS, 1e-6);
+  assert.equal(computeMetricError(0, 0.0000005, "<=", 0), 0.5);
+});
+
+test("越小越好 metric_threshold claim 达标专项测试", () => {
+  const claim: Claim = {
+    id: "claim_latency",
+    type: "metric_threshold",
+    metric: "p95_latency_ms",
+    operator: "<=",
+    target: 200,
+    observed: 180,
+    scale: 200,
+    weight: 3,
+  };
+  assert.equal(computeClaimError(claim), 0);
 });
 
 // ---- 漏洞G:离散 claim 类型 ----
@@ -80,12 +94,21 @@ test("漏洞C:E_cycle 同时暴露 worstClaimError", () => {
 
 test("漏洞C:关键claim高权重可主导E_cycle", () => {
   const claims: Claim[] = [
-    { id: "minor", type: "metric_threshold", operator: ">=", target: 1, observed: 0.95, scale: 1, weight: 1 },
-    { id: "key", type: "binary", expected: "ok", actual: "fail", weight: 3 }, // weight>=3
+    { id: "minor", type: "binary", expected: "ok", actual: "ok", weight: 1 },
+    { id: "key", type: "metric_threshold", operator: ">=", target: 1, observed: 0, scale: 1, weight: 3 },
   ];
   const r = computeCycleError(claims);
   // key 误差1.0 weight3 => 3*1 / (1+3) = 0.75 主导
   assert.ok(r.eCycle! > 0.7, `关键预测失败应主导,实际 ${r.eCycle}`);
+});
+
+test("漏洞C:metric_threshold weight 小于3时计算层仍按关键权重保护", () => {
+  const r = computeCycleError([
+    { id: "key", type: "metric_threshold", operator: ">=", target: 1, observed: 0, scale: 1, weight: 1 },
+    { id: "minor", type: "binary", expected: "ok", actual: "ok", weight: 1 },
+  ]);
+  assert.equal(r.eCycle, 0.75);
+  assert.equal(r.worstClaimError, 1);
 });
 
 test("qualitative 被跳过,不进 E_cycle", () => {

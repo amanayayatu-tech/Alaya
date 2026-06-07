@@ -10,7 +10,7 @@ import { auditCapabilityDecision, evaluateCapability, type CapabilityName } from
 import { costEndpointRateLimit } from "./security/http";
 import { storage, now } from "./storage";
 import type { KnowledgeItem } from "@shared/schema";
-import { onboardingSchema } from "@shared/schema";
+import { claimSchema, onboardingSchema, operatorSchema } from "@shared/schema";
 import { createProjectFromOnboarding } from "./onboarding";
 import { updateProjectConfig } from "./projectConfig";
 import { HumanGateService, type GateDecisionAction } from "./humanGateService";
@@ -56,7 +56,7 @@ const predictionCreateSchema = z.object({
   belief: longTextSchema.default(""),
   prediction: longTextSchema.default(""),
   action: longTextSchema.default(""),
-  claims: z.array(z.unknown()).max(50).default([]),
+  claims: z.array(claimSchema).max(50).default([]),
   observation: longTextSchema.nullable().optional(),
   predictionError: optionalNullableNumber,
   worstClaimError: optionalNullableNumber,
@@ -64,6 +64,20 @@ const predictionCreateSchema = z.object({
   updateTarget: shortTextSchema.nullable().optional(),
   status: z.enum(["open", "resolved"]).default("open"),
   knowledgeRefs: z.array(idSchema).max(100).default([]),
+}).strict();
+
+const projectPatchSchema = z.object({
+  name: shortTextSchema.optional(),
+  direction: nonEmptyLongTextSchema.optional(),
+  targetUser: shortTextSchema.optional(),
+  redlines: z.array(z.string().trim().min(1).max(500).refine(rejectDangerousMarkup)).max(100).optional(),
+  weeklyHumanMinutes: z.number().int().min(0).max(10_080).optional(),
+  weeklyLlmBudgetCents: z.number().int().min(0).max(10_000_000).optional(),
+  firstClaimMetric: shortTextSchema.optional(),
+  firstClaimOperator: operatorSchema.optional(),
+  firstClaimTarget: z.number().finite().optional(),
+  seedIdentity: longTextSchema.optional(),
+  worldModel: longTextSchema.optional(),
 }).strict();
 
 const predictionObservationSchema = z.object({
@@ -226,7 +240,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(parseJsonFields(project, ["redlines"]));
   });
   app.patch("/api/projects/:id", (req, res) => {
-    const p = updateProjectConfig(req.params.id, req.body);
+    const parsed = projectPatchSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return validationError(res, parsed.error);
+    const patch = { ...parsed.data };
+    if (patch.redlines) patch.redlines = JSON.stringify(patch.redlines) as any;
+    const p = updateProjectConfig(req.params.id, patch as any);
     if (!p) return res.status(404).json({ message: "not found" });
     res.json(parseJsonFields(p, ["redlines"]));
   });
@@ -423,13 +441,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const tasks = storage.listTasks(cycle.id);
     const runs = storage.listAgentRuns(cycle.id).map((r) => parseJsonFields(r, ["knowledgeRefsUsed"]));
     const decisions = storage.listDecisions(cycle.projectId).filter((d) => d.cycleId === cycle.id);
+    const actionLedger = storage.listActionLedger(cycle.projectId)
+      .filter((item) => item.cycleId === cycle.id)
+      .map((item) => parseJsonFields(item, ["payload", "rollbackPlan", "auditSummary"]));
     // knowledge referenced by predictions this cycle (compounding evidence)
     const refIds = new Set<string>();
     for (const p of preds) for (const r of (p.knowledgeRefs as unknown as string[])) refIds.add(r);
     const referencedKnowledge = Array.from(refIds).map((id) => storage.getKnowledge(id)).filter(Boolean).map((k) => parseJsonFields(k as any, ["tags"]));
     const knowledgeUpdated = storage.listKnowledge(cycle.projectId).filter((k) => k.lastValidatedCycle === cycle.idx || k.createdByCycle === cycle.idx).map((k) => parseJsonFields(k, ["tags"]));
     const bugs = feedback.filter((f) => f.category === "bug");
-    res.json({ cycle, feedback, predictions: preds, tasks, agentRuns: runs, decisions, referencedKnowledge, knowledgeUpdated, bugs });
+    res.json({ cycle, feedback, predictions: preds, tasks, agentRuns: runs, decisions, actionLedger, referencedKnowledge, knowledgeUpdated, bugs });
   });
   app.get("/api/cycles/:id/traces", (req, res) => {
     const cycle = storage.getCycle(req.params.id);

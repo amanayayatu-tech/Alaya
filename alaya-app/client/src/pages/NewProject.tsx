@@ -77,7 +77,7 @@ export default function NewProject() {
     >
       <form onSubmit={submit} className="space-y-5">
         <InlineNotice tone="primary">
-          创建后会写入项目、5 个固定 Agent、两条 seed 知识和第一轮候选周期；这些都是当前后端 onboarding 接口已经支持的结果。
+          创建时必须写入预测账簿的第一条可测 Claim：指标、达标方向和目标阈值会决定第一轮如何计算误差。
         </InlineNotice>
 
         <SectionCard
@@ -96,8 +96,8 @@ export default function NewProject() {
         </SectionCard>
 
         <SectionCard
-          title="第一轮可验证假设"
-          description="这些字段会进入 world model 和第一个 cycle goal。"
+          title="第一轮预测账簿"
+          description="这些字段会进入 world model、第一个 cycle goal 和首条 measurable claim。"
           action={<Sparkles className="h-4 w-4 text-primary" />}
         >
           <div className="grid gap-4 p-4 md:grid-cols-2">
@@ -116,7 +116,6 @@ export default function NewProject() {
                 >
                   <option value=">=">&gt;=</option>
                   <option value="<=">&lt;=</option>
-                  <option value="==">==</option>
                 </select>
               </label>
               <Field label="目标阈值" type="number" value={form.firstClaimTarget} onChange={(value) => setField("firstClaimTarget", value)} required step="0.01" />

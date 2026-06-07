@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, BookOpenCheck, GitBranch, MessageSquare, ScrollText, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpenCheck, GitBranch, MessageSquare, ScrollText, ShieldAlert, Sparkles } from "lucide-react";
 import { useProject } from "@/components/Layout";
 import {
   EmptyState,
@@ -129,6 +129,8 @@ function ReviewContent({ review }: { review: CycleReview }) {
           </div>
         </div>
       </SectionCard>
+
+      <ActionLedgerTimeline review={review} />
 
       <SectionCard title="复利证据" description="本轮预测或 Agent 引用的既有知识，是飞轮复用历史经验的核心信号。">
         {review.referencedKnowledge.length === 0 ? (
@@ -279,4 +281,63 @@ function ReviewContent({ review }: { review: CycleReview }) {
       </div>
     </div>
   );
+}
+
+function ActionLedgerTimeline({ review }: { review: CycleReview }) {
+  const highRiskActions = review.actionLedger
+    .filter((item) => item.requiresApproval === 1 || ["external_write", "destructive", "financial", "compliance_sensitive"].includes(item.riskLevel))
+    .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+
+  return (
+    <SectionCard title="本轮高风险动作时间线" description="展示经过 Gate 审批的动作、风险级别、回滚方案和审计摘要。">
+      {highRiskActions.length === 0 ? (
+        <EmptyState title="本轮没有高风险动作" description="action ledger 未记录需要审批的动作。" />
+      ) : (
+        <div className="divide-y divide-card-border">
+          {highRiskActions.map((item) => (
+            <article key={item.id} className="px-4 py-3" data-testid={`action-ledger-${item.id}`}>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <ShieldAlert className="h-4 w-4 text-warning" />
+                <StatusBadge meta={{ label: item.riskLevel, tone: item.requiresApproval === 1 ? "warning" : "muted" }} />
+                <StatusBadge meta={{ label: item.status, tone: item.status === "blocked" ? "danger" : item.status === "approved" ? "success" : "muted" }} />
+                {item.approvalGateId && <StatusBadge meta={{ label: item.approvalGateId, tone: "primary" }} />}
+                <span className="ml-auto font-mono text-xs text-muted-foreground">{formatTime(item.createdAt)}</span>
+              </div>
+              <div className="mt-2 text-sm font-medium">{item.actionType}</div>
+              {item.target && <div className="mt-1 break-words text-xs leading-5 text-muted-foreground">{item.target}</div>}
+              <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                <ActionLedgerDetail label="rollback_plan" value={item.rollbackPlan} />
+                <ActionLedgerDetail label="audit_summary" value={item.auditSummary} />
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+function ActionLedgerDetail({ label, value }: { label: string; value: unknown }) {
+  return (
+    <div className="rounded-md border border-card-border bg-muted/20 p-3">
+      <div className="font-mono text-[11px] uppercase text-muted-foreground">{label}</div>
+      <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-5">{compactValue(value)}</p>
+    </div>
+  );
+}
+
+function compactValue(value: unknown): string {
+  if (value == null || value === "") return "none";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
 }

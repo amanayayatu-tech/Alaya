@@ -216,10 +216,10 @@ async function main() {
   createdIssue = await githubJson("/issues", {
     method: "POST",
     body: JSON.stringify({
-      title: `[Alaya Autonomous E2E] confusing setup signal ${runId}`,
+      title: `[Alaya Autonomous E2E] 发布预览 preview is critical setup signal ${runId}`,
       body:
         `This is an Alaya autonomous Sensor E2E issue for run ${runId}.\n\n` +
-        "The setup flow is confusing and I am worried about publishing.\n" +
+        "The setup flow is confusing and I need 发布预览 / preview before publishing.\n" +
         "Contact: alaya-autonomous@example.com\n" +
         "Fake token for redaction test: sk-cp-abcdefghijklmnopqrstuvwxyz123456",
     }),
@@ -263,6 +263,19 @@ async function main() {
   assert(quote.includes("[redacted-email]"), "redacted email marker missing");
   assert(quote.includes("[redacted-token]"), "redacted token marker missing");
 
+  await verifyGateInUi(project.name, externalGate, createdIssue.number);
+
+  await appJson(`/api/human-gates/${externalGate.id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ rationale: `approve autonomous GitHub meaning gate ${runId}` }),
+  });
+  const approvedKnowledge = await waitUntil(async () => {
+    const knowledge = await appJson(`/api/knowledge?projectId=${project.id}`);
+    return knowledge.find((item) => item.sourceRef === `github:${owner}/${repo}#${createdIssue.number}`) ?? null;
+  }, "approved GitHub meaning gate did not create knowledge");
+  assert(approvedKnowledge.status === "active", "approved GitHub knowledge should be active");
+  assert(approvedKnowledge.humanApprovedCount >= 1, "approved GitHub knowledge missing human approval evidence");
+
   const review = await waitUntil(async () => {
     const cycles = await appJson(`/api/projects/${project.id}/cycles`);
     const cycle1 = cycles.find((cycle) => cycle.idx === 1);
@@ -295,11 +308,14 @@ async function main() {
     return gate ? { cycle2, gate } : null;
   }, "background scheduler did not create the next cycle direction gate after GitHub issue ingestion");
 
+  const cycle2Review = await appJson(`/api/cycles/${nextDirectionGate.cycle2.id}/review`);
+  const injected = cycle2Review.agentRuns.some((run) => run.knowledgeRefsUsed?.includes(approvedKnowledge.id));
+  assert(injected, "approved GitHub knowledge was not injected into the next cycle");
+
   const dashboard = await appJson(`/api/projects/${project.id}/dashboard`);
   assert(dashboard.gateBudget.used <= dashboard.gateBudget.budget, "gate budget used minutes exceeds weekly budget");
   assert(dashboard.gateBudget.safetyMode === false, "scheduler entered safety mode during GitHub autonomous E2E");
 
-  await verifyGateInUi(project.name, externalGate, createdIssue.number);
   await closeIssueIfNeeded();
 
   console.log(JSON.stringify({
@@ -312,6 +328,7 @@ async function main() {
     directionGateId: directionGate.id,
     nextDirectionGateId: nextDirectionGate.gate.id,
     meaningGateId: externalGate.id,
+    knowledgeId: approvedKnowledge.id,
     feedbackId: review.feedback.id,
     agents: [...agents].sort(),
     knowledgeUpdated: review.data.knowledgeUpdated.length,

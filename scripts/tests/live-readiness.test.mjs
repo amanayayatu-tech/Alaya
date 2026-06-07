@@ -16,7 +16,7 @@ test("parseGitHubRemoteUrl supports common GitHub remote forms", () => {
   assert.equal(parseGitHubRemoteUrl("https://example.com/owner/repo.git"), null);
 });
 
-test("inferGitHubTarget prefers env, then explicit remote, then git origin", () => {
+test("inferGitHubTarget prefers sandbox env, then env, then explicit remote, then git origin", () => {
   const tmp = mkdtempSync(join(tmpdir(), "alaya-github-target-"));
   mkdirSync(join(tmp, ".git"));
   writeFileSync(join(tmp, ".git", "config"), [
@@ -24,6 +24,11 @@ test("inferGitHubTarget prefers env, then explicit remote, then git origin", () 
     "  url = https://github.com/origin-owner/origin-repo.git",
     "",
   ].join("\n"));
+
+  assert.deepEqual(inferGitHubTarget({
+    cwd: tmp,
+    env: { ALAYA_E2E_GITHUB_SANDBOX_OWNER: "sandbox-owner", ALAYA_E2E_GITHUB_SANDBOX_REPO: "sandbox-repo", ALAYA_E2E_GITHUB_OWNER: "env-owner", ALAYA_E2E_GITHUB_REPO: "env-repo" },
+  }), { owner: "sandbox-owner", repo: "sandbox-repo", source: "sandbox env" });
 
   assert.deepEqual(inferGitHubTarget({
     cwd: tmp,
@@ -175,6 +180,9 @@ test("24h validation runner distinguishes missing live prereqs from network-bloc
   assert.match(source, /GH_PAT/);
   assert.match(source, /ALAYA_LLM_CONNECTIVITY_URL/);
   assert.match(source, /ALAYA_GITHUB_CONNECTIVITY_URL/);
+  assert.match(source, /ALAYA_READY_URL/);
+  assert.match(source, /npm run dev/);
+  assert.match(source, /wait_for_readyz/);
   assert.match(source, /LIVE=SKIP_NET/);
   assert.match(source, /live SKIP_NET/);
   assert.match(source, /Live validation skipped because API connectivity is unavailable\./);
@@ -188,6 +196,9 @@ test("12h validation runner keeps non-critical failures non-blocking", () => {
   assert.match(source, /ALAYA_VALIDATION_DURATION_SECONDS:-43200/);
   assert.match(source, /ALAYA_VALIDATION_SLEEP_SECONDS:-600/);
   assert.match(source, /ALAYA_VALIDATION_MAX_ROUNDS:-72/);
+  assert.match(source, /ALAYA_READY_URL/);
+  assert.match(source, /npm run dev/);
+  assert.match(source, /wait_for_readyz/);
   assert.match(source, /tests\/principles\.guard\.test\.ts/);
   assert.match(source, /npm run flywheel/);
   assert.match(source, /npm run e2e:llm-flywheel/);
@@ -209,6 +220,7 @@ test("live upgrade app startup disables blocking demo seed", () => {
   const serverSource = readFileSync(join(root, "alaya-app", "server", "index.ts"), "utf8");
 
   assert.match(liveSource, /ALAYA_AUTO_SEED_DEMO: "false"/);
+  assert.match(liveSource, /\/readyz/);
   assert.match(liveSource, /OPENAI_MAX_OUTPUT_TOKENS.*"1024"/);
   assert.match(liveSource, /ALAYA_REAL_LLM_MAX_RETRIES.*"2"/);
   assert.match(serverSource, /ALAYA_AUTO_SEED_DEMO !== "false"/);

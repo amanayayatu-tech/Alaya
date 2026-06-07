@@ -14,7 +14,7 @@ export type ClaimType =
   | "qualitative";
 
 /** 比较操作符。修复漏洞A:由 operator 推导方向因子 d,不再手填。 */
-export type Operator = ">=" | "<=" | "==";
+export type Operator = ">=" | "<=";
 
 export interface Claim {
   id: string;

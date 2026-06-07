@@ -285,6 +285,70 @@ export type ActionLedgerRow = typeof actionLedger.$inferSelect;
 export type AgentRun = typeof agentRuns.$inferSelect;
 export type ExternalFeedbackSource = typeof externalFeedbackSources.$inferSelect;
 
+export const CLAIM_SCALE_EPS = 1e-6;
+export const MIN_METRIC_THRESHOLD_WEIGHT = 3;
+
+export const operatorSchema = z.enum([">=", "<="]);
+const finiteNumberSchema = z.number().finite();
+const positiveWeightSchema = finiteNumberSchema.positive();
+const positiveScaleSchema = finiteNumberSchema.min(CLAIM_SCALE_EPS, "scale must be positive and >= 1e-6");
+const predictionContractFields = {
+  expectedObservation: z.string().trim().min(1).optional(),
+  timeWindow: z.string().trim().min(1).optional(),
+  successThreshold: z.string().trim().min(1).optional(),
+  failureThreshold: z.string().trim().min(1).optional(),
+  uncertainty: finiteNumberSchema.min(0).max(1).optional(),
+};
+
+export const metricThresholdClaimSchema = z.object({
+  id: z.string().trim().min(1),
+  type: z.literal("metric_threshold"),
+  metric: z.string().trim().min(1),
+  operator: operatorSchema,
+  target: finiteNumberSchema,
+  observed: finiteNumberSchema.nullable().optional(),
+  scale: positiveScaleSchema.optional(),
+  weight: finiteNumberSchema.min(MIN_METRIC_THRESHOLD_WEIGHT),
+  ...predictionContractFields,
+  error: finiteNumberSchema.min(0).max(1).nullable().optional(),
+}).strict();
+
+const binaryLikeClaimBase = z.object({
+  id: z.string().trim().min(1),
+  expected: z.string().trim().min(1),
+  actual: z.string().trim().min(1).nullable().optional(),
+  weight: positiveWeightSchema.default(1),
+  ...predictionContractFields,
+  error: finiteNumberSchema.min(0).max(1).nullable().optional(),
+}).strict();
+
+export const binaryClaimSchema = binaryLikeClaimBase.extend({ type: z.literal("binary") });
+export const categoricalClaimSchema = binaryLikeClaimBase.extend({ type: z.literal("categorical") });
+export const directionalClaimSchema = z.object({
+  id: z.string().trim().min(1),
+  type: z.literal("directional"),
+  expectedDirection: z.enum(["up", "down", "flat"]),
+  actualDirection: z.enum(["up", "down", "flat"]).nullable().optional(),
+  weight: positiveWeightSchema.default(1),
+  ...predictionContractFields,
+  error: finiteNumberSchema.min(0).max(1).nullable().optional(),
+}).strict();
+export const qualitativeClaimSchema = z.object({
+  id: z.string().trim().min(1),
+  type: z.literal("qualitative"),
+  weight: positiveWeightSchema.default(1),
+  error: finiteNumberSchema.min(0).max(1).nullable().optional(),
+}).strict();
+
+export const claimSchema = z.discriminatedUnion("type", [
+  metricThresholdClaimSchema,
+  binaryClaimSchema,
+  categoricalClaimSchema,
+  directionalClaimSchema,
+  qualitativeClaimSchema,
+]);
+export type ClaimInput = z.infer<typeof claimSchema>;
+
 // onboarding interview payload (PRD 13.1)
 export const onboardingSchema = z.object({
   name: z.string().min(1),
@@ -298,9 +362,9 @@ export const onboardingSchema = z.object({
   feedbackSources: z.string().default(""),   // 反馈来源
   weeklyHumanMinutes: z.number().default(150), // 每周人工预算
   weeklyLlmBudgetCents: z.number().default(100), // 每周 LLM 成本预算, cents
-  firstClaimMetric: z.string().default("activation_rate"), // 第一轮可观测指标
-  firstClaimOperator: z.enum([">=", "<=", "=="]).default(">="), // 第一轮 claim operator
-  firstClaimTarget: z.number().default(0.3), // 第一轮目标阈值
+  firstClaimMetric: z.string().trim().min(1), // 第一轮可观测指标
+  firstClaimOperator: operatorSchema, // 第一轮 claim operator
+  firstClaimTarget: z.number().finite(), // 第一轮目标阈值
   firstSignal: z.string().min(1),    // 第一轮希望看到的信号
 });
 export type OnboardingInput = z.infer<typeof onboardingSchema>;

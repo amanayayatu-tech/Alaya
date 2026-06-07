@@ -15,6 +15,7 @@ const {
   syncGithubIssuesForSource,
 } = await import("../server/externalFeedback.ts");
 const { executeGateBudget, gateBudgetForProject, schedulerTickProject } = await import("../server/scheduler.ts");
+const { HumanGateService } = await import("../server/humanGateService.ts");
 const {
   SCENARIO,
   evaluatePrediction,
@@ -1645,7 +1646,7 @@ test("scheduler degrades timed-out builder tasks and creates a nonblocking audit
   }
 });
 
-test("scheduler opens direction gate, then imports external feedback and creates the next cycle", async () => {
+test("scheduler opens direction gate, imports GitHub issue, approves meaning gate into knowledge, then injects it next cycle", async () => {
   const projectId = "proj_sched_777";
   createProject(projectId);
   upsertGithubSource(projectId, "acme", "alaya");
@@ -1657,7 +1658,7 @@ test("scheduler opens direction gate, then imports external feedback and creates
   assert.ok(directionGate);
   storage.updateGate(directionGate.id, { status: "approved", decision: "approve_recommended" });
 
-  const fake = installFakeGithubFetch("Setup feedback is unclear");
+  const fake = installFakeGithubFetch("发布预览 preview is critical and setup feedback is unclear");
   try {
     const second = await schedulerTickProject(projectId);
     assert.equal(second.action, "ran_operational_stages");
@@ -1669,12 +1670,30 @@ test("scheduler opens direction gate, then imports external feedback and creates
   const cycle = storage.listCycles(projectId).find((c) => c.idx === 1);
   assert.equal(cycle?.status, "closed");
   assert.ok(storage.listFeedback(cycle!.id).some((f) => f.id.includes("fb_github_")));
-  assert.ok(storage.listGates(projectId).some((g) => g.id.startsWith("gate_ext_")));
+  const externalGate = storage.listGates(projectId).find((g) => g.id.startsWith("gate_ext_"));
+  assert.ok(externalGate);
+  assert.equal(externalGate.type, "meaning");
+
+  new HumanGateService(storage).approve(externalGate.id, { actor: "human", via: "test" });
+  const approvedKnowledge = storage.listKnowledge(projectId).find((item) => item.sourceRef === "github:acme/alaya#42");
+  assert.ok(approvedKnowledge);
+  assert.equal(approvedKnowledge.status, "active");
+  assert.equal(approvedKnowledge.humanApprovedCount, 1);
 
   const third = await schedulerTickProject(projectId);
   assert.equal(third.action, "created_next_cycle");
-  assert.equal(storage.listCycles(projectId).some((c) => c.idx === 2 && c.status === "planning"), true);
+  const cycle2 = storage.listCycles(projectId).find((c) => c.idx === 2 && c.status === "planning");
+  assert.ok(cycle2);
   assert.equal(third.budget.safetyMode, false);
+
+  const fourth = await schedulerTickProject(projectId);
+  assert.equal(fourth.action, "opened_direction_gate");
+  const injected = storage.listEvents().some((event) => {
+    if (event.actor !== "knowledge_injection" || event.op !== "inject") return false;
+    const after = event.after ? JSON.parse(event.after) : {};
+    return after.id === approvedKnowledge.id && after.projectId === projectId;
+  });
+  assert.equal(injected, true);
 });
 
 test("UI-created project first direction gate uses onboarding seed instead of demo scenario", async () => {

@@ -175,7 +175,7 @@ function asStringArray(value: unknown): string[] {
 function predictionFrom(value: unknown, fallback: NextGoalDraft["prediction"]): NextGoalDraft["prediction"] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return fallback;
   const obj = value as Record<string, unknown>;
-  const operator = obj.operator === "<=" || obj.operator === "==" ? obj.operator : ">=";
+  const operator = obj.operator === "<=" ? "<=" : ">=";
   const target = typeof obj.target === "number" && Number.isFinite(obj.target) ? obj.target : fallback.target;
   return {
     statement: typeof obj.statement === "string" && obj.statement.trim() ? obj.statement.trim() : fallback.statement,

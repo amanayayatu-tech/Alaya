@@ -81,6 +81,9 @@ async function main() {
       feedbackSources: "表单反馈",
       weeklyHumanMinutes: 120,
       weeklyLlmBudgetCents: 100,
+      firstClaimMetric: "approved_direction_gate_count",
+      firstClaimOperator: ">=",
+      firstClaimTarget: 1,
       firstSignal: "后台调度在反馈到达后自动关闭首轮并创建下一轮方向闸",
     }),
   });

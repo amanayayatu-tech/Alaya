@@ -124,7 +124,7 @@ export default function ProjectSetup() {
         targetUser: form.targetUser,
         seedIdentity: form.seedIdentity,
         worldModel: form.worldModel,
-        redlines: JSON.stringify(lines(form.redlines)),
+        redlines: lines(form.redlines),
         weeklyHumanMinutes: Number(form.weeklyHumanMinutes || 150),
         weeklyLlmBudgetCents: Number(form.weeklyLlmBudgetCents || 100),
         firstClaimMetric: form.firstClaimMetric,
@@ -201,7 +201,6 @@ export default function ProjectSetup() {
                   >
                     <option value=">=">&gt;=</option>
                     <option value="<=">&lt;=</option>
-                    <option value="==">==</option>
                   </select>
                 </label>
                 <Field label="目标阈值" type="number" value={form.firstClaimTarget} onChange={(value) => setField("firstClaimTarget", value)} step="0.01" />

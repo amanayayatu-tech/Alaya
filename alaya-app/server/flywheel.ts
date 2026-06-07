@@ -374,13 +374,12 @@ function projectSpecificFirstCyclePlan(projectId: string, cycleId: string, sc: S
 }
 
 function isOperator(value: string): value is Operator {
-  return value === ">=" || value === "<=" || value === "==";
+  return value === ">=" || value === "<=";
 }
 
 function failureThreshold(metric: string, operator: Operator, target: number): string {
   if (operator === ">=") return `${metric} < ${target}`;
-  if (operator === "<=") return `${metric} > ${target}`;
-  return `${metric} != ${target}`;
+  return `${metric} > ${target}`;
 }
 
 function claimConfigForCycle(projectId: string, sc: ScenarioRound) {
@@ -593,7 +592,7 @@ function toDirectionScenario(candidate: unknown): ScenarioRound | undefined {
     perceptionOk: raw.perceptionOk !== false,
     humanValueMismatch: raw.humanValueMismatch === true,
     predictionMetric: typeof raw.predictionMetric === "string" ? raw.predictionMetric : undefined,
-    predictionOperator: raw.predictionOperator === "<=" || raw.predictionOperator === "==" || raw.predictionOperator === ">="
+    predictionOperator: raw.predictionOperator === "<=" || raw.predictionOperator === ">="
       ? raw.predictionOperator
       : undefined,
     predictionTarget: typeof raw.predictionTarget === "number" ? raw.predictionTarget : undefined,

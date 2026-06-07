@@ -77,6 +77,22 @@ export interface EventLogItem {
 export interface DecisionLogItem {
   id: string; cycleId: string; gateType: string; decision: string; rationale: string; ts: string;
 }
+export interface ActionLedgerItem {
+  id: string;
+  projectId: string;
+  cycleId: string | null;
+  actionType: string;
+  target: string;
+  riskLevel: string;
+  requiresApproval: number;
+  approvalGateId: string | null;
+  status: string;
+  rollbackPlan: unknown;
+  auditSummary: unknown;
+  payload: unknown;
+  createdAt: string;
+  updatedAt: string;
+}
 export interface LlmCall {
   id: number; cycleId: string; agent: string; promptVersion: string;
   inputSummary: string; outputSummary: string; schemaValid: number;
@@ -128,6 +144,7 @@ export interface CycleReview {
   tasks: { id: string; agent: string; kind: string; status: string; spec: string }[];
   agentRuns: AgentRun[];
   decisions: { id: string; gateType: string; decision: string; rationale: string }[];
+  actionLedger: ActionLedgerItem[];
   referencedKnowledge: KnowledgeItem[];
   knowledgeUpdated: KnowledgeItem[];
   bugs: { id: string; text: string; sourceType: string; sourceRef: string }[];

@@ -9,7 +9,8 @@
 
 import type { Claim } from "./types.js";
 
-const EPS = 1e-6;
+export const METRIC_ERROR_EPS = 1e-6;
+export const MIN_METRIC_THRESHOLD_WEIGHT = 3;
 
 function clip(x: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, x));
@@ -22,19 +23,16 @@ function clip(x: number, lo: number, hi: number): number {
 export function computeMetricError(
   target: number,
   observed: number,
-  operator: ">=" | "<=" | "==",
+  operator: ">=" | "<=",
   scale?: number,
 ): number {
   // 修复漏洞B:scale 必须为正,默认取 |target| 但有正下限
-  const s = Math.max(scale ?? Math.abs(target), EPS);
+  const configuredScale = scale != null && scale > 0 ? scale : Math.abs(target);
+  const s = Math.max(configuredScale, METRIC_ERROR_EPS);
 
   // 修复漏洞A:方向因子由 operator 推导
   // ">=":越大越好,达标方向 d=+1,未达标时 target>observed
   // "<=":越小越好,达标方向 d=-1,未达标时 observed>target
-  // "==":双向偏离都算误差
-  if (operator === "==") {
-    return clip(Math.abs(target - observed) / s, 0, 1);
-  }
   const d = operator === ">=" ? +1 : -1;
   return clip(Math.max(0, d * (target - observed)) / s, 0, 1);
 }
@@ -92,6 +90,12 @@ export interface CycleErrorResult {
   skippedClaims: number;
 }
 
+function claimWeight(claim: Claim): number {
+  const raw = Number.isFinite(claim.weight) && claim.weight > 0 ? claim.weight : 1;
+  if (claim.type === "metric_threshold") return Math.max(raw, MIN_METRIC_THRESHOLD_WEIGHT);
+  return raw;
+}
+
 /**
  * 整轮预测误差。
  * E_cycle = sum(w_i * e_i^2) / sum(w_i)
@@ -113,7 +117,7 @@ export function computeCycleError(claims: Claim[]): CycleErrorResult {
       continue;
     }
     scored++;
-    const w = c.weight ?? 1;
+    const w = claimWeight(c);
     num += w * e * e;
     den += w;
     if (worst == null || e > worst) worst = e;

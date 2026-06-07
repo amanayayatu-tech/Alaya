@@ -1,12 +1,7 @@
 import { storage, now } from "./storage";
 import { buildNextGoalInput, resolveCycleStimulus, runOrchestrator, runOperationalStagesAfterApprovedDirection, scenarioForCycle } from "./flywheel";
 import { generateNextGoal, type NextGoalDraft } from "./autonomousGoal";
-import {
-  detectGoalRepetition,
-  detectKnowledgeExplosion,
-  detectKnowledgeMaturationStall,
-  detectPredictionStagnation,
-} from "./stallGuard";
+import { evaluateAutonomousStopRisk } from "./stallGuard";
 import { syncConfiguredFeedbackForProject } from "./externalFeedback";
 import type { ExternalFeedbackSyncResult, SyncGithubIssuesOptions } from "./externalFeedback";
 import { applyTimeDecay } from "@shared/core/update_confidence.js";
@@ -16,7 +11,7 @@ import { HumanGateService } from "./humanGateService";
 import { NotificationBus, type NotificationEmitFailure } from "./notifications/bus";
 import { CallbackRouter } from "./notifications/router";
 import { TelegramAdapter } from "./notifications/telegram";
-import type { HumanGateItem, KnowledgeItem, Task } from "@shared/schema";
+import { claimSchema, type HumanGateItem, type KnowledgeItem, type Task } from "@shared/schema";
 
 export interface GateBudgetState {
   budget: number;
@@ -657,21 +652,20 @@ function nonEmptyContractValue(value: unknown): boolean {
 }
 
 function isMeasurableClaim(claim: Record<string, any>): boolean {
-  if (claim.type === "metric_threshold") {
+  const parsed = claimSchema.safeParse(claim);
+  if (!parsed.success) return false;
+  if (parsed.data.type === "metric_threshold") {
     return (
-      typeof claim.metric === "string" &&
-      claim.metric.trim().length > 0 &&
-      [">=", "<=", "=="].includes(String(claim.operator)) &&
-      finiteNumber(claim.target) &&
-      finiteNumber(claim.observed)
+      parsed.data.metric.trim().length > 0 &&
+      finiteNumber(parsed.data.target) &&
+      finiteNumber(parsed.data.observed)
     );
   }
-  if (claim.type === "binary" || claim.type === "categorical") {
-    return typeof claim.expected === "string" && claim.expected.length > 0 && claim.actual != null;
+  if (parsed.data.type === "binary" || parsed.data.type === "categorical") {
+    return parsed.data.expected.length > 0 && parsed.data.actual != null;
   }
-  if (claim.type === "directional") {
-    return ["up", "down", "flat"].includes(String(claim.expectedDirection)) &&
-      ["up", "down", "flat"].includes(String(claim.actualDirection));
+  if (parsed.data.type === "directional") {
+    return parsed.data.actualDirection != null;
   }
   return false;
 }
@@ -1063,35 +1057,11 @@ function evolutionHistories(projectId: string) {
 
 function evaluateEvolutionStall(projectId: string, draft: NextGoalDraft, rejectedGoals: string[]) {
   const histories = evolutionHistories(projectId);
-  if (detectPredictionStagnation(histories.errors, 3)) {
-    return {
-      riskKey: "evolution_stalled",
-      evidence: { ...histories, window: 3, threshold: "last 3 non-zero errors did not improve by at least 0.01" },
-    };
-  }
-  if (detectGoalRepetition(draft.proposedGoal, rejectedGoals, 0.82)) {
-    return {
-      riskKey: "goal_repetition",
-      evidence: { proposedGoal: draft.proposedGoal, rejectedGoals, threshold: 0.82 },
-    };
-  }
-  const activeStrongGrowthWindow = histories.decisionKnowledgeSizeHistory.slice(-5);
-  const activeStrongGrowth = activeStrongGrowthWindow.length >= 2
-    ? activeStrongGrowthWindow[activeStrongGrowthWindow.length - 1] - activeStrongGrowthWindow[0]
-    : 0;
-  if (activeStrongGrowth >= 3 && detectKnowledgeMaturationStall(histories.strongCountHistory, 5)) {
-    return {
-      riskKey: "maturation_stall",
-      evidence: { ...histories, activeStrongGrowth, window: 5 },
-    };
-  }
-  if (detectKnowledgeExplosion(histories.decisionKnowledgeSizeHistory)) {
-    return {
-      riskKey: "knowledge_explosion",
-      evidence: { ...histories, sizeMetric: "active+strong non-superseded knowledge" },
-    };
-  }
-  return null;
+  return evaluateAutonomousStopRisk({
+    ...histories,
+    proposedGoal: draft.proposedGoal,
+    rejectedGoals,
+  });
 }
 
 function mergeMeaningGates(projectId: string) {

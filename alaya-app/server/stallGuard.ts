@@ -47,3 +47,59 @@ export function detectKnowledgeExplosion(knowledgeSizeHistory: number[]): boolea
   const secondHalf = deltas.slice(-2).reduce((sum, delta) => sum + delta, 0) / 2;
   return totalGrowth >= 6 && secondHalf >= firstHalf && recent[recent.length - 1] >= recent[0] * 1.8;
 }
+
+export type AutonomousStopRiskKey =
+  | "evolution_stalled"
+  | "goal_repetition"
+  | "maturation_stall"
+  | "knowledge_explosion";
+
+export interface AutonomousStopRiskInput {
+  errors: number[];
+  strongCountHistory: number[];
+  decisionKnowledgeSizeHistory: number[];
+  proposedGoal: string;
+  rejectedGoals: string[];
+}
+
+export interface AutonomousStopRisk {
+  riskKey: AutonomousStopRiskKey;
+  evidence: Record<string, unknown>;
+}
+
+export function evaluateAutonomousStopRisk(input: AutonomousStopRiskInput): AutonomousStopRisk | null {
+  const histories = {
+    errors: input.errors,
+    strongCountHistory: input.strongCountHistory,
+    decisionKnowledgeSizeHistory: input.decisionKnowledgeSizeHistory,
+  };
+  if (detectPredictionStagnation(input.errors, 3)) {
+    return {
+      riskKey: "evolution_stalled",
+      evidence: { ...histories, window: 3, threshold: "last 3 non-zero errors did not improve by at least 0.01" },
+    };
+  }
+  if (detectGoalRepetition(input.proposedGoal, input.rejectedGoals, 0.82)) {
+    return {
+      riskKey: "goal_repetition",
+      evidence: { proposedGoal: input.proposedGoal, rejectedGoals: input.rejectedGoals, threshold: 0.82 },
+    };
+  }
+  const activeStrongGrowthWindow = input.decisionKnowledgeSizeHistory.slice(-5);
+  const activeStrongGrowth = activeStrongGrowthWindow.length >= 2
+    ? activeStrongGrowthWindow[activeStrongGrowthWindow.length - 1] - activeStrongGrowthWindow[0]
+    : 0;
+  if (activeStrongGrowth >= 3 && detectKnowledgeMaturationStall(input.strongCountHistory, 5)) {
+    return {
+      riskKey: "maturation_stall",
+      evidence: { ...histories, activeStrongGrowth, window: 5 },
+    };
+  }
+  if (detectKnowledgeExplosion(input.decisionKnowledgeSizeHistory)) {
+    return {
+      riskKey: "knowledge_explosion",
+      evidence: { ...histories, sizeMetric: "active+strong non-superseded knowledge" },
+    };
+  }
+  return null;
+}

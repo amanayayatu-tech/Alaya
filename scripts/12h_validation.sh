@@ -42,9 +42,20 @@ export OPENAI_MAX_OUTPUT_TOKENS="${OPENAI_MAX_OUTPUT_TOKENS:-1024}"
 export ALAYA_REAL_LLM_MAX_RETRIES="${ALAYA_REAL_LLM_MAX_RETRIES:-2}"
 
 HEALTH_URL="${ALAYA_HEALTH_URL:-http://localhost:5000/api/flywheel/health}"
+READY_URL="${ALAYA_READY_URL:-http://localhost:5000/readyz}"
 LLM_CONNECTIVITY_URL="${ALAYA_LLM_CONNECTIVITY_URL:-https://api.minimax.io/v1/chat/completions}"
 GITHUB_CONNECTIVITY_URL="${ALAYA_GITHUB_CONNECTIVITY_URL:-https://api.github.com}"
 CONNECT_TIMEOUT_SECONDS="${ALAYA_CONNECT_TIMEOUT_SECONDS:-10}"
+READY_TIMEOUT_SECONDS="${ALAYA_READY_TIMEOUT_SECONDS:-60}"
+APP_PID=""
+
+cleanup_app() {
+  if [ -n "$APP_PID" ]; then
+    kill "$APP_PID" >/dev/null 2>&1 || true
+    wait "$APP_PID" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup_app EXIT
 
 live_prereqs_available() {
   local has_llm=0
@@ -67,6 +78,39 @@ url_reachable() {
 
 live_connectivity_available() {
   url_reachable "$LLM_CONNECTIVITY_URL" && url_reachable "$GITHUB_CONNECTIVITY_URL"
+}
+
+readyz_available() {
+  curl --connect-timeout "$CONNECT_TIMEOUT_SECONDS" -sf "$READY_URL" >/dev/null 2>&1
+}
+
+wait_for_readyz() {
+  local start
+  start="$(date +%s)"
+  while [ $(( $(date +%s) - start )) -lt "$READY_TIMEOUT_SECONDS" ]; do
+    if readyz_available; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+ensure_validation_app() {
+  if [ "${ALAYA_VALIDATION_START_APP:-true}" != "true" ]; then
+    return 0
+  fi
+  if readyz_available; then
+    echo "readyz already available at $READY_URL"
+    return 0
+  fi
+  echo "Starting Alaya dev server via npm run dev; waiting for $READY_URL"
+  npm run dev >"$LOG_DIR/app.log" 2>&1 &
+  APP_PID="$!"
+  if ! wait_for_readyz; then
+    echo "CRITICAL: /readyz did not become ready; see $LOG_DIR/app.log"
+    exit 1
+  fi
 }
 
 record_noncritical_failure() {
@@ -132,6 +176,7 @@ extract_health_delta() {
 }
 
 echo "Alaya 12h validation started at $(date) | logs: $LOG_DIR"
+ensure_validation_app
 if ! live_prereqs_available; then
   echo "Live validation prerequisites not fully available; live step will be skipped."
 elif ! live_connectivity_available; then

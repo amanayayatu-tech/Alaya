@@ -183,10 +183,10 @@ try {
   createdIssue = await githubJson("/issues", {
     method: "POST",
     body: JSON.stringify({
-      title: `[Alaya E2E] confusing setup signal ${runId}`,
+      title: `[Alaya E2E] 发布预览 preview is critical setup signal ${runId}`,
       body:
         `This is an Alaya Sensor E2E issue for run ${runId}.\n\n` +
-        "The setup flow is confusing and I am worried about publishing.\n" +
+        "The setup flow is confusing and I need 发布预览 / preview before publishing.\n" +
         "Contact: alaya-e2e@example.com\n" +
         "Fake token for redaction test: sk-cp-abcdefghijklmnopqrstuvwxyz123456",
     }),
@@ -240,6 +240,18 @@ try {
   assert(quote.includes("[redacted-email]"), "redacted email marker missing");
   assert(quote.includes("[redacted-token]"), "redacted token marker missing");
 
+  await verifyGateInUi(project.name, externalGate, createdIssue.number);
+
+  await appJson(`/api/human-gates/${externalGate.id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ rationale: `approve GitHub meaning gate ${runId}` }),
+  });
+  const approvedKnowledge = (await appJson(`/api/knowledge?projectId=${project.id}`))
+    .find((item) => item.sourceRef === `github:${owner}/${repo}#${createdIssue.number}`);
+  assert(approvedKnowledge, "approved GitHub meaning gate did not create knowledge");
+  assert(approvedKnowledge.status === "active", "approved GitHub knowledge should be active");
+  assert(approvedKnowledge.humanApprovedCount >= 1, "approved GitHub knowledge missing human approval evidence");
+
   const cycles = await appJson(`/api/projects/${project.id}/cycles`);
   const review = await appJson(`/api/cycles/${cycles[0].id}/review`);
   const firstClaim = review.predictions[0]?.claims?.[0];
@@ -253,7 +265,22 @@ try {
   assert(!feedback.text.includes("alaya-e2e@example.com"), "email was not redacted from feedback text");
   assert(!feedback.text.includes("sk-cp-abcdefghijklmnopqrstuvwxyz123456"), "token was not redacted from feedback text");
 
-  await verifyGateInUi(project.name, externalGate, createdIssue.number);
+  const createdNext = await appJson(`/api/projects/${project.id}/scheduler/tick`, {
+    method: "POST",
+    body: JSON.stringify({ syncFeedback: false }),
+  });
+  assert(createdNext.action === "created_next_cycle", `expected created_next_cycle, got ${createdNext.action}`);
+  const openedNext = await appJson(`/api/projects/${project.id}/scheduler/tick`, {
+    method: "POST",
+    body: JSON.stringify({ syncFeedback: false }),
+  });
+  assert(openedNext.action === "opened_direction_gate", `expected opened_direction_gate, got ${openedNext.action}`);
+  const nextCycles = await appJson(`/api/projects/${project.id}/cycles`);
+  const cycle2 = nextCycles.find((cycle) => cycle.idx === 2);
+  assert(cycle2, "cycle 2 was not created after approved GitHub knowledge");
+  const cycle2Review = await appJson(`/api/cycles/${cycle2.id}/review`);
+  const injected = cycle2Review.agentRuns.some((run) => run.knowledgeRefsUsed?.includes(approvedKnowledge.id));
+  assert(injected, "approved GitHub knowledge was not injected into the next cycle");
 
   await closeIssueIfNeeded();
 
@@ -264,7 +291,9 @@ try {
     issueUrl: createdIssue.html_url,
     schedulerAction: ran.action,
     gateId: externalGate.id,
+    knowledgeId: approvedKnowledge.id,
     feedbackId: feedback.id,
+    cycle2Id: cycle2.id,
     uiVerified: true,
   }, null, 2));
 } catch (error) {

@@ -35,6 +35,12 @@ function originRemoteFromGitConfig(cwd) {
 }
 
 export function inferGitHubTarget({ cwd = process.cwd(), env = process.env } = {}) {
+  const sandboxOwner = env.ALAYA_E2E_GITHUB_SANDBOX_OWNER;
+  const sandboxRepo = env.ALAYA_E2E_GITHUB_SANDBOX_REPO;
+  if (sandboxOwner && sandboxRepo) {
+    return { owner: sandboxOwner, repo: sandboxRepo, source: "sandbox env" };
+  }
+
   const envOwner = env.ALAYA_E2E_GITHUB_OWNER;
   const envRepo = env.ALAYA_E2E_GITHUB_REPO;
   if (envOwner && envRepo) {
