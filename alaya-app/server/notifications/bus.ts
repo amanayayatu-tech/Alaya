@@ -2,11 +2,22 @@ import { escapeMarkdownV2 } from "./telegram-simple";
 import { gateCard } from "./card";
 import type { AlayaEvent, MessagingPlatform } from "./types";
 
+export interface NotificationEmitFailure {
+  event: AlayaEvent;
+  adapter: string;
+  chatId: string;
+  error: unknown;
+}
+
+export type NotificationFailureHandler = (failure: NotificationEmitFailure) => void | Promise<void>;
+
 export class NotificationBus {
   private adapters: MessagingPlatform[] = [];
   private chatIds: string[] = [];
   private notifiedGateIds = new Set<string>();
   private notifiedSafetyKeys = new Set<string>();
+
+  constructor(private readonly failureHandler?: NotificationFailureHandler) {}
 
   addAdapter(adapter: MessagingPlatform, chatIds: string[]): this {
     this.adapters.push(adapter);
@@ -51,6 +62,16 @@ export class NotificationBus {
           }
         } catch (error) {
           console.error("[NotificationBus] emit failed:", error instanceof Error ? error.message : String(error));
+          try {
+            await this.failureHandler?.({
+              event,
+              adapter: adapter.name(),
+              chatId,
+              error,
+            });
+          } catch (auditError) {
+            console.error("[NotificationBus] failure audit failed:", auditError instanceof Error ? auditError.message : String(auditError));
+          }
         }
       }
     }

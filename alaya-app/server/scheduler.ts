@@ -13,7 +13,7 @@ import { applyTimeDecay } from "@shared/core/update_confidence.js";
 import { recordTrace } from "./trace";
 import { observeSchedulerCycle } from "./observability/metrics";
 import { HumanGateService } from "./humanGateService";
-import { NotificationBus } from "./notifications/bus";
+import { NotificationBus, type NotificationEmitFailure } from "./notifications/bus";
 import { CallbackRouter } from "./notifications/router";
 import { TelegramAdapter } from "./notifications/telegram";
 import type { HumanGateItem, KnowledgeItem, Task } from "@shared/schema";
@@ -143,6 +143,52 @@ function buildSafetyModeBody(result: SchedulerTickResult): string {
   return `项目：${result.projectId}\n原因：${result.note}\n${cycleLine}`;
 }
 
+function cycleForNotificationFailure(failure: NotificationEmitFailure) {
+  const event = failure.event;
+  if (event.type === "gate_opened" && event.gateId) {
+    const gate = storage.getGate(event.gateId);
+    if (gate) return storage.getCycle(gate.cycleId);
+  }
+  const cycleId = event.meta?.cycleId || (event.type === "safety_mode" ? event.gateId : undefined);
+  if (cycleId) return storage.getCycle(cycleId);
+  return storage.listCycles(event.projectId).at(-1);
+}
+
+export function recordNotificationEmitFailure(failure: NotificationEmitFailure): void {
+  const cycle = cycleForNotificationFailure(failure);
+  const error = failure.error instanceof Error ? failure.error.message : String(failure.error);
+  const payload = {
+    projectId: failure.event.projectId,
+    cycleId: cycle?.id ?? failure.event.meta?.cycleId ?? null,
+    eventType: failure.event.type,
+    gateId: failure.event.gateId ?? null,
+    adapter: failure.adapter,
+    chatId: failure.chatId,
+    title: failure.event.title,
+    error,
+    ts: now(),
+  };
+  storage.recordEvent({
+    cycleIdx: cycle?.idx ?? 0,
+    actor: "notification_bus",
+    tableName: "notifications",
+    op: "emit_failed",
+    before: null,
+    after: JSON.stringify(payload),
+    ts: now(),
+  });
+  recordTrace({
+    projectId: failure.event.projectId,
+    cycleId: cycle?.id ?? failure.event.meta?.cycleId ?? null,
+    cycleIdx: cycle?.idx ?? null,
+    kind: "notification",
+    name: "notification_emit_failed",
+    agent: "notification_bus",
+    status: "error",
+    attributes: payload,
+  });
+}
+
 async function getNotificationBus(): Promise<NotificationBus | null> {
   const config = telegramNotificationConfig();
   if (!config) return null;
@@ -152,7 +198,7 @@ async function getNotificationBus(): Promise<NotificationBus | null> {
       const gateService = new HumanGateService(storage);
       const router = new CallbackRouter(adapter, storage, gateService, config.baseUrl);
       adapter.onCallbackQuery((callbackId, data, ref) => router.route(callbackId, data, ref));
-      notificationBus = new NotificationBus().addAdapter(adapter, [config.chatId]);
+      notificationBus = new NotificationBus(recordNotificationEmitFailure).addAdapter(adapter, [config.chatId]);
     }
     if (!notificationBusStarted) {
       notificationBusStarted = true;
@@ -193,6 +239,7 @@ function emitSchedulerNotifications(
     body: buildSafetyModeBody(result),
     gateId: result.cycleId,
     actionUrl: gateWebUrl(notificationBaseUrl()),
+    meta: result.cycleId ? { cycleId: result.cycleId } : undefined,
   });
 }
 

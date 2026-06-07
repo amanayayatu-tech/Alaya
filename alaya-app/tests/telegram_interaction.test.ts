@@ -12,8 +12,10 @@ process.env.ALAYA_LLM_PROVIDER = "mock";
 
 const { storage, now } = await import("../server/storage.ts");
 const { gateCard } = await import("../server/notifications/card.ts");
+const { NotificationBus } = await import("../server/notifications/bus.ts");
 const { CallbackRouter } = await import("../server/notifications/router.ts");
 const { HumanGateService } = await import("../server/humanGateService.ts");
+const { recordNotificationEmitFailure } = await import("../server/scheduler.ts");
 
 class FakePlatform implements MessagingPlatform {
   sentCards: Array<{ chatId: string; card: AlayaCard }> = [];
@@ -35,6 +37,12 @@ class FakePlatform implements MessagingPlatform {
   async sendTyping(chatId: string): Promise<void> { this.typingChatIds.push(chatId); }
   async start(): Promise<void> {}
   async stop(): Promise<void> {}
+}
+
+class FailingPlatform extends FakePlatform {
+  name() { return "failing"; }
+  async sendText(): Promise<void> { throw new Error("telegram send failed"); }
+  async sendCard(): Promise<SentMessage> { throw new Error("telegram card failed"); }
 }
 
 function createProjectWithCycle() {
@@ -173,4 +181,35 @@ test("project state lastCycleAt is scoped by project id", () => {
 
   assert.equal(storage.getProjectState("proj_state_a").lastCycleAt, "2026-06-07T00:00:00.000Z");
   assert.equal(storage.getProjectState("proj_state_b").lastCycleAt, "2026-06-07T00:01:00.000Z");
+});
+
+test("notification emit failures are persisted for observability", async () => {
+  createProjectAndCycle("proj_notify_failure", "cycle_notify_failure_1");
+  const bus = new NotificationBus(recordNotificationEmitFailure).addAdapter(new FailingPlatform(), ["42"]);
+  const originalConsoleError = console.error;
+
+  try {
+    console.error = () => {};
+    await bus.emit({
+      type: "safety_mode",
+      projectId: "proj_notify_failure",
+      title: "Safety Mode 已触发",
+      body: "send should fail",
+      gateId: "cycle_notify_failure_1",
+      meta: { cycleId: "cycle_notify_failure_1" },
+    });
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  const event = storage.listEvents().find((row) => row.tableName === "notifications" && row.op === "emit_failed");
+  assert.ok(event);
+  assert.equal(event.cycleIdx, 1);
+  assert.match(event.after ?? "", /telegram send failed/);
+
+  const trace = storage.listTraceEventsByProject("proj_notify_failure")
+    .find((row) => row.kind === "notification" && row.name === "notification_emit_failed");
+  assert.ok(trace);
+  assert.equal(trace.status, "error");
+  assert.match(trace.attributes, /telegram send failed/);
 });
