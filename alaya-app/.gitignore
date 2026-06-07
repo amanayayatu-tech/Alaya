@@ -11,6 +11,7 @@ data.db-journal
 .env
 .env.*
 !.env.example
+telegram-update-offset.json
 
 *.log
 .DS_Store

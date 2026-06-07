@@ -12,6 +12,10 @@ import type { ExternalFeedbackSyncResult, SyncGithubIssuesOptions } from "./exte
 import { applyTimeDecay } from "@shared/core/update_confidence.js";
 import { recordTrace } from "./trace";
 import { observeSchedulerCycle } from "./observability/metrics";
+import { HumanGateService } from "./humanGateService";
+import { NotificationBus } from "./notifications/bus";
+import { CallbackRouter } from "./notifications/router";
+import { TelegramAdapter } from "./notifications/telegram";
 import type { HumanGateItem, KnowledgeItem, Task } from "@shared/schema";
 
 export interface GateBudgetState {
@@ -62,6 +66,135 @@ export interface SchedulerTickOptions {
 }
 
 const runningProjectTicks = new Set<string>();
+let notificationBus: NotificationBus | null = null;
+let notificationBusStarted = false;
+
+interface TelegramNotificationConfig {
+  token: string;
+  chatId: string;
+  baseUrl: string;
+}
+
+function externalNotificationRequested(): boolean {
+  const raw = process.env.ALAYA_CAP_EXTERNAL_NOTIFICATION?.trim().toLowerCase();
+  return raw === "true" || raw === "1" || raw === "yes" || raw === "dry_run" || raw === "dry-run" || raw === "audit";
+}
+
+function telegramNotificationConfig(): TelegramNotificationConfig | null {
+  if (!externalNotificationRequested()) return null;
+  const provider = process.env.ALAYA_NOTIFICATION_PROVIDER?.trim().toLowerCase() || "telegram";
+  if (provider !== "telegram") return null;
+  const token = process.env.ALAYA_TELEGRAM_BOT_TOKEN?.trim();
+  const chatId = process.env.ALAYA_TELEGRAM_CHAT_ID?.trim();
+  if (!token || !chatId) return null;
+  return {
+    token,
+    chatId,
+    baseUrl: process.env.ALAYA_BASE_URL?.trim() || "http://localhost:5000",
+  };
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
+function gateWebUrl(baseUrl: string): string {
+  return `${trimTrailingSlash(baseUrl)}/#/human-gates`;
+}
+
+function notificationBaseUrl(): string {
+  return telegramNotificationConfig()?.baseUrl ?? process.env.ALAYA_BASE_URL?.trim() ?? "http://localhost:5000";
+}
+
+function pendingGateIds(projectId: string): Set<string> {
+  return new Set(
+    storage
+      .listGates(projectId)
+      .filter((gate) => gate.status === "pending")
+      .map((gate) => gate.id),
+  );
+}
+
+function gateNotificationTitle(gate: HumanGateItem): string {
+  if (gate.type === "direction") return "方向闸待处理";
+  if (gate.type === "meaning") return "意义闸待处理";
+  if (gate.type === "risk") return "风险闸待处理";
+  return "人工闸门待处理";
+}
+
+function gateNotificationBody(gate: HumanGateItem): string {
+  const payload = parsePayload(gate.payload);
+  const candidates = [
+    payload.summary,
+    payload.reason,
+    payload.requiredAction,
+    payload.auditSummary?.whyNow,
+    gate.title,
+  ];
+  const body = candidates.find((item): item is string => typeof item === "string" && item.trim().length > 0)?.trim() ?? "";
+  return body.length > 100 ? `${body.slice(0, 100)}...` : body;
+}
+
+function buildSafetyModeBody(result: SchedulerTickResult): string {
+  const cycle = result.cycleId ? storage.getCycle(result.cycleId) : undefined;
+  const cycleLine = cycle
+    ? `Cycle #${cycle.idx} 已暂停，请前往 Web UI 检查。`
+    : "自动推进已暂停，请前往 Web UI 检查。";
+  return `项目：${result.projectId}\n原因：${result.note}\n${cycleLine}`;
+}
+
+async function getNotificationBus(): Promise<NotificationBus | null> {
+  const config = telegramNotificationConfig();
+  if (!config) return null;
+  try {
+    if (!notificationBus) {
+      const adapter = new TelegramAdapter(config.token, config.chatId);
+      const gateService = new HumanGateService(storage);
+      const router = new CallbackRouter(adapter, storage, gateService, config.baseUrl);
+      adapter.onCallbackQuery((callbackId, data, ref) => router.route(callbackId, data, ref));
+      notificationBus = new NotificationBus().addAdapter(adapter, [config.chatId]);
+    }
+    if (!notificationBusStarted) {
+      notificationBusStarted = true;
+      await notificationBus.start();
+    }
+    return notificationBus;
+  } catch (error) {
+    console.error("[scheduler] notification bus unavailable:", error instanceof Error ? error.message : String(error));
+    return null;
+  }
+}
+
+function emitSchedulerNotifications(
+  bus: NotificationBus,
+  beforePendingGateIds: Set<string>,
+  result: SchedulerTickResult,
+): void {
+  for (const gate of storage.listGates(result.projectId)) {
+    if (gate.status !== "pending") continue;
+    if (beforePendingGateIds.has(gate.id)) continue;
+    void bus.emit({
+      type: "gate_opened",
+      projectId: result.projectId,
+      title: `${gateNotificationTitle(gate)} — ${result.projectId}`,
+      body: gateNotificationBody(gate),
+      gateId: gate.id,
+      gateType: gate.type as "direction" | "meaning" | "risk",
+      isBlocking: gate.blocking === 1,
+      actionUrl: `${gateWebUrl(notificationBaseUrl())}?gate=${encodeURIComponent(gate.id)}`,
+    });
+  }
+
+  if (result.action !== "safety_mode") return;
+  void bus.emit({
+    type: "safety_mode",
+    projectId: result.projectId,
+    title: "Safety Mode 已触发",
+    body: buildSafetyModeBody(result),
+    gateId: result.cycleId,
+    actionUrl: gateWebUrl(notificationBaseUrl()),
+  });
+}
 
 function parsePayload(payload: string): Record<string, any> {
   try {
@@ -1444,8 +1577,12 @@ export async function schedulerTickProject(projectId: string, options: Scheduler
   }
 
   runningProjectTicks.add(projectId);
+  const bus = await getNotificationBus();
+  const beforePendingGateIds = bus ? pendingGateIds(projectId) : new Set<string>();
   try {
-    return await schedulerTickProjectUnlocked(projectId, options);
+    const result = await schedulerTickProjectUnlocked(projectId, options);
+    if (bus) emitSchedulerNotifications(bus, beforePendingGateIds, result);
+    return result;
   } finally {
     runningProjectTicks.delete(projectId);
   }

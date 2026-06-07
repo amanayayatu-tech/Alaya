@@ -28,6 +28,7 @@ function AppRouter() {
     <Switch>
       <Route path="/" component={Dashboard} />
       <Route path="/gates" component={Gates} />
+      <Route path="/human-gates" component={Gates} />
       <Route path="/ledger" component={Ledger} />
       <Route path="/knowledge" component={Knowledge} />
       <Route path="/review" component={Review} />

@@ -21,6 +21,7 @@ Alaya = 本地 SQLite 记忆层 + 5 个 Agent 飞轮 + 人工闸门 + 预测账�
 | LLM | mock / OpenAI-compatible | 默认 mock，可切 OpenAI / MiniMax 等兼容端点 |
 | Scheduler | 可运行 | 自动推进 cycle；第 5 轮起可由自主目标生成器接管，受 blocking gate、预算和反空转风险闸约束 |
 | Sensor | 可运行 | 支持 GitHub Issues 与表单反馈 |
+| Notifications | 可运行 | Telegram 单向通知与双向审批卡片；支持 Human Gate 推送、`/status`、`/gates`、长轮询 callback 和 offset 持久化 |
 | Knowledge | 可运行 | SQLite FTS5 搜索、任务前知识注入、近义合并、`supersededBy` 保留、冲突隔离、时间衰减和详情引用上限保护 |
 | Health | 可运行 | `/healthz`、`/readyz`、`/metrics` 提供运行探针；`/health` 页面与 `/api/flywheel/health` API 展示复利、知识成熟和 human gate 压力 |
 | Governance | 可运行 | `PRINCIPLES.md`、guard 脚本、CI、secret scan、capability gate 和验证脚本约束核心底线 |
@@ -34,6 +35,7 @@ Alaya = 本地 SQLite 记忆层 + 5 个 Agent 飞轮 + 人工闸门 + 预测账�
 - [核心概念](#核心概念)
 - [自主进化与长期验证](#自主进化与长期验证)
 - [Web 功能地图](#web-功能地图)
+- [Telegram 移动端通知与审批](#telegram-移动端通知与审批)
 - [常用命令](#常用命令)
 - [运行模式与安全模型](#运行模式与安全模型)
 - [数据库迁移、备份与恢复](#数据库迁移备份与恢复)
@@ -105,8 +107,12 @@ flowchart LR
   API --> DB["SQLite + FTS5"]
   API --> Scheduler["Scheduler"]
   API --> Sensor["External Sensor"]
+  Scheduler --> Notify["NotificationBus"]
+  Notify --> Telegram["Telegram Bot API"]
+  Telegram --> Phone["Mobile Telegram"]
   Scheduler --> Agents["5 Agents"]
   Sensor --> Gates["Human Gates"]
+  Telegram --> Gates
   Agents --> LLM["Mock or OpenAI-compatible LLM"]
   Agents --> Core["Pure Core Functions"]
   Core --> KB["Knowledge Base"]
@@ -153,6 +159,8 @@ React/Vite -> Express API -> SQLite/FTS5 -> Scheduler -> 5 Agents -> LLM Provide
 - Meaning gate：信号是否值得进入知识循环
 - Risk gate：风险、成本、阻断条件是否需要人工处理
 
+Human Gate 可以在 Web UI 中处理，也可以通过 Telegram 接收移动端通知。非阻塞 `meaning` gate 会在 Telegram 卡片中显示批准/否决按钮；阻塞型 `direction` / `risk` gate 只显示 Web 深链，避免手机端一键放行高风险阻断闸。
+
 ### 4. Prediction Ledger
 
 每个 claim 都要能被观测和计算误差。系统不会把「感觉变好」当作成功证明，而是保存目标、实际值、误差、归因和修正动作。
@@ -198,6 +206,84 @@ npm run e2e:long-evolution
 | Flywheel Health | 查看每轮新增知识、晋级、纠错、知识注入、知识状态和复利证明 |
 | New Project | Onboarding Interview，创建新项目 |
 | Project Setup | 修正 seed identity、world model、redlines 和第一轮 claim |
+
+## Telegram 移动端通知与审批
+
+Telegram 集成让 Alaya 在手机上主动提醒用户：有 blocking gate、safety mode 或 pending Human Gate 时，不需要一直打开桌面浏览器。实现位于 `alaya-app/server/notifications/`，由 `scheduler.ts` 懒加载 `NotificationBus` 与 `TelegramAdapter`。
+
+### 功能范围
+
+| 场景 | 行为 |
+| --- | --- |
+| Scheduler 新建 pending gate | 推送 Telegram 卡片；按 `gateId` 去重，避免每个 tick 重复通知 |
+| 非阻塞 `meaning` gate | 卡片显示 `✅ 批准` / `❌ 否决`，点击后走 `HumanGateService`，写入 `decision_log`、`event_log` 和 `action_ledger` |
+| 阻塞 `direction` / `risk` gate | 卡片只显示 `在 Web 处理`，跳到 `/#/human-gates?gate=...` |
+| Safety mode | 推送纯文本通知，包含项目、原因和 Web UI 链接 |
+| `/status` | 返回所有项目的当前 cycle、pending gates、知识数和最后事件时间 |
+| `/gates` | 列出所有 pending gates；可直接处理 non-blocking meaning gate |
+| `/help` | 返回可用命令 |
+
+### 本地配置
+
+复制并编辑本地 env。不要提交真实 token：
+
+```bash
+cp alaya-app/.env.example alaya-app/.env
+```
+
+最小配置：
+
+```bash
+ALAYA_CAP_EXTERNAL_NOTIFICATION=true
+ALAYA_NOTIFICATION_PROVIDER=telegram
+ALAYA_TELEGRAM_BOT_TOKEN=<BotFather token>
+ALAYA_TELEGRAM_CHAT_ID=<your chat id>
+ALAYA_BASE_URL=http://localhost:5000
+ALAYA_ALLOWED_NETWORK_HOSTS=api.github.com,api.openai.com,api.minimax.io,api.minimaxi.com,api.telegram.org
+```
+
+如果 5000 端口被占用：
+
+```bash
+PORT=5001
+ALAYA_BASE_URL=http://localhost:5001
+```
+
+启动：
+
+```bash
+npm --prefix alaya-app run dev
+```
+
+打开 Web UI：
+
+```text
+http://localhost:5001/#/human-gates
+```
+
+### 获取 Telegram Chat ID
+
+1. 在 Telegram 里找 `@BotFather` 创建 bot，拿到 token。
+2. 给 bot 发任意消息。
+3. 请求 `https://api.telegram.org/bot<TOKEN>/getUpdates`。
+4. 在返回 JSON 中找到 `message.chat.id`，填入 `ALAYA_TELEGRAM_CHAT_ID`。
+
+Bot 可选命令菜单：
+
+```text
+status - 查看飞轮当前状态
+gates - 列出所有待处理闸门
+help - 查看使用帮助
+```
+
+### 安全与审计
+
+- 所有出站 Telegram 请求必须同时通过 `ALAYA_CAP_EXTERNAL_NOTIFICATION` 和 `ALAYA_ALLOWED_NETWORK_HOSTS`。
+- 网络 host 固定校验为 `api.telegram.org`；token 格式会在 adapter 构造时验证。
+- 使用原生 `fetch` 调 Telegram Bot API，不引入 `node-telegram-bot-api`，避免其历史依赖链中的 critical audit 漏洞。
+- Telegram callback 不直接写 `storage.updateGate`；批准/否决统一走 `HumanGateService`，保留 capability gate、运行模式、事件日志和 action ledger。
+- Long polling 的 update offset 持久化到 `telegram-update-offset.json`，该文件已加入 `alaya-app/.gitignore`。
+- 所有 Telegram MarkdownV2 文本都会转义动态内容；通知失败只记录错误，不阻塞 Scheduler 主流程。
 
 ## P0/P1 证据化内核
 
@@ -281,7 +367,7 @@ Capability gate 覆盖高风险动作。所有 flag 都通过环境变量开启�
 | LLM call | `ALAYA_CAP_LLM_CALL` | deny in production unless enabled | `callLlm()` 的真实 provider 路径 |
 | knowledge write | `ALAYA_CAP_KNOWLEDGE_WRITE` | shadow dry-run, staging/prod deny | 非只读 API、知识/项目/cycle/反馈写路径 |
 | scheduler loop | `ALAYA_CAP_SCHEDULER_LOOP` | deny | `startCycleScheduler()` 启动前检查 |
-| external notification | `ALAYA_CAP_EXTERNAL_NOTIFICATION` | deny | 当前未接真实通知 adapter；若新增必须先 gate |
+| external notification | `ALAYA_CAP_EXTERNAL_NOTIFICATION` | deny | Telegram `sendMessage`、`editMessageText`、`answerCallbackQuery`、`getUpdates` 等出站通知路径 |
 
 Shadow 模式下，`POST /api/knowledge` 这类 mutating API 会返回：
 
@@ -622,6 +708,11 @@ npm run validation:summary -- validation-logs/<run>/SUMMARY.csv
 PORT=5000
 HOST=0.0.0.0
 REUSE_PORT=false
+ALAYA_BASE_URL=http://localhost:5000
+ALAYA_CAP_EXTERNAL_NOTIFICATION=false
+ALAYA_NOTIFICATION_PROVIDER=telegram
+ALAYA_TELEGRAM_BOT_TOKEN=
+ALAYA_TELEGRAM_CHAT_ID=
 ```
 
 可复制 `alaya-app/.env.example` 后按需修改。
@@ -685,6 +776,8 @@ POST /api/projects/:id/feedback/form
 - `alaya-app/server/flywheel.ts`
 - `alaya-app/server/scheduler.ts`
 - `alaya-app/server/externalFeedback.ts`
+- `alaya-app/server/notifications/`
+- `alaya-app/server/humanGateService.ts`
 
 ## 验证记录
 
@@ -778,6 +871,7 @@ bash scripts/12h_validation.sh
 - Scheduler tick 会自动执行 stale knowledge 时间衰减，并通过 `lastDecayedAt` 避免重复衰减同一时间区间。
 - `/health` 页面按当前项目查询 flywheel health 和 pending gates。
 - 24h 验证脚本在任何 FAIL 后以非零退出码结束。
+- Telegram P0/P1 覆盖单向通知、双向卡片、MarkdownV2 转义、callback 审批审计、gateId 去重、long-polling offset、`/status`/`/gates` 命令和真实 Bot API 发送 smoke。
 
 已知构建提示：
 

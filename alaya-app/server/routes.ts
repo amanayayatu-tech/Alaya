@@ -13,6 +13,7 @@ import type { KnowledgeItem } from "@shared/schema";
 import { onboardingSchema } from "@shared/schema";
 import { createProjectFromOnboarding } from "./onboarding";
 import { updateProjectConfig } from "./projectConfig";
+import { HumanGateService, type GateDecisionAction } from "./humanGateService";
 import { runFullCycle, scenarioForCycle } from "./flywheel";
 import { gateBudgetForProject, llmBudgetForProject, schedulerTickAllProjects, schedulerTickProject } from "./scheduler";
 import { ingestFormFeedback, syncConfiguredFeedbackForProject, syncGithubIssuesForSource, upsertGithubSource } from "./externalFeedback";
@@ -446,6 +447,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ---------------- human gates ----------------
+  const humanGateService = new HumanGateService(storage);
   app.get("/api/human-gates", (req, res) => {
     const projectId = req.query.projectId as string | undefined;
     res.json(storage.listGates(projectId).map((g) => parseJsonFields(g, ["payload"])));
@@ -455,24 +457,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!g) return res.status(404).json({ message: "not found" });
     res.json(parseJsonFields(g, ["payload"]));
   });
-  function resolveGate(req: Request, res: Response, status: string, decision: string) {
+  function resolveGate(req: Request, res: Response, action: GateDecisionAction) {
     const parsed = gateDecisionSchema.safeParse(req.body ?? {});
     if (!parsed.success) return validationError(res, parsed.error);
-    const gate = storage.getGate(String(req.params.id));
-    if (!gate) return res.status(404).json({ message: "not found" });
-    const dec = decision;
-    const rationale = parsed.data.rationale;
-    const updated = storage.updateGate(gate.id, { status, decision: dec });
-    storage.createDecision({
-      id: `dec_${gate.id}_${Date.now().toString(36)}`, cycleId: gate.cycleId,
-      gateType: gate.type, decision: dec, rationale, ts: now(),
-    });
-    storage.recordEvent({ cycleIdx: 0, actor: "human", tableName: "human_gate_items", op: "resolve", before: JSON.stringify({ status: gate.status }), after: JSON.stringify({ status }), ts: now() });
-    res.json(parseJsonFields(updated as any, ["payload"]));
+    try {
+      const result = humanGateService.resolve(String(req.params.id), action, {
+        rationale: parsed.data.rationale,
+        via: "web",
+        actor: "human",
+      });
+      if (result.dryRun) {
+        return res.status(202).json({
+          status: "dry_run",
+          message: "Gate decision was recorded but not applied in the current run mode.",
+          gate: parseJsonFields(result.gate as any, ["payload"]),
+        });
+      }
+      return res.json(parseJsonFields(result.gate as any, ["payload"]));
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("human gate not found:")) {
+        return res.status(404).json({ message: "not found" });
+      }
+      throw error;
+    }
   }
-  app.post("/api/human-gates/:id/approve", (req, res) => resolveGate(req, res, "approved", "approve"));
-  app.post("/api/human-gates/:id/reject", (req, res) => resolveGate(req, res, "rejected", "reject"));
-  app.post("/api/human-gates/:id/modify", (req, res) => resolveGate(req, res, "modified", "modify"));
+  app.post("/api/human-gates/:id/approve", (req, res) => resolveGate(req, res, "approve"));
+  app.post("/api/human-gates/:id/reject", (req, res) => resolveGate(req, res, "reject"));
+  app.post("/api/human-gates/:id/modify", (req, res) => resolveGate(req, res, "modify"));
 
   // ---------------- predictions ----------------
   app.get("/api/cycles/:id/predictions", (req, res) => {

@@ -1,0 +1,253 @@
+import fs from "node:fs";
+import path from "node:path";
+import { assertNetworkAllowed, checkCapability, CapabilityDeniedError } from "../security/capabilities";
+import {
+  TELEGRAM_API_HOST,
+  assertTelegramHostAllowlisted,
+  assertValidTelegramToken,
+} from "./telegram-simple";
+import type { AlayaCard, CallbackHandler, CardButton, MessageRef, MessagingPlatform, SentMessage } from "./types";
+
+interface TelegramChat {
+  id: number | string;
+}
+
+interface TelegramMessage {
+  message_id: number;
+  chat: TelegramChat;
+  text?: string;
+}
+
+interface TelegramCallbackQuery {
+  id: string;
+  data?: string;
+  message?: TelegramMessage;
+}
+
+interface TelegramUpdate {
+  update_id: number;
+  message?: TelegramMessage;
+  callback_query?: TelegramCallbackQuery;
+}
+
+interface TelegramResponse<T> {
+  ok: boolean;
+  result?: T;
+  description?: string;
+}
+
+function offsetPath(): string {
+  const dir = process.env.ALAYA_STATE_DIR?.trim() || process.cwd();
+  return path.join(dir, "telegram-update-offset.json");
+}
+
+function readOffset(): number {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(offsetPath(), "utf8")) as { offset?: number };
+    return typeof parsed.offset === "number" && Number.isFinite(parsed.offset) ? parsed.offset : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeOffset(offset: number): void {
+  const file = offsetPath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ offset }), "utf8");
+}
+
+function telegramHostCheckUrl(method: string): string {
+  return `https://${TELEGRAM_API_HOST}/${method}`;
+}
+
+export class TelegramAdapter implements MessagingPlatform {
+  private callbackHandlers: CallbackHandler[] = [];
+  private polling = false;
+  private offset = readOffset();
+
+  constructor(
+    private token: string,
+    private defaultChatId: string,
+  ) {
+    assertValidTelegramToken(token);
+  }
+
+  name(): string {
+    return "telegram";
+  }
+
+  async sendText(chatId: string, text: string): Promise<void> {
+    if (this.notificationDryRun("sendMessage")) return;
+    await this.telegramRequest("sendMessage", {
+      chat_id: chatId,
+      text,
+      parse_mode: "MarkdownV2",
+      disable_web_page_preview: true,
+    });
+  }
+
+  async sendCard(chatId: string, card: AlayaCard): Promise<SentMessage> {
+    if (this.notificationDryRun("sendMessage")) return { chatId, messageId: 0 };
+    const message = await this.telegramRequest<TelegramMessage>("sendMessage", {
+      chat_id: chatId,
+      text: this.renderCardText(card),
+      parse_mode: "MarkdownV2",
+      disable_web_page_preview: true,
+      reply_markup: card.buttons ? this.buildInlineKeyboard(card.buttons) : undefined,
+    });
+    return { chatId: String(message.chat.id), messageId: message.message_id };
+  }
+
+  async editCard(ref: MessageRef, card: AlayaCard): Promise<void> {
+    if (ref.messageId === 0 || this.notificationDryRun("editMessageText")) return;
+    await this.telegramRequest("editMessageText", {
+      chat_id: ref.chatId,
+      message_id: ref.messageId,
+      text: this.renderCardText(card),
+      parse_mode: "MarkdownV2",
+      disable_web_page_preview: true,
+      reply_markup: card.buttons ? this.buildInlineKeyboard(card.buttons) : { inline_keyboard: [] },
+    });
+  }
+
+  async answerCallback(callbackId: string, text?: string): Promise<void> {
+    if (!callbackId || this.notificationDryRun("answerCallbackQuery")) return;
+    await this.telegramRequest("answerCallbackQuery", {
+      callback_query_id: callbackId,
+      text,
+    });
+  }
+
+  async sendTyping(chatId: string): Promise<void> {
+    if (this.notificationDryRun("sendChatAction")) return;
+    await this.telegramRequest("sendChatAction", {
+      chat_id: chatId,
+      action: "typing",
+    });
+  }
+
+  onCallbackQuery(handler: CallbackHandler): void {
+    this.callbackHandlers.push(handler);
+  }
+
+  async start(): Promise<void> {
+    if (this.polling || this.notificationDryRun("getUpdates")) return;
+    this.polling = true;
+    void this.pollLoop();
+  }
+
+  async stop(): Promise<void> {
+    this.polling = false;
+  }
+
+  private notificationDryRun(method: string): boolean {
+    const endpoint = telegramHostCheckUrl(method);
+    const decision = checkCapability({
+      actor: "telegram_adapter",
+      capability: "external_notification",
+      target: `telegram.${method}`,
+      payload: {
+        provider: "telegram",
+        host: TELEGRAM_API_HOST,
+        defaultChatId: this.defaultChatId,
+      },
+    });
+    if (decision.dryRun) return true;
+    if (!decision.allowed) throw new CapabilityDeniedError(decision);
+    assertTelegramHostAllowlisted(endpoint);
+    this.assertTelegramNetwork(method);
+    return false;
+  }
+
+  private assertTelegramNetwork(method: string): void {
+    assertNetworkAllowed(telegramHostCheckUrl(method), {
+      actor: "telegram_adapter",
+      payload: { provider: "telegram", host: TELEGRAM_API_HOST, method },
+    });
+  }
+
+  private async telegramRequest<T = unknown>(method: string, body: Record<string, unknown>): Promise<T> {
+    const response = await fetch(`https://${TELEGRAM_API_HOST}/bot${this.token}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json().catch(async () => ({
+      ok: false,
+      description: await response.text().catch(() => ""),
+    })) as TelegramResponse<T>;
+    if (!response.ok || !payload.ok) {
+      throw new Error(`Telegram ${method} failed: ${response.status} ${payload.description ?? ""}`.trim());
+    }
+    return payload.result as T;
+  }
+
+  private async pollLoop(): Promise<void> {
+    while (this.polling) {
+      try {
+        this.assertTelegramNetwork("getUpdates");
+        const updates = await this.telegramRequest<TelegramUpdate[]>("getUpdates", {
+          offset: this.offset || undefined,
+          timeout: 30,
+          allowed_updates: ["message", "callback_query"],
+        });
+        for (const update of updates) {
+          this.offset = Math.max(this.offset, update.update_id + 1);
+          writeOffset(this.offset);
+          await this.handleUpdate(update);
+        }
+      } catch (error) {
+        console.error("[Telegram] polling failed:", error instanceof Error ? error.message : String(error));
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+      }
+    }
+  }
+
+  private async handleUpdate(update: TelegramUpdate): Promise<void> {
+    if (update.callback_query) {
+      const query = update.callback_query;
+      if (!query.data || !query.message) return;
+      for (const handler of this.callbackHandlers) {
+        await handler(query.id, query.data, {
+          chatId: String(query.message.chat.id),
+          messageId: query.message.message_id,
+        });
+      }
+      return;
+    }
+
+    const text = update.message?.text?.trim();
+    const chatId = update.message?.chat.id;
+    if (!text || chatId == null) return;
+    if (text.startsWith("/status")) {
+      await this.dispatchCommand("cmd:/status", String(chatId), update.message?.message_id ?? 0);
+    } else if (text.startsWith("/gates")) {
+      await this.dispatchCommand("cmd:/gates", String(chatId), update.message?.message_id ?? 0);
+    } else if (text.startsWith("/help")) {
+      await this.sendText(String(chatId), "可用命令：\\/status 查看飞轮状态，\\/gates 列出待处理闸门。");
+    }
+  }
+
+  private async dispatchCommand(data: string, chatId: string, messageId: number): Promise<void> {
+    for (const handler of this.callbackHandlers) {
+      await handler("", data, { chatId, messageId });
+    }
+  }
+
+  private renderCardText(card: AlayaCard): string {
+    const lines: string[] = [];
+    if (card.title) lines.push(`*${card.title.text}*`, "");
+    lines.push(card.body);
+    if (card.footer) lines.push("", card.footer);
+    return lines.join("\n");
+  }
+
+  private buildInlineKeyboard(buttons: CardButton[][]) {
+    return {
+      inline_keyboard: buttons.map((row) => row.map((button) => ({
+        text: button.text,
+        callback_data: button.callbackData,
+      }))),
+    };
+  }
+}

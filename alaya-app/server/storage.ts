@@ -461,6 +461,10 @@ function rowToExternalFeedbackSource(r: any): ExternalFeedbackSource {
   };
 }
 
+function escapeSqlLike(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
 type LlmCallInsert = Omit<LlmCall, "id" | "provider" | "model" | "routeReason" | "inputTokenCount" | "outputTokenCount"> &
   Partial<Pick<LlmCall, "provider" | "model" | "routeReason" | "inputTokenCount" | "outputTokenCount">>;
 
@@ -469,6 +473,7 @@ export interface IStorage {
   createProject(p: Project): Project;
   getProject(id: string): Project | undefined;
   listProjects(): Project[];
+  getProjects(): Array<{ id: string; name: string }>;
   updateProject(id: string, patch: Partial<Project>): Project | undefined;
   // cycles
   createCycle(c: Cycle): Cycle;
@@ -506,6 +511,9 @@ export interface IStorage {
   createGate(g: HumanGateItem): HumanGateItem;
   getGate(id: string): HumanGateItem | undefined;
   listGates(projectId?: string): HumanGateItem[];
+  getPendingGates(projectId: string): HumanGateItem[];
+  getProjectState(projectId: string): { currentCycle: number; lastCycleAt: string | null };
+  getKnowledgeCount(projectId: string): number;
   updateGate(id: string, patch: Partial<HumanGateItem>): HumanGateItem | undefined;
   // decision log
   createDecision(d: DecisionLogItem): DecisionLogItem;
@@ -565,6 +573,9 @@ export class DatabaseStorage implements IStorage {
   }
   listProjects(): Project[] {
     return rawDb.prepare(`SELECT * FROM projects`).all().map(rowToProject);
+  }
+  getProjects(): Array<{ id: string; name: string }> {
+    return rawDb.prepare(`SELECT id, name FROM projects ORDER BY name ASC, id ASC`).all() as Array<{ id: string; name: string }>;
   }
   updateProject(id: string, patch: Partial<Project>): Project | undefined {
     const cur = this.getProject(id);
@@ -815,6 +826,33 @@ export class DatabaseStorage implements IStorage {
   listGates(projectId?: string): HumanGateItem[] {
     if (!projectId) return rawDb.prepare(`SELECT * FROM human_gate_items ORDER BY rowid ASC`).all().map(rowToGate);
     return rawDb.prepare(`SELECT g.* FROM human_gate_items g JOIN cycles c ON g.cycle_id=c.id WHERE c.project_id=? ORDER BY c.idx ASC, g.rowid ASC`).all(projectId).map(rowToGate);
+  }
+  getPendingGates(projectId: string): HumanGateItem[] {
+    return rawDb.prepare(`
+      SELECT g.* FROM human_gate_items g
+      JOIN cycles c ON g.cycle_id = c.id
+      WHERE c.project_id = ? AND g.status = 'pending'
+      ORDER BY g.blocking DESC, g.rowid ASC
+    `).all(projectId).map(rowToGate);
+  }
+  getProjectState(projectId: string): { currentCycle: number; lastCycleAt: string | null } {
+    const project = this.getProject(projectId);
+    const currentCycle = project?.currentCycleIdx ?? 0;
+    const projectJsonNeedle = `%"projectId":"${escapeSqlLike(projectId)}"%`;
+    const lastEvent = rawDb.prepare(`
+      SELECT e.ts FROM event_log e
+      WHERE e.after LIKE ? ESCAPE '\\'
+      ORDER BY e.id DESC
+      LIMIT 1
+    `).get(projectJsonNeedle) as { ts?: string } | undefined;
+    return { currentCycle, lastCycleAt: lastEvent?.ts ?? null };
+  }
+  getKnowledgeCount(projectId: string): number {
+    const row = rawDb.prepare(`
+      SELECT COUNT(*) AS count FROM knowledge_items
+      WHERE project_id = ? AND status NOT IN ('expired', 'quarantined')
+    `).get(projectId) as { count?: number } | undefined;
+    return row?.count ?? 0;
   }
   updateGate(id: string, patch: Partial<HumanGateItem>): HumanGateItem | undefined {
     const cur = this.getGate(id);
