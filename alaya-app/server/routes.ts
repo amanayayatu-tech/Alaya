@@ -20,6 +20,19 @@ import { ingestFormFeedback, syncConfiguredFeedbackForProject, syncGithubIssuesF
 import { seedDemo } from "./seed";
 import { buildFlywheelHealth } from "./flywheelHealth";
 import { parseTraceEvent } from "./trace";
+import { detectKnowledgeConflicts, createKnowledgeReviewReminders, resolveKnowledgeReview } from "./knowledgeReview";
+import { CodexCliBuilderAdapter } from "./builderAdapter";
+import { runProviderCanary } from "./providerCanary";
+import { buildOpsMetrics } from "./opsMetrics";
+import { importBusinessSignals } from "./businessSignals";
+import {
+  createOrgModule,
+  updateOrgModule,
+  orgModuleInputSchema,
+  orgModuleMarkdown,
+  parseOrgModule,
+  convertOrgModuleToKnowledge,
+} from "./orgModules";
 import { applyEvidence } from "@shared/core/update_confidence.js";
 import { transitionState } from "@shared/core/transition_state.js";
 
@@ -136,6 +149,33 @@ const feedbackSyncSchema = z.object({
   projectId: idSchema.optional(),
 }).passthrough();
 
+const knowledgeReviewResolveSchema = z.object({
+  action: z.enum(["approve_as_current", "quarantine", "merge_supersede", "downgrade_to_stale", "reject_conflict"]),
+  rationale: longTextSchema.default(""),
+  survivorKnowledgeId: idSchema.optional(),
+}).strict();
+
+const builderPlanSchema = z.object({
+  cycleId: idSchema.nullable().optional(),
+  goal: nonEmptyLongTextSchema,
+  repoPath: longTextSchema.optional(),
+  constraints: z.array(longTextSchema).max(50).optional(),
+  requestedFiles: z.array(longTextSchema).max(50).optional(),
+}).strict();
+
+const providerCanarySchema = z.object({
+  cycleId: idSchema.nullable().optional(),
+  provider: z.enum(["mock", "openai"]).optional(),
+  model: shortTextSchema.optional(),
+  role: z.enum(["orchestrator", "sensor", "builder", "distiller", "librarian"]).optional(),
+  forceFailure: z.enum(["schema_error", "provider_error"]).optional(),
+}).strict();
+
+const businessSignalsImportSchema = z.object({
+  rows: z.array(z.record(z.unknown())).max(500).optional(),
+  signals: z.array(z.record(z.unknown())).max(500).optional(),
+}).strict();
+
 function validationError(res: Response, error: z.ZodError) {
   return res.status(400).json({ message: "invalid request body", errors: error.flatten() });
 }
@@ -153,6 +193,9 @@ function numericLimit(value: unknown, fallback = 1000): number {
 }
 
 function mutatingCapabilityForRequest(req: Request): CapabilityName {
+  if (req.path.includes("/builder/codex/apply")) return req.body?.dryRun === false ? "shell_execution" : "knowledge_write";
+  if (req.path.includes("/provider-canary")) return "llm_call";
+  if (req.path.includes("/business-signals") || req.path.includes("/org-modules") || req.path.includes("/builder/codex/plan")) return "knowledge_write";
   if (req.path.includes("/scheduler")) return "scheduler_loop";
   if (req.path.includes("/seed-demo")) return "knowledge_write";
   if (req.path.includes("/knowledge")) return "knowledge_write";
@@ -249,6 +292,51 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(parseJsonFields(p, ["redlines"]));
   });
 
+  // ---------------- organization modules ----------------
+  app.get("/api/projects/:id/org-modules", (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    res.json(storage.listOrgModules(project.id).map(parseOrgModule));
+  });
+  app.post("/api/projects/:id/org-modules", (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    const parsed = orgModuleInputSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return validationError(res, parsed.error);
+    const module = createOrgModule(project.id, parsed.data);
+    res.json(parseOrgModule(module));
+  });
+  app.get("/api/org-modules/:id", (req, res) => {
+    const module = storage.getOrgModule(req.params.id);
+    if (!module) return res.status(404).json({ message: "not found" });
+    res.json(parseOrgModule(module));
+  });
+	  app.patch("/api/org-modules/:id", (req, res) => {
+	    const parsed = orgModuleInputSchema.partial().safeParse(req.body ?? {});
+	    if (!parsed.success) return validationError(res, parsed.error);
+	    const module = updateOrgModule(req.params.id, parsed.data);
+	    if (!module) return res.status(404).json({ message: "not found" });
+	    res.json(parseOrgModule(module));
+	  });
+  app.delete("/api/org-modules/:id", (req, res) => {
+    if (!storage.deleteOrgModule(req.params.id)) return res.status(404).json({ message: "not found" });
+    res.json({ deleted: true });
+  });
+  app.get("/api/org-modules/:id/markdown", (req, res) => {
+    const module = storage.getOrgModule(req.params.id);
+    if (!module) return res.status(404).json({ message: "not found" });
+    res.type("text/markdown").send(orgModuleMarkdown(module));
+  });
+  app.post("/api/org-modules/:id/knowledge", (req, res) => {
+    try {
+      const knowledge = convertOrgModuleToKnowledge(req.params.id);
+      res.json(parseJsonFields(knowledge, ["tags"]));
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("org module not found:")) return res.status(404).json({ message: "not found" });
+      throw error;
+    }
+  });
+
   // ---------------- external feedback sources ----------------
   app.get("/api/projects/:id/integrations", (req, res) => {
     const project = storage.getProject(req.params.id);
@@ -312,6 +400,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.status(400).json({ message: err instanceof Error ? err.message : String(err) });
     }
   });
+  app.get("/api/projects/:id/business-signals", (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    res.json(storage.listExternalBusinessSignals(project.id).map((signal) => parseJsonFields(signal, ["payload"])));
+  });
+  app.post("/api/projects/:id/business-signals/import", (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    const parsed = businessSignalsImportSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return validationError(res, parsed.error);
+    const rows = (parsed.data.rows ?? parsed.data.signals ?? []).map((row) => ({ ...row, projectId: project.id }));
+    const result = importBusinessSignals(rows);
+    res.json({
+      ...result,
+      signals: result.signals.map((signal) => parseJsonFields(signal, ["payload"])),
+    });
+  });
 
   // ---------------- dashboard summary ----------------
   app.get("/api/projects/:id/dashboard", (req, res) => {
@@ -355,6 +460,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       : storage.listProjects()[0];
     if (requestedProjectId && !project) return res.status(404).json({ message: "not found" });
     res.json(buildFlywheelHealth(project?.id));
+  });
+  app.get("/api/projects/:id/ops-metrics", (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    res.json(buildOpsMetrics(project.id));
+  });
+  app.post("/api/projects/:id/provider-canary", async (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    const parsed = providerCanarySchema.safeParse(req.body ?? {});
+    if (!parsed.success) return validationError(res, parsed.error);
+    res.json(await runProviderCanary({ projectId: project.id, ...parsed.data }));
   });
   app.get("/api/projects/:id/gate-budget", (req, res) => {
     const project = storage.getProject(req.params.id);
@@ -616,6 +733,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     storage.recordEvent({ cycleIdx: k.lastValidatedCycle, actor: "human", tableName: "knowledge_items", op: "quarantine", before: null, after: JSON.stringify({ id: k.id }), ts: now() });
     res.json(parseJsonFields(k, ["tags"]));
   });
+  app.get("/api/projects/:id/knowledge-reviews", (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    res.json(storage.listKnowledgeReviews(project.id).map((review) => parseJsonFields(review, ["evidence", "resolution"])));
+  });
+  app.post("/api/projects/:id/knowledge/conflicts/scan", (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    const conflicts = detectKnowledgeConflicts(project.id);
+    res.json({
+      conflicts,
+      reviews: storage.listKnowledgeReviews(project.id).filter((review) => review.status === "review_required").map((review) => parseJsonFields(review, ["evidence", "resolution"])),
+    });
+  });
+  app.post("/api/projects/:id/knowledge/review-reminders", (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    const reminders = createKnowledgeReviewReminders(project.id, {
+      staleAfterDays: typeof req.body?.staleAfterDays === "number" ? req.body.staleAfterDays : undefined,
+      expiryWithinDays: typeof req.body?.expiryWithinDays === "number" ? req.body.expiryWithinDays : undefined,
+    });
+    res.json(reminders.map((review) => parseJsonFields(review, ["evidence", "resolution"])));
+  });
+  app.post("/api/knowledge-reviews/:id/resolve", (req, res) => {
+    const parsed = knowledgeReviewResolveSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return validationError(res, parsed.error);
+    try {
+      const review = resolveKnowledgeReview(req.params.id, { ...parsed.data, actor: "human" });
+      res.json(parseJsonFields(review, ["evidence", "resolution"]));
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("knowledge review not found:")) return res.status(404).json({ message: "not found" });
+      throw error;
+    }
+  });
   app.post("/api/knowledge/search", (req, res) => {
     const projectId = String(req.body?.projectId ?? "");
     const query = String(req.body?.query ?? "");
@@ -630,6 +781,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/cycles/:id/agent-runs", (req, res) => {
     res.json(storage.listAgentRuns(req.params.id).map((r) => parseJsonFields(r, ["knowledgeRefsUsed"])));
   });
+  app.post("/api/projects/:id/builder/codex/plan", async (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    const parsed = builderPlanSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return validationError(res, parsed.error);
+    const adapter = new CodexCliBuilderAdapter();
+    res.json(await adapter.generateChangePackage({ projectId: project.id, ...parsed.data }));
+  });
+  app.post("/api/builder/codex/apply", async (req, res) => {
+    const adapter = new CodexCliBuilderAdapter();
+    try {
+      res.json(await adapter.applyChangePackage(req.body?.package ?? req.body, {
+        dryRun: req.body?.dryRun !== false,
+        actor: "human",
+      }));
+    } catch (error) {
+      res.status(400).json({ message: error instanceof Error ? error.message : String(error) });
+    }
+  });
   // individual agent run endpoints (PRD 15) — no-op stubs that re-run a stage are out of scope for MVP;
   // run-full is the supported demo path. Provide them for API completeness.
   for (const agent of ["orchestrator", "sensor", "builder", "distiller", "librarian"]) {
@@ -640,6 +810,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ---------------- diagnostics ----------------
   app.get("/api/llm-calls", (_req, res) => res.json(storage.listLlmCalls()));
+  app.get("/api/llm-calls/latency", (_req, res) => {
+    const snapshot = buildMetricsSnapshot();
+    res.json(snapshot.perAgentLatency);
+  });
   app.get("/api/llm-calls/summary", (req, res) => {
     const projectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
     const calls = storage.listLlmCalls().filter((call) => {

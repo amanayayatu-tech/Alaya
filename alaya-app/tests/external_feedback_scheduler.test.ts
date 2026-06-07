@@ -1198,8 +1198,19 @@ test("scheduler pauses when Librarian leaves stale or conflicting knowledge deci
   assert.equal(riskGate.status, "pending");
   const payload = JSON.parse(riskGate.payload);
   assert.deepEqual(payload.unmarkedStaleIds, [`kb_unmarked_stale_${projectId}`]);
-  assert.deepEqual(payload.unmarkedConflictIds, [`kb_unmarked_conflict_${projectId}`]);
+  assert.deepEqual(payload.unmarkedConflictIds, []);
   assert.match(payload.requiredAction, /stale|conflict|Librarian/);
+  const conflictKnowledge = storage.getKnowledge(`kb_unmarked_conflict_${projectId}`);
+  assert.equal(conflictKnowledge?.status, "conflict");
+  const conflictReview = storage.listKnowledgeReviews(projectId).find((review) => (
+    review.reviewType === "conflict" &&
+    review.status === "review_required" &&
+    review.primaryKnowledgeId === `kb_unmarked_conflict_${projectId}`
+  ));
+  assert.ok(conflictReview);
+  const conflictGate = storage.getGate(`gate_${conflictReview.id}`);
+  assert.equal(conflictGate?.type, "risk");
+  assert.equal(conflictGate?.blocking, 1);
 
   const second = await schedulerTickProject(projectId);
   assert.equal(second.action, "safety_mode");

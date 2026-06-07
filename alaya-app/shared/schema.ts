@@ -180,6 +180,7 @@ export const llmCalls = sqliteTable("llm_calls", {
   inputSummary: text("input_summary").notNull().default(""),
   outputSummary: text("output_summary").notNull().default(""),
   schemaValid: integer("schema_valid").notNull().default(1),
+  llmFailureType: text("llm_failure_type"),
   retryCount: integer("retry_count").notNull().default(0),
   latencyMs: integer("latency_ms").notNull().default(0),
   inputTokenCount: integer("input_token_count").notNull().default(0),
@@ -251,6 +252,68 @@ export const externalFeedbackSources = sqliteTable("external_feedback_sources", 
   version: integer("version").notNull().default(1),
 });
 
+// ---------------- knowledgeReviewItems ----------------
+export const knowledgeReviewItems = sqliteTable("knowledge_review_items", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull(),
+  cycleId: text("cycle_id"),
+  reviewType: text("review_type").notNull(),
+  status: text("status").notNull().default("review_required"),
+  primaryKnowledgeId: text("primary_knowledge_id").notNull(),
+  relatedKnowledgeId: text("related_knowledge_id"),
+  reason: text("reason").notNull().default(""),
+  evidence: text("evidence").notNull().default("{}"),
+  recommendedAction: text("recommended_action").notNull().default(""),
+  createdAt: text("created_at").notNull(),
+  resolvedAt: text("resolved_at"),
+  resolvedBy: text("resolved_by"),
+  resolution: text("resolution"),
+  version: integer("version").notNull().default(1),
+});
+
+// ---------------- externalBusinessSignals ----------------
+export const externalBusinessSignals = sqliteTable("external_business_signals", {
+  id: text("id").primaryKey(),
+  source: text("source").notNull(),
+  sourceId: text("source_id").notNull(),
+  projectId: text("project_id").notNull(),
+  signalType: text("signal_type").notNull(),
+  observedAt: text("observed_at").notNull(),
+  payload: text("payload").notNull().default("{}"),
+  sensitivityLevel: text("sensitivity_level").notNull(),
+  dedupeKey: text("dedupe_key").notNull(),
+  riskLevel: text("risk_level").notNull(),
+  feedbackId: text("feedback_id"),
+  gateId: text("gate_id"),
+  createdAt: text("created_at").notNull(),
+  version: integer("version").notNull().default(1),
+});
+
+// ---------------- orgModules ----------------
+export const orgModules = sqliteTable("org_modules", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull(),
+  moduleName: text("module_name").notNull(),
+  problemSolved: text("problem_solved").notNull().default(""),
+  ownerRole: text("owner_role").notNull().default(""),
+  responsibilityBoundaries: text("responsibility_boundaries").notNull().default("[]"),
+  upstreamDependencies: text("upstream_dependencies").notNull().default("[]"),
+  downstreamConsumers: text("downstream_consumers").notNull().default("[]"),
+  dataInputs: text("data_inputs").notNull().default("[]"),
+  dataOutputs: text("data_outputs").notNull().default("[]"),
+  callChain: text("call_chain").notNull().default("[]"),
+  mvpDefinition: text("mvp_definition").notNull().default(""),
+  testPlan: text("test_plan").notNull().default(""),
+  executionPlan: text("execution_plan").notNull().default(""),
+  knownPitfalls: text("known_pitfalls").notNull().default("[]"),
+  redlines: text("redlines").notNull().default("[]"),
+  versionLabel: text("version_label").notNull().default("v1"),
+  knowledgeId: text("knowledge_id"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  version: integer("version").notNull().default(1),
+});
+
 // ---------------- Insert schemas & types ----------------
 export const insertProjectSchema = createInsertSchema(projects).omit({ id: true, version: true, currentCycleIdx: true, seedIdentity: true, worldModel: true });
 export type InsertProject = z.infer<typeof insertProjectSchema>;
@@ -284,6 +347,9 @@ export type TraceEventItem = typeof traceEvents.$inferSelect;
 export type ActionLedgerRow = typeof actionLedger.$inferSelect;
 export type AgentRun = typeof agentRuns.$inferSelect;
 export type ExternalFeedbackSource = typeof externalFeedbackSources.$inferSelect;
+export type KnowledgeReviewItem = typeof knowledgeReviewItems.$inferSelect;
+export type ExternalBusinessSignal = typeof externalBusinessSignals.$inferSelect;
+export type OrgModule = typeof orgModules.$inferSelect;
 
 export const CLAIM_SCALE_EPS = 1e-6;
 export const MIN_METRIC_THRESHOLD_WEIGHT = 3;

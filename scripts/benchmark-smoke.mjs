@@ -13,6 +13,12 @@ const { buildKnowledgeContext } = await import("../alaya-app/server/knowledgeInj
 const { decayStaleKnowledge } = await import("../alaya-app/server/scheduler.ts");
 const { recordActionProposal } = await import("../alaya-app/server/actionLedger.ts");
 const { parseTraceEvent } = await import("../alaya-app/server/trace.ts");
+const { CodexCliBuilderAdapter, validateChangePackage } = await import("../alaya-app/server/builderAdapter.ts");
+const { runProviderCanary } = await import("../alaya-app/server/providerCanary.ts");
+const { buildOpsMetrics } = await import("../alaya-app/server/opsMetrics.ts");
+const { buildMetricsSnapshot } = await import("../alaya-app/server/observability/metrics.ts");
+const { importBusinessSignals } = await import("../alaya-app/server/businessSignals.ts");
+const { createOrgModule, convertOrgModuleToKnowledge } = await import("../alaya-app/server/orgModules.ts");
 const { transitionState } = await import("../alaya-app/shared/core/transition_state.ts");
 const { resolveModelRoute } = await import("../alaya-app/shared/core/model_router.ts");
 
@@ -238,6 +244,88 @@ await runCase("model_routing", () => {
   assert.equal(route.provider, "mock");
   assert.equal(route.model, "judge-mock");
   assert.equal(route.routeReason, "routing_json_role");
+});
+
+await runCase("builder_codex_change_package", async () => {
+  const projectId = "bench_builder_adapter";
+  createProject(projectId);
+  const cycle = createCycle(projectId, 1);
+  const adapter = new CodexCliBuilderAdapter();
+  const pkg = await adapter.generateChangePackage({
+    projectId,
+    cycleId: cycle.id,
+    goal: "Generate a rollback-ready route validation package",
+    requestedFiles: ["alaya-app/server/routes.ts"],
+  });
+  assert.deepEqual(validateChangePackage(pkg), []);
+  assert.equal(pkg.dryRun, true);
+  assert.ok(pkg.rollbackPlan.length > 0);
+  assert.ok(storage.listActionLedger(projectId).some((row) => row.actionType === "builder.codex_cli.generate_change_package"));
+});
+
+await runCase("provider_canary_and_latency_metrics", async () => {
+  const projectId = "bench_provider_canary";
+  createProject(projectId);
+  const cycle = createCycle(projectId, 1);
+  const result = await runProviderCanary({ projectId, cycleId: cycle.id, provider: "mock", role: "orchestrator" });
+  assert.equal(result.ok, true);
+  assert.ok(buildMetricsSnapshot().perAgentLatency.orchestrator.count >= 1);
+});
+
+await runCase("business_signal_requires_meaning_gate", () => {
+  const projectId = "bench_business_signal";
+  createProject(projectId);
+  createCycle(projectId, 1);
+  const result = importBusinessSignals([{
+    source: "local_orders",
+    sourceId: "order-1",
+    projectId,
+    signalType: "order",
+    observedAt: "2026-06-07T00:00:00Z",
+    payload: { sku: "A1" },
+    sensitivityLevel: "internal",
+    dedupeKey: "local_orders:order-1",
+    riskLevel: "local_write",
+  }]);
+  assert.equal(result.imported, 1);
+  assert.equal(storage.listKnowledge(projectId).length, 0);
+  assert.ok(storage.listGates(projectId).some((gate) => gate.type === "meaning" && gate.status === "pending"));
+});
+
+await runCase("ops_metrics_empty_dataset_safe", () => {
+  const projectId = "bench_ops_metrics";
+  createProject(projectId);
+  const metrics = buildOpsMetrics(projectId);
+  assert.equal(metrics.humanGateResolution.medianMs, null);
+  assert.equal(metrics.measurableClaimRatio.ratio, null);
+  assert.equal(metrics.blockingGateBacklog.count, 0);
+});
+
+await runCase("org_module_draft_knowledge_not_injected", () => {
+  const projectId = "bench_org_module";
+  createProject(projectId);
+  createCycle(projectId, 1);
+  const module = createOrgModule(projectId, {
+    moduleName: "Support Loop",
+    problemSolved: "Route support signals into reviewed learning.",
+    ownerRole: "Ops",
+    responsibilityBoundaries: ["triage"],
+    upstreamDependencies: ["business signals"],
+    downstreamConsumers: ["distiller"],
+    dataInputs: ["tickets"],
+    dataOutputs: ["meaning gates"],
+    callChain: ["signals -> sensor -> gate"],
+    mvpDefinition: "CSV import",
+    testPlan: "dedupe and redaction tests",
+    executionPlan: "local first",
+    knownPitfalls: ["PII"],
+    redlines: ["no automatic promises"],
+    version: "v1",
+  });
+  const knowledge = convertOrgModuleToKnowledge(module.id);
+  assert.equal(knowledge.status, "draft");
+  const context = buildKnowledgeContext("Support Loop tickets", projectId);
+  assert.doesNotMatch(context, new RegExp(knowledge.id));
 });
 
 const failed = results.filter((result) => result.status === "fail");

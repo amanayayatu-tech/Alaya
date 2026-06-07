@@ -23,6 +23,12 @@
 | metrics | local/container loopback curl | tests | required | required | required | automated + probe | page operator |
 | principles guard | local | CI | CI | CI | CI | automated | fail build |
 | benchmark smoke | local | CI | baseline | baseline | baseline | automated | investigate regression |
+| knowledge conflict/review workflow | `alaya-app/tests/knowledgeReview.test.ts` | required | required before release | required | required | automated | block release if polluted knowledge can be injected |
+| Builder Codex adapter dry-run/capability gate | `alaya-app/tests/builderAdapter.test.ts` | required | required | required | required | automated | keep adapter dry-run until gate/idempotency failure is fixed |
+| provider canary / LLM failure taxonomy | `alaya-app/tests/providerCanary.test.ts` + `npm run provider:canary` | mock required | mock required | opt-in real provider | opt-in real provider | automated + operator | fall back to mock and open human review gate on schema errors |
+| real usage ops metrics | `alaya-app/tests/opsMetrics.test.ts` | required | required | required | required | automated | return safe nulls/zeros rather than crashing |
+| business signal import/redaction/dedupe | `alaya-app/tests/businessSignals.test.ts` | required | required | required | required | automated | disable import route until redaction and dedupe pass |
+| organization module template/export | `alaya-app/tests/orgModules.test.ts` | required | required | required | required | automated | keep converted module knowledge draft until approved |
 | live LLM | opt-in | skipped | explicit `ALAYA_CAP_LLM_CALL=true` | explicit | explicit | opt-in | skip without secret, fail on invalid secret |
 | GitHub sensor | opt-in | mocked | read-only token | read-only token | read-only token | opt-in | disable source/gate error |
 

@@ -80,3 +80,56 @@ test("production mode rejects mutating API requests before handlers write", asyn
   assert.ok(blocked);
   process.env.ALAYA_MODE = "shadow";
 });
+
+test("new governed API routes use explicit capability classes in long-run modes", async () => {
+  const address = server.address() as AddressInfo;
+
+  process.env.ALAYA_MODE = "shadow";
+  const orgResponse = await fetch(`http://127.0.0.1:${address.port}/api/org-modules/org_shadow_module`, {
+    method: "PATCH",
+    headers: authHeaders,
+    body: JSON.stringify({ ownerRole: "operator" }),
+  });
+  const orgBody = await orgResponse.json() as any;
+  assert.equal(orgResponse.status, 202);
+  assert.equal(orgBody.capability, "knowledge_write");
+
+  process.env.ALAYA_MODE = "production";
+  delete process.env.ALAYA_CAP_SHELL_EXECUTION;
+  const builderResponse = await fetch(`http://127.0.0.1:${address.port}/api/builder/codex/apply`, {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({
+      dryRun: false,
+      package: {
+        projectId: "proj_builder_cap",
+        goal: "capability mapping",
+        affectedFiles: ["server/routes.ts"],
+        diffSummary: "noop",
+        testPlan: ["npm run guard"],
+        rollbackPlan: ["do not apply"],
+        riskLevel: "local_write",
+        idempotencyKey: "idem_builder_capability_mapping",
+        auditSummary: "mapping test",
+        dryRun: true,
+        adapter: "codex_cli",
+      },
+    }),
+  });
+  const builderBody = await builderResponse.json() as any;
+  assert.equal(builderResponse.status, 403);
+  assert.equal(builderBody.capability, "shell_execution");
+
+  const canaryResponse = await fetch(`http://127.0.0.1:${address.port}/api/projects/proj_canary_cap/provider-canary`, {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({ provider: "openai" }),
+  });
+  const canaryBody = await canaryResponse.json() as any;
+  assert.equal(canaryResponse.status, 403);
+  assert.equal(canaryBody.capability, "llm_call");
+
+  assert.equal(storage.listActionLedger().some((action) => action.actionType === "capability.shell_execution"), true);
+  assert.equal(storage.listActionLedger().some((action) => action.actionType === "capability.llm_call"), true);
+  process.env.ALAYA_MODE = "shadow";
+});

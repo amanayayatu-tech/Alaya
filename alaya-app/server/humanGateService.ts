@@ -4,6 +4,7 @@ import type { HumanGateItem } from "@shared/schema";
 import { auditCapabilityDecision, evaluateCapability, CapabilityDeniedError } from "./security/capabilities";
 import { redactSensitiveData } from "./security/redact";
 import { storage, now, type IStorage } from "./storage";
+import { detectKnowledgeConflicts } from "./knowledgeReview";
 
 export type GateDecisionAction = "approve" | "reject" | "modify";
 
@@ -254,5 +255,6 @@ export class HumanGateService {
       tags: JSON.stringify(tags),
       version: 1,
     });
+    detectKnowledgeConflicts(projectId);
   }
 }

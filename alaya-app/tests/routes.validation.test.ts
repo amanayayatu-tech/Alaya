@@ -337,6 +337,15 @@ test("knowledge create and patch validate required fields and dangerous markup",
   assert.equal(patched.status, 200);
 });
 
+test("org module patch rejects invalid body before storage update", async () => {
+  const response = await fetch(url("/api/org-modules/org_validation"), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ responsibilityBoundaries: "not-an-array" }),
+  });
+  assert.equal(response.status, 400);
+});
+
 test("id params reject malformed values before storage access", async () => {
   const response = await fetch(url("/api/knowledge/not-a-valid-id-because-it-has-%24"));
   assert.equal(response.status, 400);

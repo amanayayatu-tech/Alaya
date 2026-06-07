@@ -8,6 +8,7 @@ import { applyTimeDecay } from "@shared/core/update_confidence.js";
 import { recordTrace } from "./trace";
 import { observeSchedulerCycle } from "./observability/metrics";
 import { HumanGateService } from "./humanGateService";
+import { createKnowledgeReviewReminders, detectKnowledgeConflicts } from "./knowledgeReview";
 import { NotificationBus, type NotificationEmitFailure } from "./notifications/bus";
 import { CallbackRouter } from "./notifications/router";
 import { TelegramAdapter } from "./notifications/telegram";
@@ -1278,6 +1279,8 @@ function hasFeedbackSyncErrors(results: ExternalFeedbackSyncResult[]): boolean {
 
 async function schedulerTickProjectUnlocked(projectId: string, options: SchedulerTickOptions = {}): Promise<SchedulerTickResult> {
   decayStaleKnowledge(projectId);
+  detectKnowledgeConflicts(projectId);
+  createKnowledgeReviewReminders(projectId);
   const budget = executeGateBudget(projectId);
   const humanAttention = enforceHumanAttentionBudget(projectId, budget);
   if (humanAttention.safetyMode) {

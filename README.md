@@ -18,12 +18,14 @@ Alaya = 本地 SQLite 记忆层 + 5 个 Agent 飞轮 + 人工闸门 + 预测账�
 | --- | --- | --- |
 | Core | 可运行 | TypeScript 纯内核，验证 4 轮认知复利飞轮 |
 | Web App | 可运行 | Express + React + SQLite，本地完整 MVP |
-| LLM | mock / OpenAI-compatible | 默认 mock，可切 OpenAI / MiniMax 等兼容端点 |
+| LLM | mock / OpenAI-compatible | 默认 mock，可切 OpenAI / MiniMax 等兼容端点；提供 provider canary、失败类型分类和分 Agent latency 聚合 |
 | Scheduler | 可运行 | 自动推进 cycle；第 5 轮起可由自主目标生成器接管，受 blocking gate、预算和反空转风险闸约束 |
 | Prediction Ledger | 可运行 | Claim schema 强制 `operator >=/<=`、scale 正下限、metric weight 下限、完整预测契约和 `worstClaimError` |
-| Sensor | 可运行 | 支持 GitHub Issues 与表单反馈；GitHub issue 可走入库、Sensor 提炼、Meaning Gate、人工批准、知识库、下轮注入完整链路 |
+| Sensor | 可运行 | 支持 GitHub Issues、表单反馈和本地 CSV/JSON 业务信号导入；所有信号先过 Meaning Gate，不直接激活知识 |
 | Notifications | 可运行 | Telegram 单向通知与双向审批卡片；支持 Human Gate 推送、`/status`、`/gates`、长轮询 callback 和 offset 持久化 |
-| Knowledge | 可运行 | SQLite FTS5 搜索、任务前知识注入、近义合并、`supersededBy` 保留、冲突隔离、时间衰减和详情引用上限保护 |
+| Builder | 可运行 | 支持 governed Codex/Codex CLI dry-run 变更包；非 dry-run apply 必须有 shell capability 和匹配 idempotency risk gate，且不自动执行 patch |
+| Knowledge | 可运行 | SQLite FTS5 搜索、任务前知识注入、近义合并、`supersededBy` 保留、冲突检测、复核工作流、时间衰减和详情引用上限保护 |
+| Ops Metrics | 可运行 | 提供 human gate resolution、LLM cost per cycle、measurable claim ratio、knowledge reuse、blocking backlog 和 compounding gain proxy |
 | Health | 可运行 | `/healthz`、`/readyz`、`/metrics` 提供运行探针；`/health` 页面与 `/api/flywheel/health` API 展示复利、知识成熟和 human gate 压力 |
 | Governance | 可运行 | `PRINCIPLES.md`、guard 脚本、CI、secret scan、capability gate、autonomous stop risks 和验证脚本约束核心底线 |
 | Long-run Hardening | 可运行 | 显式运行模式、env fail-fast、脱敏、action ledger、health/ready/metrics、Docker shadow compose 和备份/恢复脚本 |
@@ -331,6 +333,7 @@ npm run e2e:long-evolution  # 20 轮自主进化离线验收
 npm run e2e:github          # GitHub Issue Sensor 完整链路，建议指向 sandbox repo
 npm run e2e:github-autonomous # 自主调度 + GitHub Sensor 完整链路
 npm run benchmark:smoke      # P0/P1 deterministic benchmark
+npm run provider:canary -- --projectId <projectId> --provider mock  # provider/model/role canary
 npm run trace:export -- --cycle <cycleId>  # 导出 cycle trace JSONL
 npm run audit:upgrade       # 升级 readiness 审计
 npm run validation:summary  # 汇总 validation-logs 下最新 SUMMARY.csv
@@ -550,6 +553,9 @@ alaya_knowledge_injections_total
 alaya_stall_events_total
 alaya_errors_total
 alaya_last_successful_cycle_timestamp
+alaya_llm_agent_latency_p50_ms{agent=...}
+alaya_llm_agent_latency_p95_ms{agent=...}
+alaya_llm_agent_error_rate{agent=...}
 ```
 
 LLM 调用现在同时保存：
@@ -558,8 +564,9 @@ LLM 调用现在同时保存：
 - `output_token_count`
 - `token_count`
 - `estimated_cost`
+- `llm_failure_type`：`timeout`、`rate_limit`、`auth`、`schema_error`、`invalid_json`、`safety_refusal`、`network`、`provider_error`、`unknown`
 
-前端 Ledger 和 `/api/llm-calls/summary` 都会展示 input/output split，不再只能看 aggregate token。
+前端 Ledger、`/api/llm-calls/summary`、`/api/llm-calls/latency` 和 `/metrics?format=json` 都能用于核对 input/output split、失败类型和分 Agent latency。聚合值可以从 `llm_calls` 与 `trace_events` 原始记录交叉核对。
 
 审计持久化：
 
@@ -795,12 +802,27 @@ GET  /api/knowledge/:id
 POST /api/knowledge/search
 POST /api/knowledge/:id/approve
 POST /api/knowledge/:id/quarantine
+GET  /api/projects/:id/knowledge-reviews
+POST /api/projects/:id/knowledge/conflicts/scan
+POST /api/projects/:id/knowledge/review-reminders
+POST /api/knowledge-reviews/:id/resolve
 
 GET  /api/cycles/:id/review
 GET  /api/cycles/:id/traces
 GET  /api/projects/:id/traces?limit=...
 POST /api/cycles/:id/run-full
 GET  /api/llm-calls/summary?projectId=...
+GET  /api/llm-calls/latency
+GET  /api/projects/:id/ops-metrics
+POST /api/projects/:id/provider-canary
+
+GET  /api/projects/:id/org-modules
+POST /api/projects/:id/org-modules
+GET  /api/org-modules/:id
+PATCH /api/org-modules/:id
+DELETE /api/org-modules/:id
+GET  /api/org-modules/:id/markdown
+POST /api/org-modules/:id/knowledge
 ```
 
 外部反馈与集成：
@@ -810,6 +832,10 @@ GET  /api/projects/:id/integrations
 POST /api/projects/:id/integrations/github
 POST /api/projects/:id/integrations/github/issues/sync
 POST /api/projects/:id/feedback/form
+GET  /api/projects/:id/business-signals
+POST /api/projects/:id/business-signals/import
+POST /api/projects/:id/builder/codex/plan
+POST /api/builder/codex/apply
 ```
 
 实现入口：
@@ -819,6 +845,12 @@ POST /api/projects/:id/feedback/form
 - `alaya-app/server/flywheel.ts`
 - `alaya-app/server/scheduler.ts`
 - `alaya-app/server/externalFeedback.ts`
+- `alaya-app/server/businessSignals.ts`
+- `alaya-app/server/knowledgeReview.ts`
+- `alaya-app/server/builderAdapter.ts`
+- `alaya-app/server/providerCanary.ts`
+- `alaya-app/server/opsMetrics.ts`
+- `alaya-app/server/orgModules.ts`
 - `alaya-app/server/notifications/`
 - `alaya-app/server/humanGateService.ts`
 
@@ -828,8 +860,40 @@ POST /api/projects/:id/feedback/form
 - `PATCH /api/projects/:id` 的 `redlines` 字段是字符串数组；服务端负责持久化为 JSON 字符串。
 - `POST /api/predictions` 的 `claims` 字段走统一 `claimSchema`，会拒绝缺失 operator、`operator ==`、`scale=0` 和 metric weight 小于 3 的关键指标 claim。
 - `GET /api/cycles/:id/review` 返回 `actionLedger`，前端 Cycle Review 用它展示本轮高风险动作时间线。
+- Business Signal import 会强制使用 URL project id 覆盖 body 内的 `projectId`，敏感信号写入审计前脱敏，并只创建 feedback + Meaning Gate。
+- Builder Codex apply 默认 dry-run；`dryRun:false` 在 long-run mode 下归类为 `shell_execution`，默认拒绝，且即使审批通过也只记录 manual apply path。
+- Provider canary 在 long-run mode 下归类为 `llm_call`，真实 provider 需要显式 capability 与 secret；mock canary 可用于本地和 CI。
 
 ## 验证记录
+
+### 2026-06-07 roadmap gap closure
+
+本次闭合路线图剩余 A-F 能力：知识冲突/复核、Builder Codex dry-run adapter、provider canary 与 LLM failure taxonomy、运营 KPI、业务信号导入和组织模块模板。完整证据见 [docs/validation/2026-06-07-roadmap-gap-closure.md](./docs/validation/2026-06-07-roadmap-gap-closure.md)。
+
+已通过：
+
+```bash
+npm run guard
+npm run typecheck
+npm run test:all
+npm run build
+npm run benchmark:smoke
+npm run flywheel
+npm run e2e:long-evolution
+npm run secret:scan
+```
+
+结果摘要：
+
+| 项目 | 结果 |
+| --- | --- |
+| Focused roadmap tests | 42/42 PASS |
+| Core tests | 52/52 PASS |
+| App tests | 156/156 PASS |
+| Script tests | 18/18 PASS |
+| Benchmark smoke | 12/12 PASS |
+| Long evolution E2E | 20 cycles PASS |
+| Secret scan | PASS |
 
 ### 2026-06-07 P0/P1/P2 hardening validation
 
@@ -955,10 +1019,14 @@ bash scripts/12h_validation.sh
 
 ## 路线图
 
-- 增强知识冲突检测、过期提醒和复核任务。
-- 为 Builder 接入真实 Codex/Codex CLI 变更包 adapter。
-- 增加 provider canary、分 Agent latency 报表和更细的 LLM 失败恢复策略。
-- 建立真实使用后的运营指标：人工闸门耗时、LLM 单轮成本、预测可测率、知识复用率、blocking gate backlog 和每轮复利增益。
+| 项目 | 状态 | 入口 |
+| --- | --- | --- |
+| 知识冲突检测、过期提醒和复核任务 | 已完成 | `POST /api/projects/:id/knowledge/conflicts/scan`、`POST /api/projects/:id/knowledge/review-reminders`、`POST /api/knowledge-reviews/:id/resolve` |
+| Builder Codex/Codex CLI 变更包 adapter | 已完成 dry-run MVP | `POST /api/projects/:id/builder/codex/plan`、`POST /api/builder/codex/apply`；非 dry-run apply 需要 shell capability + 匹配 idempotency risk gate |
+| Provider canary、分 Agent latency 和 LLM 失败恢复分类 | 已完成 | `POST /api/projects/:id/provider-canary`、`npm run provider:canary`、`GET /api/llm-calls/latency`、`/metrics?format=json` |
+| 真实使用运营指标 | 已完成 API MVP | `GET /api/projects/:id/ops-metrics`，覆盖 gate resolution、LLM cost、measurable claim ratio、knowledge reuse、blocking backlog、compounding gain proxy |
+| 通用业务信号 Sensor adapter | 已完成 CSV/JSON 本地导入 MVP | `POST /api/projects/:id/business-signals/import`，详见 [docs/business-signals.md](./docs/business-signals.md) |
+| 组织模块知识模板 | 已完成 API MVP | `GET/POST /api/projects/:id/org-modules`、Markdown export、draft knowledge conversion，详见 [docs/org-modules.md](./docs/org-modules.md) |
 
 ## 文档索引
 
@@ -970,6 +1038,8 @@ bash scripts/12h_validation.sh
 | [alaya-core/README.md](./alaya-core/README.md) | Core 内核说明 |
 | [alaya-app/BUILD_SPEC.md](./alaya-app/BUILD_SPEC.md) | Web MVP 构建规格 |
 | [alaya-app/BUILD_REPORT.md](./alaya-app/BUILD_REPORT.md) | 构建与验证报告 |
+| [docs/business-signals.md](./docs/business-signals.md) | 通用业务信号 adapter、CSV/JSON 导入、脱敏和 Meaning Gate 流程 |
+| [docs/org-modules.md](./docs/org-modules.md) | 组织模块五问模板、Markdown export 和知识转换规则 |
 | [docs/ops/00-baseline-audit.md](./docs/ops/00-baseline-audit.md) | hardening 前仓库基线与入口图 |
 | [docs/ops/01-secrets-and-env.md](./docs/ops/01-secrets-and-env.md) | env、secret、capability 和脱敏说明 |
 | [docs/ops/02-deployment.md](./docs/ops/02-deployment.md) | Docker/systemd 部署与升级流程 |

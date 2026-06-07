@@ -13,12 +13,24 @@ type JsonSchema = {
   additionalProperties?: boolean;
 };
 
+export type LlmFailureType =
+  | "timeout"
+  | "rate_limit"
+  | "auth"
+  | "schema_error"
+  | "invalid_json"
+  | "safety_refusal"
+  | "network"
+  | "provider_error"
+  | "unknown";
+
 interface LlmCallInput {
   cycleId: string;
   agent: string;
   promptName: string;
   inputSummary: string;
   mockOutput: Record<string, unknown>;
+  routeEnv?: Record<string, string | undefined>;
   schema?: JsonSchema;
   simplifiedSchema?: JsonSchema;
   context?: Record<string, unknown>;
@@ -142,7 +154,15 @@ function llmInputForLog(input: LlmCallInput) {
   };
 }
 
-function record(input: LlmCallInput, route: ModelRoute, data: Record<string, unknown>, schemaValid: boolean, retryCount: number, latencyMs: number) {
+function record(
+  input: LlmCallInput,
+  route: ModelRoute,
+  data: Record<string, unknown>,
+  schemaValid: boolean,
+  retryCount: number,
+  latencyMs: number,
+  failureType: LlmFailureType | null = null,
+) {
   const inputTokenCount = approxTokens(llmInputForLog(input));
   const outputTokenCount = approxTokens(data);
   const tokenCount = inputTokenCount + outputTokenCount;
@@ -156,6 +176,7 @@ function record(input: LlmCallInput, route: ModelRoute, data: Record<string, unk
     inputSummary: summarize(llmInputForLog(input)),
     outputSummary: summarize(sanitizeValue(data)),
     schemaValid: schemaValid ? 1 : 0,
+    llmFailureType: failureType,
     retryCount,
     latencyMs,
     inputTokenCount,
@@ -181,6 +202,7 @@ function record(input: LlmCallInput, route: ModelRoute, data: Record<string, unk
         model: route.model,
         routeReason: route.routeReason,
         schemaValid,
+        llmFailureType: failureType,
         retryCount,
         inputTokenCount,
         outputTokenCount,
@@ -211,12 +233,12 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
   const safeInput = sanitizeInput(input);
   const schema = input.schema ?? DEFAULT_SCHEMA;
   const started = Date.now();
-  const route = resolveModelRoute(input.agent, process.env);
+  const route = resolveModelRoute(input.agent, input.routeEnv ?? process.env);
   const provider = route.provider;
 
   if (provider !== "openai") {
     const schemaValid = validate(input.mockOutput, schema);
-    record(safeInput, route, input.mockOutput, schemaValid, 0, Date.now() - started);
+    record(safeInput, route, input.mockOutput, schemaValid, 0, Date.now() - started, schemaValid ? null : "schema_error");
     if (!schemaValid) createDegradedGate(safeInput, "mock output failed schema validation");
     return input.mockOutput;
   }
@@ -230,14 +252,14 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
   });
   if (capability.dryRun) {
     const data = { summary: `LLM dry-run: ${route.provider}/${route.model} was not called` };
-    record(safeInput, route, data, false, 0, Date.now() - started);
+    record(safeInput, route, data, false, 0, Date.now() - started, "unknown");
     return data;
   }
 
   const apiKey = openAiApiKey();
   if (!apiKey) {
     const data = { summary: `OpenAI disabled: missing OPENAI_API_KEY` };
-    record(safeInput, route, data, false, 0, Date.now() - started);
+    record(safeInput, route, data, false, 0, Date.now() - started, "auth");
     createDegradedGate(safeInput, "OPENAI_API_KEY is not set");
     return data;
   }
@@ -277,7 +299,7 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
         record(safeInput, route, simpleData, true, 2 + transportRetries, Date.now() - started);
         return simpleData;
       }
-      record(safeInput, route, simpleData, false, 2 + transportRetries, Date.now() - started);
+      record(safeInput, route, simpleData, false, 2 + transportRetries, Date.now() - started, "schema_error");
       createDegradedGate(safeInput, `degraded to simplified schema after: ${lastError || "schema validation failed"}`);
       return simpleData;
     }
@@ -287,14 +309,19 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
   }
 
   const simplified = { summary: `LLM degraded for ${input.agent}/${input.promptName}: ${lastError}` };
-  record(safeInput, route, simplified, false, 3 + transportRetries, Date.now() - started);
+  record(safeInput, route, simplified, false, 3 + transportRetries, Date.now() - started, classifyLlmFailure(lastError || "schema validation failed"));
   createDegradedGate(safeInput, lastError || "schema validation failed");
   return simplified;
 }
 
-function maxTransportRetries(): number {
+export function getLlmRetryPolicy() {
   const raw = Number(process.env.OPENAI_MAX_RETRIES ?? 3);
-  return Number.isFinite(raw) ? Math.min(Math.max(Math.floor(raw), 0), 3) : 3;
+  const maxRetries = Number.isFinite(raw) ? Math.min(Math.max(Math.floor(raw), 0), 3) : 3;
+  return { maxRetries, baseDelayMs: retryDelayMs(1) };
+}
+
+function maxTransportRetries(): number {
+  return getLlmRetryPolicy().maxRetries;
 }
 
 function retryDelayMs(attempt: number): number {
@@ -305,6 +332,19 @@ function retryDelayMs(attempt: number): number {
 function isRetryableLlmError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /\b(?:429|5\d\d)\b/.test(message);
+}
+
+export function classifyLlmFailure(error: unknown): LlmFailureType {
+  const message = (error instanceof Error ? error.message : String(error ?? "")).toLowerCase();
+  if (/\btimeout|timed out|aborterror|aborted\b/.test(message)) return "timeout";
+  if (/\b429|rate limit|too many requests\b/.test(message)) return "rate_limit";
+  if (/\b401|403|unauthorized|forbidden|invalid api key|missing openai_api_key|auth\b/.test(message)) return "auth";
+  if (/\bschema validation|should be|required|schema_error\b/.test(message)) return "schema_error";
+  if (/\bnot parseable json|invalid json|json.parse|unexpected token\b/.test(message)) return "invalid_json";
+  if (/\bsafety|refusal|refused|policy violation\b/.test(message)) return "safety_refusal";
+  if (/\benotfound|econnreset|econnrefused|network|fetch failed|getaddrinfo\b/.test(message)) return "network";
+  if (/\bopenai|provider|5\d\d|bad gateway|service unavailable\b/.test(message)) return "provider_error";
+  return "unknown";
 }
 
 function sleep(ms: number): Promise<void> {

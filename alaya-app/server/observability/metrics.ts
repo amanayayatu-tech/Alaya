@@ -41,6 +41,30 @@ function stallEventCount(): number {
   return rows.filter((row) => /evolution_stalled|goal_repetition|maturation_stall|knowledge_explosion|stalled|stall/i.test(row.payload)).length;
 }
 
+function percentile(values: number[], p: number): number {
+  const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
+  if (sorted.length === 0) return 0;
+  const idx = Math.ceil((p / 100) * sorted.length) - 1;
+  return sorted[Math.min(Math.max(idx, 0), sorted.length - 1)];
+}
+
+function perAgentLatency(llmCalls = storage.listLlmCalls()) {
+  const agents = ["orchestrator", "sensor", "builder", "distiller", "librarian"];
+  return Object.fromEntries(agents.map((agent) => {
+    const calls = llmCalls.filter((call) => call.agent === agent);
+    const latencies = calls.map((call) => call.latencyMs);
+    const errors = calls.filter((call) => call.schemaValid !== 1 || !!call.llmFailureType);
+    return [agent, {
+      count: calls.length,
+      p50Ms: percentile(latencies, 50),
+      p95Ms: percentile(latencies, 95),
+      avgMs: calls.length ? +(latencies.reduce((sum, value) => sum + value, 0) / calls.length).toFixed(3) : 0,
+      errorCount: errors.length,
+      errorRate: calls.length ? +(errors.length / calls.length).toFixed(6) : 0,
+    }];
+  }));
+}
+
 export function buildMetricsSnapshot() {
   const actions = storage.listActionLedger();
   const llmCalls = storage.listLlmCalls();
@@ -68,6 +92,7 @@ export function buildMetricsSnapshot() {
     stallEventsTotal: stallEventCount(),
     errorsTotal: count("SELECT COUNT(*) AS count FROM event_log WHERE op='error' OR op='sync_error'"),
     schedulerFailuresTotal: schedulerRuntime.failuresTotal,
+    perAgentLatency: perAgentLatency(llmCalls),
     lastSuccessfulCycleTimestamp: Math.max(
       Math.floor(schedulerRuntime.lastSuccessfulCycleTimestamp / 1000),
       latestClosedCycleTimestamp(),
@@ -106,5 +131,10 @@ export function renderPrometheusMetrics(): string {
     line("alaya_errors_total", m.errorsTotal + m.schedulerFailuresTotal),
     line("alaya_last_successful_cycle_timestamp", m.lastSuccessfulCycleTimestamp),
   ];
+  for (const [agent, stats] of Object.entries(m.perAgentLatency)) {
+    lines.push(line("alaya_llm_agent_latency_p50_ms", stats.p50Ms, { agent }));
+    lines.push(line("alaya_llm_agent_latency_p95_ms", stats.p95Ms, { agent }));
+    lines.push(line("alaya_llm_agent_error_rate", stats.errorRate, { agent }));
+  }
   return `${lines.join("\n")}\n`;
 }
