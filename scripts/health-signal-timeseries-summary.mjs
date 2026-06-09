@@ -158,7 +158,9 @@ const summary = {
   },
   eventCounts: {
     schedulerActionCounts,
-    safetyModeEvents: schedulerActionCounts.safety_mode ?? 0,
+    safetyModeEvents: (schedulerActionCounts.safety_mode ?? 0) + (schedulerActionCounts.safety_throttled ?? 0),
+    safetyHardBlockEvents: schedulerActionCounts.safety_mode ?? 0,
+    safetyThrottledEvents: schedulerActionCounts.safety_throttled ?? 0,
     waitingBlockingGateEvents: schedulerActionCounts.waiting_blocking_gate ?? 0,
     sampleFailedEvents: events.filter((event) => event.eventType === "sample_failed").length,
     deltaStaticWhileKnowledgeGrowsEvents: events.filter((event) => event.eventType === "delta_static_while_knowledge_grows").length,

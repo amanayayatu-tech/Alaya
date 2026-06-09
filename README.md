@@ -1035,6 +1035,26 @@ POST /api/builder/codex/apply
 
 验证期间不修改产品代码、runner 脚本或测试；发现的新问题只写入本轮 `issues.md`，待 10 小时窗口收口后再按 8 项判定标准给出最终结论。
 
+### 2026-06-10 P0 safety_mode deadlock repair
+
+`health-signal-10h_20260609_163552` 在约 6 小时处暴露出 P0：`safety_mode` 对注意力/backlog 类状态执行全停，导致 `cyclesTotal` 长期卡在 1。当前修复把这类软安全态改为限速推进，同时保留 LLM 成本硬超预算、Builder 偏航、预测不可测、知识审计失败等硬安全闸的 `safety_mode` 早退。
+
+可配置默认值：
+
+| 配置项 | 默认值 | 用途 |
+| --- | ---: | --- |
+| `ALAYA_SAFETY_THROTTLE_EVERY_TICKS` | `2` | 软安全态下每 2 个 scheduler tick 允许 1 次推进，其余 tick 返回 `safety_throttled` 延迟执行。 |
+| `ALAYA_FLYWHEEL_COMPOUNDING_WARMUP_CYCLES` | `3` | 前 3 个已关闭 cycle 作为复利证据 warmup；从第 4 轮开始才强制检查新方向是否证明前轮知识影响了本轮决策。 |
+
+回归测试覆盖：
+
+| 测试 | 断言 |
+| --- | --- |
+| `S1 safety_mode exits after blocking backlog is resolved and does not recreate human_attention_overload` | backlog 清空后 `gateBudgetForProject().safetyMode === false`，本周已关闭的 `human_attention_overload` 不会被重复创建。 |
+| `S2 attention backlog safety_mode throttles but still advances cycles` | 注意力/backlog 类 safety mode 下 action 为 `safety_throttled`，并能在节流 tick 推进 `currentCycleIdx`。 |
+| `S3 compounding guard warms up early cycles but still blocks multi-round zero compounding` | cycle 1 warmup 不触发飞轮空转闸；多轮零复利证据仍触发 `flywheel_empty_learning` 硬安全闸。 |
+| `S4 hard safety guard still blocks builder misdirection without advancing` | Builder 偏航仍返回 `safety_mode`，不创建方向闸、不推进 cycle。 |
+
 ### 2026-06-07 roadmap gap closure
 
 本次闭合路线图剩余 A-F 能力：知识冲突/复核、Builder Codex dry-run adapter、provider canary 与 LLM failure taxonomy、运营 KPI、业务信号导入和组织模块模板。完整证据见 [docs/validation/2026-06-07-roadmap-gap-closure.md](./docs/validation/2026-06-07-roadmap-gap-closure.md)。

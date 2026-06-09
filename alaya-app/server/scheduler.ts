@@ -41,17 +41,21 @@ export interface LlmBudgetState {
   acknowledgedThisWeek: boolean;
 }
 
+export type SchedulerTickAction =
+  | "no_cycle"
+  | "opened_direction_gate"
+  | "waiting_blocking_gate"
+  | "waiting_feedback_window"
+  | "ran_operational_stages"
+  | "created_next_cycle"
+  | "safety_mode"
+  | "safety_throttled"
+  | "skipped";
+
 export interface SchedulerTickResult {
   projectId: string;
-  action:
-    | "no_cycle"
-    | "opened_direction_gate"
-    | "waiting_blocking_gate"
-    | "waiting_feedback_window"
-    | "ran_operational_stages"
-    | "created_next_cycle"
-    | "safety_mode"
-    | "skipped";
+  action: SchedulerTickAction;
+  throttledAction?: Exclude<SchedulerTickAction, "safety_throttled">;
   cycleId?: string;
   nextCycleId?: string;
   budget: GateBudgetState;
@@ -64,6 +68,7 @@ export interface SchedulerTickOptions {
 }
 
 const runningProjectTicks = new Set<string>();
+const safetyThrottleTicksByProject = new Map<string, number>();
 let notificationBus: NotificationBus | null = null;
 let notificationBusStarted = false;
 let notificationResolvedReceiptsReconciled = false;
@@ -449,6 +454,7 @@ function consumesHumanMinutes(gate: HumanGateItem): boolean {
   const decision = gate.decision ?? "";
   if (decision.startsWith("merged_into:")) return false;
   if (decision.startsWith("auto_approved_repeated_meaning:")) return false;
+  if (decision.startsWith("auto_resolved_")) return false;
   return true;
 }
 
@@ -495,13 +501,27 @@ function findHumanAttentionGate(projectId: string, weeklyWindowStart: string): H
 
 function enforceHumanAttentionBudget(projectId: string, state: GateBudgetState) {
   const weeklyWindowStart = weekStartIso();
-  const overloaded = state.pendingOverBudget2x || state.weeklyOverFiveHours;
-  if (!overloaded) return { safetyMode: false, state };
+  const overloaded = state.pendingOverBudget2x || (state.weeklyOverFiveHours && state.pendingEstimatedMinutes > 0);
+  const existing = findHumanAttentionGate(projectId, weeklyWindowStart);
+  if (!overloaded) {
+    if (existing?.status === "pending") {
+      storage.updateGate(existing.id, {
+        status: "resolved",
+        decision: "auto_resolved_attention_recovered",
+        estimatedMinutes: 0,
+        payload: JSON.stringify({
+          ...parsePayload(existing.payload),
+          resolvedAt: now(),
+          resolvedReason: "human_attention_backlog_cleared",
+        }),
+      });
+    }
+    return { safetyMode: false, state: gateBudgetForProject(projectId) };
+  }
 
   const currentCycle = storage.listCycles(projectId).find((cycle) => cycle.status !== "closed")
     ?? storage.listCycles(projectId).at(-1);
-  const existing = findHumanAttentionGate(projectId, weeklyWindowStart);
-  if (existing) return { safetyMode: existing.status === "pending", state };
+  if (existing) return { safetyMode: existing.status === "pending", state: gateBudgetForProject(projectId) };
 
   storage.createGate({
     id: `gate_human_attention_${weeklyWindowStart.slice(0, 10).replace(/-/g, "")}_${projectId.slice(-4)}`,
@@ -526,7 +546,7 @@ function enforceHumanAttentionBudget(projectId: string, state: GateBudgetState) 
     decision: null,
     version: 1,
   });
-  return { safetyMode: true, state };
+  return { safetyMode: true, state: gateBudgetForProject(projectId) };
 }
 
 function findLlmBudgetGate(projectId: string, weeklyWindowStart: string): HumanGateItem | undefined {
@@ -625,16 +645,26 @@ function findFlywheelEmptyLearningGate(projectId: string, cycleId: string): Huma
   });
 }
 
+function flywheelCompoundingWarmupCycles(): number {
+  const raw = Number(process.env.ALAYA_FLYWHEEL_COMPOUNDING_WARMUP_CYCLES ?? 3);
+  return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 3;
+}
+
 function compoundingEvidenceForDirection(projectId: string, cycleId: string) {
   const cycle = storage.getCycle(cycleId);
-  if (!cycle || cycle.idx < 4) return { required: false, ok: true, refs: [] as string[], text: "", previousCycleIdxs: [] as number[] };
+  const warmupCycles = flywheelCompoundingWarmupCycles();
+  if (!cycle || cycle.idx <= warmupCycles) {
+    return { required: false, ok: true, refs: [] as string[], text: "", previousCycleIdxs: [] as number[], warmupCycles };
+  }
 
   const previousClosed = storage.listCycles(projectId)
     .filter((item) => item.idx < cycle.idx && item.status === "closed")
     .sort((a, b) => b.idx - a.idx)
-    .slice(0, 3)
+    .slice(0, warmupCycles)
     .sort((a, b) => a.idx - b.idx);
-  if (previousClosed.length < 3) return { required: false, ok: true, refs: [] as string[], text: "", previousCycleIdxs: previousClosed.map((item) => item.idx) };
+  if (previousClosed.length < warmupCycles) {
+    return { required: false, ok: true, refs: [] as string[], text: "", previousCycleIdxs: previousClosed.map((item) => item.idx), warmupCycles };
+  }
 
   const directionGate = storage.listGates(projectId).find((gate) => gate.cycleId === cycleId && gate.type === "direction");
   const payload = directionGate ? parsePayload(directionGate.payload) : {};
@@ -658,6 +688,7 @@ function compoundingEvidenceForDirection(projectId: string, cycleId: string) {
     refs: uniqueRefs,
     text,
     previousCycleIdxs: previousClosed.map((item) => item.idx),
+    warmupCycles,
   };
 }
 
@@ -680,6 +711,7 @@ function enforceFlywheelCompoundingGuard(projectId: string, cycleId: string) {
         createdAt: now(),
         evaluatedCycleIdx: cycle?.idx ?? 0,
         previousCycleIdxs: evidence.previousCycleIdxs,
+        warmupCycles: evidence.warmupCycles,
         knowledgeRefsCount: evidence.refs.length,
         influenceTextSnippet: evidence.text.slice(0, 500),
         reason: "连续 3 轮后，新一轮建议没有证明前轮知识如何改变本轮决策，自动推进已暂停。",
@@ -1420,28 +1452,75 @@ function hasFeedbackSyncErrors(results: ExternalFeedbackSyncResult[]): boolean {
   return results.some((result) => result.errors.length > 0);
 }
 
+function safetyThrottleEveryTicks(): number {
+  const raw = Number(process.env.ALAYA_SAFETY_THROTTLE_EVERY_TICKS ?? 2);
+  return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 2;
+}
+
+interface SoftSafetyContext {
+  active: boolean;
+  reason: string;
+  everyTicks: number;
+  tickCount: number;
+  shouldAdvance: boolean;
+}
+
+function softSafetyContext(projectId: string, reasons: string[]): SoftSafetyContext {
+  if (reasons.length === 0) {
+    safetyThrottleTicksByProject.delete(projectId);
+    return { active: false, reason: "", everyTicks: safetyThrottleEveryTicks(), tickCount: 0, shouldAdvance: true };
+  }
+
+  const everyTicks = safetyThrottleEveryTicks();
+  const tickCount = (safetyThrottleTicksByProject.get(projectId) ?? 0) + 1;
+  safetyThrottleTicksByProject.set(projectId, tickCount);
+  return {
+    active: true,
+    reason: reasons.join("; "),
+    everyTicks,
+    tickCount,
+    shouldAdvance: tickCount % everyTicks === 0,
+  };
+}
+
+function safetyThrottleDeferredResult(projectId: string, cycleId: string | undefined, context: SoftSafetyContext): SchedulerTickResult {
+  return {
+    projectId,
+    action: "safety_throttled",
+    cycleId,
+    budget: gateBudgetForProject(projectId),
+    llmBudget: cycleId ? llmBudgetForProject(projectId) : undefined,
+    note: `safety_mode throttled; deferred cycle work this tick (${context.tickCount}/${context.everyTicks}): ${context.reason}`,
+  };
+}
+
+function withSafetyThrottle(result: SchedulerTickResult, context: SoftSafetyContext): SchedulerTickResult {
+  if (!context.active) return result;
+  if (result.action === "safety_mode" || result.action === "safety_throttled" || result.action === "skipped" || result.action === "no_cycle") {
+    return result;
+  }
+  return {
+    ...result,
+    action: "safety_throttled",
+    throttledAction: result.action,
+    budget: gateBudgetForProject(result.projectId),
+    llmBudget: result.cycleId ? llmBudgetForProject(result.projectId) : result.llmBudget,
+    note: `safety_mode throttled advance (${result.action}; every ${context.everyTicks} ticks): ${context.reason}; ${result.note}`,
+  };
+}
+
 async function schedulerTickProjectUnlocked(projectId: string, options: SchedulerTickOptions = {}): Promise<SchedulerTickResult> {
   decayStaleKnowledge(projectId);
   detectKnowledgeConflicts(projectId);
   createKnowledgeReviewReminders(projectId);
-  const budget = executeGateBudget(projectId);
-  const humanAttention = enforceHumanAttentionBudget(projectId, budget);
-  if (humanAttention.safetyMode) {
-    return {
-      projectId,
-      action: "safety_mode",
-      budget: gateBudgetForProject(projectId),
-      note: "human attention budget exceeded; waiting for backlog review",
-    };
-  }
-  if (budget.safetyMode) {
-    return {
-      projectId,
-      action: "safety_mode",
-      budget,
-      note: "blocking gates exceeded safety threshold; low-speed mode only",
-    };
-  }
+  const initialBudget = executeGateBudget(projectId);
+  const humanAttention = enforceHumanAttentionBudget(projectId, initialBudget);
+  const budget = gateBudgetForProject(projectId);
+  const softSafetyReasons = [
+    ...(humanAttention.safetyMode ? ["human attention backlog over budget"] : []),
+    ...(budget.safetyMode ? ["blocking gate backlog exceeds safety threshold"] : []),
+  ];
+  const softSafety = softSafetyContext(projectId, softSafetyReasons);
 
   const cycles = storage.listCycles(projectId);
   if (cycles.length === 0) {
@@ -1475,6 +1554,10 @@ async function schedulerTickProjectUnlocked(projectId: string, options: Schedule
       llmBudget,
       note: "builder misdirection guard triggered; waiting for human review",
     };
+  }
+
+  if (softSafety.active && !softSafety.shouldAdvance) {
+    return safetyThrottleDeferredResult(projectId, current.id, softSafety);
   }
 
   if (current.status === "closed") {
@@ -1565,7 +1648,7 @@ async function schedulerTickProjectUnlocked(projectId: string, options: Schedule
       version: 1,
     });
     storage.updateProject(projectId, { currentCycleIdx: nextIdx });
-    return {
+    return withSafetyThrottle({
       projectId,
       action: "created_next_cycle",
       cycleId: current.id,
@@ -1573,7 +1656,7 @@ async function schedulerTickProjectUnlocked(projectId: string, options: Schedule
       budget,
       llmBudget,
       note: "created next planning cycle",
-    };
+    }, softSafety);
   }
 
   let sc;
@@ -1606,14 +1689,14 @@ async function schedulerTickProjectUnlocked(projectId: string, options: Schedule
         note: "flywheel compounding guard triggered; waiting for human review",
       };
     }
-    return {
+    return withSafetyThrottle({
       projectId,
       action: "opened_direction_gate",
       cycleId: current.id,
       budget: gateBudgetForProject(projectId),
       llmBudget: llmBudgetForProject(projectId),
       note: "opened direction gate and paused for human decision",
-    };
+    }, softSafety);
   }
 
   const compounding = enforceFlywheelCompoundingGuard(projectId, current.id);
@@ -1629,37 +1712,37 @@ async function schedulerTickProjectUnlocked(projectId: string, options: Schedule
   }
 
   if (!blockingGatesResolved(current.id)) {
-    return {
+    return withSafetyThrottle({
       projectId,
       action: "waiting_blocking_gate",
       cycleId: current.id,
       budget,
       llmBudget,
       note: "waiting for blocking human gate",
-    };
+    }, softSafety);
   }
 
   if (!builderCompleteOrAbsent(current.id)) {
     const degradedCount = degradeTimedOutBuilderTasks(current.id);
     if (degradedCount > 0 && builderCompleteOrAbsent(current.id)) {
       const afterDegradeBudget = gateBudgetForProject(projectId);
-      return {
+      return withSafetyThrottle({
         projectId,
         action: "waiting_blocking_gate",
         cycleId: current.id,
         budget: afterDegradeBudget,
         llmBudget,
         note: `builder timeout degraded ${degradedCount} task(s); scheduler will continue on the next tick`,
-      };
+      }, softSafety);
     }
-    return {
+    return withSafetyThrottle({
       projectId,
       action: "waiting_blocking_gate",
       cycleId: current.id,
       budget,
       llmBudget,
       note: "waiting for builder task completion or timeout degradation",
-    };
+    }, softSafety);
   }
 
   const feedbackWindow = feedbackWindowState(current.id);
@@ -1675,14 +1758,14 @@ async function schedulerTickProjectUnlocked(projectId: string, options: Schedule
         note: "external feedback source sync failed; waiting for human/toolchain review",
       };
     }
-    return {
+    return withSafetyThrottle({
       projectId,
       action: "waiting_feedback_window",
       cycleId: current.id,
       budget: gateBudgetForProject(projectId),
       llmBudget: llmBudgetForProject(projectId),
       note: `sensor feedback window still open (${Math.ceil(feedbackWindow.remainingMs / 1000)}s remaining); synced feedback only`,
-    };
+    }, softSafety);
   }
 
   const syncResults = await syncConfiguredFeedbackForProject(projectId, current.id, options.feedbackSync);
@@ -1697,14 +1780,14 @@ async function schedulerTickProjectUnlocked(projectId: string, options: Schedule
     };
   }
   const result = await runOperationalStagesAfterApprovedDirection(projectId, current.id);
-  return {
+  return withSafetyThrottle({
     projectId,
     action: "ran_operational_stages",
     cycleId: current.id,
     budget: gateBudgetForProject(projectId),
     llmBudget: llmBudgetForProject(projectId),
     note: `closed cycle ${result.cycleIdx}; scheduler can create next cycle on next tick`,
-  };
+  }, softSafety);
 }
 
 export async function schedulerTickProject(projectId: string, options: SchedulerTickOptions = {}): Promise<SchedulerTickResult> {

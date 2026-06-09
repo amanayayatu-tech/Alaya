@@ -284,8 +284,12 @@ const checks = [
       /flywheel_empty_learning/,
       /llm_weekly_budget/,
       /human_attention_overload/,
+      /auto_resolved_attention_recovered/,
       /pendingOverBudget2x/,
       /weeklyOverFiveHours/,
+      /safety_throttled/,
+      /ALAYA_SAFETY_THROTTLE_EVERY_TICKS/,
+      /ALAYA_FLYWHEEL_COMPOUNDING_WARMUP_CYCLES/,
       /prediction_measurability_failure/,
       /knowledge_maturity_stagnation/,
       /librarian_stale_conflict_audit_failure/,
@@ -293,10 +297,14 @@ const checks = [
     ].every((pattern) => has("alaya-app/server/scheduler.ts", pattern)) &&
       has("alaya-app/server/externalFeedback.ts", /external_feedback_sync_error/) &&
       has("alaya-app/tests/external_feedback_scheduler.test.ts", /pending human gate backlog exceeds twice the weekly budget/) &&
-      has("alaya-app/tests/external_feedback_scheduler.test.ts", /weekly human time exceeds five hours/) &&
+      has("alaya-app/tests/external_feedback_scheduler.test.ts", /weekly human time is high but backlog is clear/) &&
       has("alaya-app/tests/external_feedback_scheduler.test.ts", /pending blocking gates exceed three/) &&
-      has("alaya-app/tests/external_feedback_scheduler.test.ts", /blocking human gate has been pending for more than five days/),
-    evidence: "Scheduler encodes PRD 22.5 failure thresholds as blocking risk gates and safety-mode stops, including pending_human overload, weekly human time over five hours, blocking gate count, and stale blocking gates",
+      has("alaya-app/tests/external_feedback_scheduler.test.ts", /blocking human gate has been pending for more than five days/) &&
+      has("alaya-app/tests/scheduler.safety_mode.test.ts", /S1 safety_mode exits/) &&
+      has("alaya-app/tests/scheduler.safety_mode.test.ts", /S2 attention backlog safety_mode throttles/) &&
+      has("alaya-app/tests/scheduler.safety_mode.test.ts", /S3 compounding guard warms up/) &&
+      has("alaya-app/tests/scheduler.safety_mode.test.ts", /S4 hard safety guard still blocks/),
+    evidence: "Scheduler encodes PRD 22.5 failure thresholds as hard safety-mode stops for dangerous guards and safety_throttled progress for attention/backlog thresholds, including backlog exit and compounding warmup regression coverage",
   },
 ];
 

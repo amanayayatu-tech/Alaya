@@ -1293,7 +1293,7 @@ test("gate budget only counts gates resolved in the current week", () => {
   assert.equal(budget.remaining, 110);
 });
 
-test("scheduler pauses when pending human gate backlog exceeds twice the weekly budget", async () => {
+test("scheduler throttles when pending human gate backlog exceeds twice the weekly budget", async () => {
   const projectId = "proj_human_load_332";
   createProject(projectId);
   const cycle = storage.listCycles(projectId)[0];
@@ -1319,8 +1319,8 @@ test("scheduler pauses when pending human gate backlog exceeds twice the weekly 
   }
 
   const first = await schedulerTickProject(projectId);
-  assert.equal(first.action, "safety_mode");
-  assert.match(first.note, /human attention budget exceeded/);
+  assert.equal(first.action, "safety_throttled");
+  assert.match(first.note, /human attention backlog over budget/);
   assert.equal(first.budget.pendingEstimatedMinutes, 95);
   assert.equal(first.budget.pendingOverBudget2x, true);
 
@@ -1339,11 +1339,12 @@ test("scheduler pauses when pending human gate backlog exceeds twice the weekly 
   assert.match(payload.requiredAction, /低速模式|合并/);
 
   const second = await schedulerTickProject(projectId);
-  assert.equal(second.action, "safety_mode");
+  assert.equal(second.action, "safety_throttled");
+  assert.equal(second.throttledAction, "opened_direction_gate");
   assert.equal(storage.listGates(projectId).filter((gate) => gate.type === "risk" && JSON.parse(gate.payload).riskKey === "human_attention_overload").length, 1);
 });
 
-test("scheduler pauses when weekly human time exceeds five hours", async () => {
+test("scheduler does not reopen human overload gate when weekly human time is high but backlog is clear", async () => {
   const projectId = "proj_human_hours_334";
   createProject(projectId);
   const cycle = storage.listCycles(projectId)[0];
@@ -1375,8 +1376,7 @@ test("scheduler pauses when weekly human time exceeds five hours", async () => {
   assert.equal(beforeTickBudget.weeklyOverFiveHours, true);
 
   const first = await schedulerTickProject(projectId);
-  assert.equal(first.action, "safety_mode");
-  assert.match(first.note, /human attention budget exceeded/);
+  assert.equal(first.action, "opened_direction_gate");
   assert.equal(first.budget.used, 350);
   assert.equal(first.budget.weeklyOverFiveHours, true);
   assert.equal(first.budget.pendingOverBudget2x, false);
@@ -1386,22 +1386,10 @@ test("scheduler pauses when weekly human time exceeds five hours", async () => {
     const payload = JSON.parse(gate.payload);
     return payload.riskKey === "human_attention_overload";
   });
-  assert.ok(riskGate);
-  assert.equal(riskGate.blocking, 1);
-  assert.equal(riskGate.status, "pending");
-  const payload = JSON.parse(riskGate.payload);
-  assert.equal(payload.usedMinutes, 350);
-  assert.equal(payload.pendingEstimatedMinutes, 0);
-  assert.equal(payload.pendingOverBudget2x, false);
-  assert.equal(payload.weeklyOverFiveHours, true);
-  assert.match(payload.reason, /本周人工投入|pending_human/);
-
-  const second = await schedulerTickProject(projectId);
-  assert.equal(second.action, "safety_mode");
-  assert.equal(storage.listGates(projectId).filter((gate) => gate.type === "risk" && JSON.parse(gate.payload).riskKey === "human_attention_overload").length, 1);
+  assert.equal(riskGate, undefined);
 });
 
-test("scheduler enters safety mode when pending blocking gates exceed three", async () => {
+test("scheduler throttles when pending blocking gates exceed three", async () => {
   const projectId = "proj_blocking_count_335";
   createProject(projectId);
   const cycle = storage.listCycles(projectId)[0];
@@ -1430,14 +1418,14 @@ test("scheduler enters safety mode when pending blocking gates exceed three", as
   assert.equal(beforeTickBudget.pendingOverBudget2x, false);
 
   const first = await schedulerTickProject(projectId);
-  assert.equal(first.action, "safety_mode");
-  assert.match(first.note, /blocking gates exceeded safety threshold/);
+  assert.equal(first.action, "safety_throttled");
+  assert.match(first.note, /blocking gate backlog exceeds safety threshold/);
   assert.equal(first.budget.pendingBlocking, 4);
   assert.equal(first.budget.safetyMode, true);
   assert.equal(storage.listCycles(projectId).filter((item) => item.idx > 1).length, 0);
 });
 
-test("scheduler enters safety mode when a blocking human gate has been pending for more than five days", async () => {
+test("scheduler throttles when a blocking human gate has been pending for more than five days", async () => {
   const projectId = "proj_blocking_age_336";
   createProject(projectId);
   const cycle = storage.listCycles(projectId)[0];
@@ -1466,8 +1454,8 @@ test("scheduler enters safety mode when a blocking human gate has been pending f
   assert.equal(beforeTickBudget.pendingOverBudget2x, false);
 
   const first = await schedulerTickProject(projectId);
-  assert.equal(first.action, "safety_mode");
-  assert.match(first.note, /blocking gates exceeded safety threshold/);
+  assert.equal(first.action, "safety_throttled");
+  assert.match(first.note, /blocking gate backlog exceeds safety threshold/);
   assert.equal(first.budget.pendingBlocking, 1);
   assert.ok(first.budget.oldestBlockingAgeDays > 5);
   assert.equal(first.budget.safetyMode, true);

@@ -274,6 +274,7 @@ export const schedulerActionLabels: Record<string, LabelMeta> = {
   ran_operational_stages: { label: "已完成本轮执行阶段", tone: "primary", semantic: "info", semanticToken: semanticToken("info") },
   created_next_cycle: { label: "已创建下一轮", tone: "success", semantic: "success", semanticToken: semanticToken("success") },
   safety_mode: { label: "安全模式已触发", tone: "danger", semantic: "danger", semanticToken: semanticToken("danger") },
+  safety_throttled: { label: "安全模式限速推进", tone: "warning", semantic: "warning", semanticToken: semanticToken("warning") },
 };
 
 export const errorTypeLabels: Record<string, LabelMeta> = {
