@@ -60,6 +60,20 @@ function telegramHostCheckUrl(method: string): string {
   return `https://${TELEGRAM_API_HOST}/${method}`;
 }
 
+function telegramRequestAttempts(): number {
+  const configured = Number(process.env.ALAYA_TELEGRAM_REQUEST_ATTEMPTS ?? 3);
+  return Number.isFinite(configured) ? Math.max(1, Math.trunc(configured)) : 3;
+}
+
+function telegramRetryBaseMs(): number {
+  const configured = Number(process.env.ALAYA_TELEGRAM_RETRY_BASE_MS ?? 300);
+  return Number.isFinite(configured) ? Math.max(0, Math.trunc(configured)) : 300;
+}
+
+function isRetryableTelegramStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
 export class TelegramAdapter implements MessagingPlatform {
   private callbackHandlers: CallbackHandler[] = [];
   private polling = false;
@@ -167,19 +181,37 @@ export class TelegramAdapter implements MessagingPlatform {
   }
 
   private async telegramRequest<T = unknown>(method: string, body: Record<string, unknown>): Promise<T> {
-    const response = await fetch(`https://${TELEGRAM_API_HOST}/bot${this.token}/${method}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const payload = await response.json().catch(async () => ({
-      ok: false,
-      description: await response.text().catch(() => ""),
-    })) as TelegramResponse<T>;
-    if (!response.ok || !payload.ok) {
-      throw new Error(`Telegram ${method} failed: ${response.status} ${payload.description ?? ""}`.trim());
+    const attempts = telegramRequestAttempts();
+    let lastError: unknown = null;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        const response = await fetch(`https://${TELEGRAM_API_HOST}/bot${this.token}/${method}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const payload = await response.json().catch(async () => ({
+          ok: false,
+          description: await response.text().catch(() => ""),
+        })) as TelegramResponse<T>;
+        if (response.ok && payload.ok) return payload.result as T;
+        const message = `Telegram ${method} failed: ${response.status} ${payload.description ?? ""}`.trim();
+        const error = new Error(message);
+        if (!isRetryableTelegramStatus(response.status)) throw error;
+        lastError = error;
+      } catch (error) {
+        lastError = error;
+        if (error instanceof Error && /^Telegram .* failed: \d+/.test(error.message)) {
+          const status = Number(error.message.match(/ failed: (\d+)/)?.[1]);
+          if (Number.isFinite(status) && !isRetryableTelegramStatus(status)) throw error;
+        }
+      }
+      if (attempt < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, telegramRetryBaseMs() * attempt));
+      }
     }
-    return payload.result as T;
+    const suffix = lastError instanceof Error ? lastError.message : String(lastError);
+    throw new Error(`Telegram ${method} failed after ${attempts} attempt(s): ${suffix}`);
   }
 
   private async pollLoop(): Promise<void> {

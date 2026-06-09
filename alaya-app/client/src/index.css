@@ -49,6 +49,11 @@
   --warning-foreground: 35 100% 14%;
   --danger: 0 72% 46%;
   --danger-foreground: 0 0% 98%;
+  --semantic-success: 159 64% 40%;
+  --semantic-warning: 38 92% 42%;
+  --semantic-danger: 0 72% 46%;
+  --semantic-neutral: 240 5% 45%;
+  --semantic-info: 199 89% 42%;
   --font-sans: "Avenir Next", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -153,6 +158,11 @@
   --warning-foreground: 35 100% 12%;
   --danger: 0 70% 50%;
   --danger-foreground: 0 0% 98%;
+  --semantic-success: 158 64% 52%;
+  --semantic-warning: 43 96% 56%;
+  --semantic-danger: 0 91% 71%;
+  --semantic-neutral: 240 5% 65%;
+  --semantic-info: 199 89% 60%;
   --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 0% / 0);
   --shadow-xs: 0px 2px 0px 0px hsl(0 0% 0% / 0);
   --shadow-sm: 0px 2px 0px 0px hsl(0 0% 0% / 0), 0px 1px 2px -1px hsl(0 0% 0% / 0);

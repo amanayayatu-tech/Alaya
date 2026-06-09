@@ -13,7 +13,7 @@ const { schedulerTickProject, gateBudgetForProject } = await import("../alaya-ap
 const { detectGoalRepetition } = await import("../alaya-app/server/stallGuard.ts");
 
 const projectId = "proj_long_evolution_e2e";
-const TOTAL_CYCLES = 20;
+const TOTAL_CYCLES = 24;
 
 function createProject() {
   storage.createProject({

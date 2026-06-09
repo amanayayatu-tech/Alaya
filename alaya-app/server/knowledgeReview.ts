@@ -345,6 +345,9 @@ export function createKnowledgeReviewReminders(projectId: string, options: Knowl
 export function resolveKnowledgeReview(reviewId: string, input: ResolveKnowledgeReviewInput): KnowledgeReviewItem {
   const review = storage.getKnowledgeReview(reviewId);
   if (!review) throw new Error(`knowledge review not found: ${reviewId}`);
+  if (review.status !== "review_required") {
+    throw new Error(`knowledge review already resolved: ${reviewId}`);
+  }
   const primary = storage.getKnowledge(review.primaryKnowledgeId);
   if (!primary) throw new Error(`knowledge not found: ${review.primaryKnowledgeId}`);
   const actor = input.actor ?? "human";

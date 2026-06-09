@@ -71,6 +71,13 @@ export default {
           DEFAULT: "hsl(var(--danger) / <alpha-value>)",
           foreground: "hsl(var(--danger-foreground) / <alpha-value>)",
         },
+        semantic: {
+          success: "hsl(var(--semantic-success) / <alpha-value>)",
+          warning: "hsl(var(--semantic-warning) / <alpha-value>)",
+          danger: "hsl(var(--semantic-danger) / <alpha-value>)",
+          neutral: "hsl(var(--semantic-neutral) / <alpha-value>)",
+          info: "hsl(var(--semantic-info) / <alpha-value>)",
+        },
         sidebar: {
           ring: "hsl(var(--sidebar-ring) / <alpha-value>)",
           DEFAULT: "hsl(var(--sidebar) / <alpha-value>)",

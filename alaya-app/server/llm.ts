@@ -213,7 +213,60 @@ function record(
   }
 }
 
+function diagnosticGateThrottleMs(): number {
+  const raw = Number(process.env.ALAYA_LLM_DIAGNOSTIC_GATE_THROTTLE_MS ?? 15 * 60 * 1000);
+  return Number.isFinite(raw) ? Math.max(0, raw) : 15 * 60 * 1000;
+}
+
+function parseObject(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function updateRecentDegradedGate(input: LlmCallInput, reason: string, timestamp: string): boolean {
+  const throttleMs = diagnosticGateThrottleMs();
+  if (throttleMs <= 0) return false;
+  const cycle = storage.getCycle(input.cycleId);
+  const gates = storage.listGates(cycle?.projectId).slice().reverse();
+  const title = `LLM 输出降级: ${input.agent}/${input.promptName}`;
+  const version = promptVersion(input.promptName);
+  const cutoff = Date.now() - throttleMs;
+
+  for (const gate of gates) {
+    if (gate.title !== title) continue;
+    const payload = parseObject(gate.payload);
+    if (payload.promptVersion !== version || payload.category !== "llm_schema_degradation") continue;
+    const lastSeenAt = typeof payload.lastSeenAt === "string"
+      ? payload.lastSeenAt
+      : typeof payload.createdAt === "string"
+        ? payload.createdAt
+        : "";
+    const lastSeenMs = Date.parse(lastSeenAt);
+    if (Number.isFinite(lastSeenMs) && lastSeenMs < cutoff) continue;
+    if (!Number.isFinite(lastSeenMs) && gate.status !== "pending") continue;
+    const suppressedCount = typeof payload.suppressedCount === "number" && Number.isFinite(payload.suppressedCount)
+      ? payload.suppressedCount
+      : 0;
+    storage.updateGate(gate.id, {
+      payload: JSON.stringify({
+        ...payload,
+        lastReason: redactSensitiveText(reason),
+        lastSeenAt: timestamp,
+        suppressedCount: suppressedCount + 1,
+      }),
+    });
+    return true;
+  }
+  return false;
+}
+
 function createDegradedGate(input: LlmCallInput, reason: string) {
+  const timestamp = now();
+  if (updateRecentDegradedGate(input, reason, timestamp)) return;
   const id = `gate_llm_${input.agent}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
   storage.createGate({
     id,
@@ -221,7 +274,16 @@ function createDegradedGate(input: LlmCallInput, reason: string) {
     type: "meaning",
     blocking: 0,
     title: `LLM 输出降级: ${input.agent}/${input.promptName}`,
-    payload: JSON.stringify({ reason: redactSensitiveText(reason), promptVersion: promptVersion(input.promptName) }),
+    payload: JSON.stringify({
+      source: "system_diagnostic",
+      category: "llm_schema_degradation",
+      topicKey: "llm_schema_degradation",
+      reason: redactSensitiveText(reason),
+      promptVersion: promptVersion(input.promptName),
+      createdAt: timestamp,
+      lastSeenAt: timestamp,
+      suppressedCount: 0,
+    }),
     status: "pending",
     estimatedMinutes: 5,
     decision: null,

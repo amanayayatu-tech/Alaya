@@ -146,6 +146,36 @@ test("review resolution quarantines candidate and writes action ledger/trace", (
   assert.ok(storage.listTraceEventsByProject(projectId).map(parseTraceEvent).some((trace) => trace.name === "knowledge_review_resolved"));
 });
 
+test("resolved reviews cannot be resolved again or rewrite prior resolution", () => {
+  const projectId = "proj_review_resolution_once";
+  project(projectId);
+  knowledge(projectId, "kb_once_strong", { status: "strong", content: "activation_rate >= 0.4", confidenceScore: 0.9 });
+  knowledge(projectId, "kb_once_candidate", { status: "active", content: "activation_rate <= 0.2", confidenceScore: 0.7 });
+  detectKnowledgeConflicts(projectId);
+  const review = storage.listKnowledgeReviews(projectId).find((item) => item.primaryKnowledgeId === "kb_once_candidate");
+  assert.ok(review);
+
+  resolveKnowledgeReview(review.id, {
+    action: "merge_supersede",
+    actor: "human",
+    survivorKnowledgeId: "kb_once_strong",
+    rationale: "keep stronger prior evidence",
+  });
+  const firstResolution = storage.getKnowledgeReview(review.id)?.resolution;
+  const firstLedgerCount = storage.listActionLedger(projectId).filter((row) => row.actionType.startsWith("knowledge_review.")).length;
+
+  assert.throws(
+    () => resolveKnowledgeReview(review.id, { action: "quarantine", actor: "human", rationale: "late duplicate click" }),
+    /knowledge review already resolved/,
+  );
+
+  const resolved = storage.getKnowledgeReview(review.id);
+  assert.equal(resolved?.resolution, firstResolution);
+  assert.equal(storage.getKnowledge("kb_once_candidate")?.status, "deprecated");
+  assert.equal(storage.getKnowledge("kb_once_candidate")?.supersededBy, "kb_once_strong");
+  assert.equal(storage.listActionLedger(projectId).filter((row) => row.actionType.startsWith("knowledge_review.")).length, firstLedgerCount);
+});
+
 test("approve_as_current preserves strong status on review reminders", () => {
   const projectId = "proj_review_strong_current";
   project(projectId);

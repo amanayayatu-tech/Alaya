@@ -1,5 +1,6 @@
 export type AlayaEventType =
   | "gate_opened"
+  | "gate_resolved"
   | "safety_mode"
   | "llm_budget_exceeded"
   | "cycle_completed"

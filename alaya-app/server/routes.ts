@@ -15,12 +15,21 @@ import { createProjectFromOnboarding } from "./onboarding";
 import { updateProjectConfig } from "./projectConfig";
 import { HumanGateService, type GateDecisionAction } from "./humanGateService";
 import { runFullCycle, scenarioForCycle } from "./flywheel";
-import { gateBudgetForProject, llmBudgetForProject, schedulerTickAllProjects, schedulerTickProject } from "./scheduler";
+import {
+  gateBudgetForProject,
+  gateWebUrl,
+  getNotificationBus,
+  llmBudgetForProject,
+  notificationBaseUrl,
+  schedulerTickAllProjects,
+  schedulerTickProject,
+} from "./scheduler";
 import { ingestFormFeedback, syncConfiguredFeedbackForProject, syncGithubIssuesForSource, upsertGithubSource } from "./externalFeedback";
 import { seedDemo } from "./seed";
 import { buildFlywheelHealth } from "./flywheelHealth";
 import { parseTraceEvent } from "./trace";
 import { detectKnowledgeConflicts, createKnowledgeReviewReminders, resolveKnowledgeReview } from "./knowledgeReview";
+import { formatGateDecisionReceiptText, formatGateDecisionRequestText, knowledgeIdForMeaningGate } from "./notifications/gateNarrative";
 import { CodexCliBuilderAdapter } from "./builderAdapter";
 import { runProviderCanary } from "./providerCanary";
 import { buildOpsMetrics } from "./opsMetrics";
@@ -391,6 +400,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         text: String(req.body?.text ?? ""),
         url: req.body?.url == null ? undefined : String(req.body.url),
       });
+      if (result.gate?.status === "pending") {
+        void getNotificationBus()
+          .then((bus) => {
+            if (!bus || !result.gate) return;
+            return bus.emit({
+              type: "gate_opened",
+              projectId: project.id,
+              title: `意义闸待处理 — ${project.id}`,
+              body: formatGateDecisionRequestText(result.gate, { projectId: project.id }),
+              gateId: result.gate.id,
+              gateType: result.gate.type as "meaning",
+              isBlocking: result.gate.blocking === 1,
+              actionUrl: gateWebUrl(notificationBaseUrl(), project.id, result.gate.id),
+              meta: { source: "form_feedback" },
+            });
+          })
+          .catch((error) => {
+            console.error("[routes] form feedback gate notification failed:", error instanceof Error ? error.message : String(error));
+          });
+      }
       res.json({
         ...result,
         source: parseJsonFields(result.source, ["config"]),
@@ -588,22 +617,89 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   const humanGateService = new HumanGateService(storage);
   app.get("/api/human-gates", (req, res) => {
     const projectId = req.query.projectId as string | undefined;
-    res.json(storage.listGates(projectId).map((g) => parseJsonFields(g, ["payload"])));
+    const status = typeof req.query.status === "string" ? req.query.status : undefined;
+    const type = typeof req.query.type === "string" ? req.query.type : undefined;
+    const gates = storage
+      .listGates(projectId)
+      .filter((gate) => !status || gate.status === status)
+      .filter((gate) => !type || gate.type === type)
+      .map((g) => parseJsonFields(g, ["payload"]));
+    if (req.query.summary === "true") {
+      return res.json({
+        items: gates,
+        total: gates.length,
+        pendingCount: gates.filter((gate) => gate.status === "pending").length,
+      });
+    }
+    res.json(gates);
   });
   app.get("/api/human-gates/:id", (req, res) => {
     const g = storage.getGate(req.params.id);
     if (!g) return res.status(404).json({ message: "not found" });
     res.json(parseJsonFields(g, ["payload"]));
   });
+
+  function emitGateResolutionReceipt(gate: NonNullable<ReturnType<typeof storage.getGate>>, action: GateDecisionAction, context: {
+    dryRun: boolean;
+    rationale?: string;
+    via: string;
+  }) {
+    if (action === "modify") return;
+    const projectId = storage.getCycle(gate.cycleId)?.projectId ?? "system";
+    void getNotificationBus()
+      .then((bus) => {
+        if (!bus) return;
+        const pendingGatesAfter = storage.listGates(projectId).filter((item) => item.status === "pending").length;
+        const openConflictReviewsAfter = storage
+          .listKnowledgeReviews(projectId)
+          .filter((review) => review.reviewType === "conflict" && review.status === "review_required")
+          .length;
+        const label = action === "approve" ? "已批准" : "已否决";
+        return bus.emit({
+          type: "gate_resolved",
+          projectId,
+          title: `${label} — ${gate.title}`,
+          body: formatGateDecisionReceiptText(gate, {
+            action,
+            dryRun: context.dryRun,
+            via: context.via,
+            decidedAt: new Date(),
+            pendingGatesAfter,
+            openConflictReviewsAfter,
+            knowledgeId: action === "approve" && gate.type === "meaning" ? knowledgeIdForMeaningGate(gate.id) : null,
+            projectId,
+            rationale: context.rationale,
+          }),
+          gateId: gate.id,
+          gateType: gate.type as "direction" | "meaning" | "risk",
+          isBlocking: gate.blocking === 1,
+          actionUrl: gateWebUrl(notificationBaseUrl(), projectId, gate.id),
+          meta: { source: "api_human_gate_resolution" },
+        });
+      })
+      .catch((error) => {
+        console.error("[routes] gate resolution receipt failed:", error instanceof Error ? error.message : String(error));
+      });
+  }
+
   function resolveGate(req: Request, res: Response, action: GateDecisionAction) {
     const parsed = gateDecisionSchema.safeParse(req.body ?? {});
     if (!parsed.success) return validationError(res, parsed.error);
     try {
+      const gateBefore = storage.getGate(String(req.params.id));
+      const wasPending = gateBefore?.status === "pending";
       const result = humanGateService.resolve(String(req.params.id), action, {
         rationale: parsed.data.rationale,
         via: "web",
         actor: "human",
       });
+      if (wasPending) {
+        emitGateResolutionReceipt(result.gate, action, {
+          dryRun: result.dryRun,
+          rationale: parsed.data.rationale,
+          via: "Web/API",
+        });
+      }
       if (result.dryRun) {
         return res.status(202).json({
           status: "dry_run",
@@ -669,7 +765,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/knowledge", (req, res) => {
     const projectId = req.query.projectId as string;
     if (!projectId) return res.json([]);
-    res.json(storage.listKnowledge(projectId).map((k) => parseJsonFields(k, ["tags"])));
+    const status = typeof req.query.status === "string" ? req.query.status : undefined;
+    const knowledge = storage
+      .listKnowledge(projectId)
+      .filter((item) => !status || item.status === status)
+      .map((k) => parseJsonFields(k, ["tags"]));
+    if (req.query.summary === "true") {
+      return res.json({ items: knowledge, total: knowledge.length });
+    }
+    res.json(knowledge);
   });
   app.get("/api/knowledge/:id", (req, res) => {
     const k = storage.getKnowledge(req.params.id);
@@ -736,7 +840,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/projects/:id/knowledge-reviews", (req, res) => {
     const project = storage.getProject(req.params.id);
     if (!project) return res.status(404).json({ message: "not found" });
-    res.json(storage.listKnowledgeReviews(project.id).map((review) => parseJsonFields(review, ["evidence", "resolution"])));
+    const rawStatus = typeof req.query.status === "string" ? req.query.status : undefined;
+    const status = rawStatus === "pending" || rawStatus === "open" ? "review_required" : rawStatus;
+    const reviewType = typeof req.query.reviewType === "string" ? req.query.reviewType : undefined;
+    const reviews = storage
+      .listKnowledgeReviews(project.id)
+      .filter((review) => !status || status === "all" || review.status === status)
+      .filter((review) => !reviewType || review.reviewType === reviewType)
+      .map((review) => parseJsonFields(review, ["evidence", "resolution"]));
+    if (req.query.summary === "true") {
+      return res.json({
+        items: reviews,
+        total: reviews.length,
+        reviewRequiredCount: reviews.filter((review) => review.status === "review_required").length,
+      });
+    }
+    res.json(reviews);
   });
   app.post("/api/projects/:id/knowledge/conflicts/scan", (req, res) => {
     const project = storage.getProject(req.params.id);
@@ -760,10 +879,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const parsed = knowledgeReviewResolveSchema.safeParse(req.body ?? {});
     if (!parsed.success) return validationError(res, parsed.error);
     try {
+      const reviewGateBefore = storage.getGate(`gate_${req.params.id}`);
+      const wasPending = reviewGateBefore?.status === "pending";
       const review = resolveKnowledgeReview(req.params.id, { ...parsed.data, actor: "human" });
+      const reviewGateAfter = storage.getGate(`gate_${req.params.id}`);
+      if (wasPending && reviewGateAfter) {
+        emitGateResolutionReceipt(reviewGateAfter, "approve", {
+          dryRun: false,
+          rationale: `知识冲突复核已处理：${parsed.data.action}。${parsed.data.rationale}`.trim(),
+          via: "Web/API",
+        });
+      }
       res.json(parseJsonFields(review, ["evidence", "resolution"]));
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("knowledge review not found:")) return res.status(404).json({ message: "not found" });
+      if (error instanceof Error && error.message.startsWith("knowledge review already resolved:")) return res.status(409).json({ message: "already resolved" });
       throw error;
     }
   });
@@ -777,6 +907,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ---------------- agents ----------------
   app.get("/api/projects/:id/agents", (req, res) => {
     res.json(storage.listAgents(req.params.id));
+  });
+  app.get("/api/projects/:id/agent-runs", (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    const cycleIds = new Set(storage.listCycles(project.id).map((cycle) => cycle.id));
+    const runs = storage
+      .listAgentRuns()
+      .filter((run) => cycleIds.has(run.cycleId))
+      .map((run) => parseJsonFields(run, ["knowledgeRefsUsed"]));
+    res.json(runs);
   });
   app.get("/api/cycles/:id/agent-runs", (req, res) => {
     res.json(storage.listAgentRuns(req.params.id).map((r) => parseJsonFields(r, ["knowledgeRefsUsed"])));
@@ -810,6 +950,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ---------------- diagnostics ----------------
   app.get("/api/llm-calls", (_req, res) => res.json(storage.listLlmCalls()));
+  app.get("/api/projects/:id/llm-calls", (req, res) => {
+    const project = storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "not found" });
+    const cycleIds = new Set(storage.listCycles(project.id).map((cycle) => cycle.id));
+    res.json(storage.listLlmCalls().filter((call) => cycleIds.has(call.cycleId)));
+  });
   app.get("/api/llm-calls/latency", (_req, res) => {
     const snapshot = buildMetricsSnapshot();
     res.json(snapshot.perAgentLatency);

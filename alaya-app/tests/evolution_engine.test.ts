@@ -18,6 +18,7 @@ const {
 } = await import("../server/stallGuard.ts");
 const { buildNextGoalInput, runFullCycle, runLibrarian, SCENARIO } = await import("../server/flywheel.ts");
 const { schedulerTickProject } = await import("../server/scheduler.ts");
+const { HumanGateService } = await import("../server/humanGateService.ts");
 const { eligibleForHighRisk } = await import("../shared/core/transition_state.ts");
 
 function createProject(projectId: string, currentCycleIdx = 1) {
@@ -149,6 +150,93 @@ test("autonomousGoal is deterministic, references eligible knowledge and avoids 
   const recovered = await generateNextGoal({ ...input, rejectedGoals: [first.proposedGoal] }, repeatedLlm as any);
   assert.notEqual(recovered.proposedGoal, first.proposedGoal);
   assert.ok(!recovered.referencedKnowledgeIds.includes("kb_goal_dirty"));
+});
+
+test("autonomousGoal still calls LLM after deterministic themes are exhausted", async () => {
+  const projectId = "proj_auto_goal_exhausted_a102";
+  createProject(projectId);
+  const cycle = createCycle(projectId, 51);
+  createKnowledge(projectId, "kb_goal_exhausted", { status: "strong", humanApprovedCount: 1 });
+  const input = buildNextGoalInput(projectId, 51, cycle.id);
+  const rejectedGoals: string[] = [];
+
+  for (let i = 0; i < 18; i += 1) {
+    const draft = await generateNextGoal({ ...input, cycleIndex: 5 + i, rejectedGoals });
+    rejectedGoals.push(draft.proposedGoal);
+  }
+
+  let called = false;
+  const llmDraft = async () => {
+    called = true;
+    return {
+      proposedGoal: "验证医疗证据链的人审恢复路径",
+      belief: "知识库显示高风险决策需要把人工复核结果转成可引用证据。",
+      prediction: {
+        statement: "medical_review_recovery_rate >= 0.86",
+        metric: "medical_review_recovery_rate",
+        operator: ">=",
+        target: 0.86,
+      },
+      action: "把人工复核后的医疗证据链写入下一轮可引用目标生成上下文",
+      alternativeGoals: ["只记录审批结果", "跳过复核继续执行"],
+      referencedKnowledgeIds: ["kb_goal_exhausted"],
+      reasoningHowKnowledgeChangedDecision: "引用 kb_goal_exhausted: 人工复核结果必须转成下一轮可引用证据, 所以本轮验证批准后的恢复路径。",
+    };
+  };
+
+  const recovered = await generateNextGoal({ ...input, rejectedGoals }, llmDraft as any);
+  assert.equal(called, true);
+  assert.equal(recovered.proposedGoal, "验证医疗证据链的人审恢复路径");
+  assert.deepEqual(recovered.referencedKnowledgeIds, ["kb_goal_exhausted"]);
+});
+
+test("autonomousGoal creates recovery draft when LLM and fallback goals repeat", async () => {
+  const projectId = "proj_auto_goal_recovery_a103";
+  createProject(projectId);
+  const cycle = createCycle(projectId, 30);
+  createKnowledge(projectId, "kb_goal_recovery", { status: "strong", humanApprovedCount: 1 });
+  const input = buildNextGoalInput(projectId, 30, cycle.id);
+  const rejectedGoals = [
+    "把可回滚审计扩展到批量发布前检查",
+    "为团队协作审批添加差异预览和 owner 确认",
+    "把高风险动作审计摘要接入每周复盘报告",
+    "为外部反馈建立自动风险标签和人工复核队列",
+    "为删除类动作增加可撤销保留期和审计导出",
+    "把 dry-run 预览迁移到权限变更流程",
+    "建立高风险任务的最小可执行审计模板",
+    "对重复低价值人工闸做合并建议",
+    "为高风险自动化输出用户可理解的影响摘要",
+    "把回滚触发条件变成可计算指标",
+    "对沉淀知识做近义合并和来源保全",
+    "为强知识冲突建立人工裁决入口",
+    "把高风险知识检索默认排除 stale 和 superseded",
+    "为长期飞轮输出停滞证据摘要",
+    "把用户恐惧反馈映射为可验证产品约束",
+    "为下一轮行动生成反事实备选和拒绝记录",
+    "验证审计摘要能否帮助 owner 降低复盘时间",
+    "为高风险动作建立执行前知识引用证明",
+    "把重复反馈自动合并后的抽样复核变成指标（第30轮·批次3）",
+  ];
+  const repeatedLlm = async () => ({
+    proposedGoal: "把重复反馈自动合并后的抽样复核变成指标（第30轮·批次3）",
+    belief: "重复模板",
+    prediction: {
+      statement: "merged_gate_sample_accuracy >= 0.79",
+      metric: "merged_gate_sample_accuracy",
+      operator: ">=",
+      target: 0.79,
+    },
+    action: "重复模板",
+    alternativeGoals: [],
+    referencedKnowledgeIds: ["kb_goal_recovery"],
+    reasoningHowKnowledgeChangedDecision: "引用 kb_goal_recovery: 重复模板应该被恢复路径替换。",
+  });
+
+  const recovered = await generateNextGoal({ ...input, rejectedGoals }, repeatedLlm as any);
+  assert.equal(detectGoalRepetition(recovered.proposedGoal, rejectedGoals), false);
+  assert.match(recovered.proposedGoal, /C30|第30轮/);
+  assert.deepEqual(recovered.referencedKnowledgeIds, ["kb_goal_recovery"]);
+  assert.match(recovered.reasoningHowKnowledgeChangedDecision, /kb_goal_recovery/);
 });
 
 test("stallGuard detectors catch stagnation, repetition, maturation stall and explosion", () => {
@@ -313,4 +401,13 @@ test("scheduler stops honestly with evolution_stalled risk gate when errors do n
   const gate = storage.listGates(projectId).find((item) => item.type === "risk" && item.blocking === 1);
   assert.ok(gate);
   assert.equal(JSON.parse(gate.payload).riskKey, "evolution_stalled");
+
+  new HumanGateService(storage).approve(gate.id, {
+    via: "test",
+    actor: "human_test",
+    rationale: "acknowledge stall risk and allow one recovery cycle",
+  });
+  const resumed = await schedulerTickProject(projectId);
+  assert.equal(resumed.action, "created_next_cycle");
+  assert.equal(storage.listCycles(projectId).some((cycle) => cycle.idx === 5), true);
 });

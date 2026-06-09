@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Check, ClipboardCheck, Compass, HeartHandshake, Pencil, ShieldAlert, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useProject } from "@/components/Layout";
+import { useLocationParam } from "@/lib/hashLocation";
 import {
   BudgetRing,
   EmptyState,
@@ -58,6 +59,7 @@ const iconForGate: Record<string, typeof Compass> = {
 export default function Gates() {
   const { projectId } = useProject();
   const { toast } = useToast();
+  const linkedGateId = useLocationParam("gate");
   const [filter, setFilter] = useState<string>("pending");
   const [dialog, setDialog] = useState<{ gate: HumanGate; action: GateAction } | null>(null);
   const [rationale, setRationale] = useState("");
@@ -95,12 +97,26 @@ export default function Gates() {
   }, [gates]);
 
   const filtered = ordered.filter((gate) => {
-    if (filter === "all") return true;
-    if (filter === "pending") return gate.status === "pending";
-    if (filter === "blocking") return gate.status === "pending" && gate.blocking === 1;
-    if (filter === "resolved") return gate.status !== "pending";
-    return gate.type === filter;
+    return gateMatchesFilter(gate, filter);
   });
+
+  const linkedGate = linkedGateId ? gates.find((gate) => gate.id === linkedGateId) : null;
+  const linkedGateMissing = !!linkedGateId && !isLoading && gates.length > 0 && !linkedGate;
+
+  useEffect(() => {
+    if (!linkedGate) return;
+    if (gateMatchesFilter(linkedGate, filter)) return;
+    setFilter(linkedGate.status === "pending" ? "pending" : "resolved");
+  }, [filter, linkedGate]);
+
+  useEffect(() => {
+    if (!linkedGateId || !linkedGate) return;
+    const timer = window.setTimeout(() => {
+      const escaped = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(linkedGateId) : linkedGateId.replace(/"/g, '\\"');
+      document.querySelector(`[data-gate-id="${escaped}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [filtered.length, linkedGate, linkedGateId]);
 
   async function confirmAction() {
     if (!dialog) return;
@@ -199,6 +215,18 @@ export default function Gates() {
         </InlineNotice>
       )}
 
+      {linkedGate && (
+        <InlineNotice tone={linkedGate.status === "pending" ? "warning" : "success"}>
+          正在查看 Telegram 链接中的闸门：{linkedGate.title}（{linkedGate.id}）。
+        </InlineNotice>
+      )}
+
+      {linkedGateMissing && (
+        <InlineNotice tone="warning">
+          链接中的闸门未在当前项目列表中找到：{linkedGateId}。请确认链接携带的 projectId 与当前项目一致。
+        </InlineNotice>
+      )}
+
       <SectionCard title="闸门列表" description="每张卡片只展示做决定需要的信息，更多 payload 细节收在摘要中。">
         {filtered.length === 0 ? (
           <EmptyState title="没有符合条件的闸门" description="如果飞轮正在等待反馈窗口，下一次调度后可能会产生新的方向或意义闸。" illustrated />
@@ -208,6 +236,7 @@ export default function Gates() {
               <GateCard
                 key={gate.id}
                 gate={gate}
+                selected={gate.id === linkedGateId}
                 onAction={(action) => {
                   setDialog({ gate, action });
                   setRationale("");
@@ -258,7 +287,15 @@ function SummaryLine({ label, value, tone }: { label: string; value: string; ton
   );
 }
 
-function GateCard({ gate, onAction }: { gate: HumanGate; onAction: (action: GateAction) => void }) {
+function gateMatchesFilter(gate: HumanGate, filter: string): boolean {
+  if (filter === "all") return true;
+  if (filter === "pending") return gate.status === "pending";
+  if (filter === "blocking") return gate.status === "pending" && gate.blocking === 1;
+  if (filter === "resolved") return gate.status !== "pending";
+  return gate.type === filter;
+}
+
+function GateCard({ gate, selected, onAction }: { gate: HumanGate; selected: boolean; onAction: (action: GateAction) => void }) {
   const type = metaFor(gateTypeLabels, gate.type);
   const status = metaFor(gateStatusLabels, gate.status);
   const Icon = iconForGate[gate.type] ?? Compass;
@@ -267,7 +304,13 @@ function GateCard({ gate, onAction }: { gate: HumanGate; onAction: (action: Gate
   const isPending = gate.status === "pending";
 
   return (
-    <article className="grid gap-3 px-4 py-4 md:grid-cols-[2.2rem_1fr_auto]" data-testid={`gate-${gate.id}`}>
+    <article
+      className={`grid scroll-mt-6 gap-3 px-4 py-4 transition-colors md:grid-cols-[2.2rem_1fr_auto] ${
+        selected ? "bg-primary/5 ring-1 ring-inset ring-primary/35" : ""
+      }`}
+      data-testid={`gate-${gate.id}`}
+      data-gate-id={gate.id}
+    >
       <div className={`flex h-9 w-9 items-center justify-center rounded-lg border ${toneClasses(type.tone)}`}>
         <Icon className="h-4 w-4" />
       </div>

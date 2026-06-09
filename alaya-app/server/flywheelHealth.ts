@@ -42,6 +42,8 @@ export type FlywheelHealth = {
   };
   compoundingProof: {
     round1vs4KnowledgeDelta: number;
+    round1vs4StaticKnowledgeDelta?: number;
+    round1vsCurrentKnowledgeDelta?: number;
     principleNoveltyRate: number;
     injectionEffectiveness: number;
   };
@@ -60,6 +62,8 @@ function emptyHealth(): FlywheelHealth {
     },
     compoundingProof: {
       round1vs4KnowledgeDelta: 0,
+      round1vs4StaticKnowledgeDelta: 0,
+      round1vsCurrentKnowledgeDelta: 0,
       principleNoveltyRate: 0,
       injectionEffectiveness: 0,
     },
@@ -171,6 +175,11 @@ function roundKnowledgeDelta(knowledge: KnowledgeItem[]): number {
   return Math.max(0, round4 - round1);
 }
 
+function currentKnowledgeDeltaFromRound1(knowledge: KnowledgeItem[]): number {
+  const round1 = knowledge.filter((item) => item.createdByCycle <= 1).length;
+  return Math.max(0, knowledge.length - round1);
+}
+
 function principleNoveltyRate(knowledge: KnowledgeItem[]): number {
   const principles = knowledge.filter((item) => item.type === "principle");
   if (principles.length === 0) return 0;
@@ -226,7 +235,9 @@ export function buildFlywheelHealth(projectId: string | undefined): FlywheelHeal
       totalEvidenceCount: +knowledge.reduce((sum, item) => sum + knowledgeEvidence(item), 0).toFixed(3),
     },
     compoundingProof: {
-      round1vs4KnowledgeDelta: roundKnowledgeDelta(knowledge),
+      round1vs4KnowledgeDelta: currentKnowledgeDeltaFromRound1(knowledge),
+      round1vs4StaticKnowledgeDelta: roundKnowledgeDelta(knowledge),
+      round1vsCurrentKnowledgeDelta: currentKnowledgeDeltaFromRound1(knowledge),
       principleNoveltyRate: principleNoveltyRate(knowledge),
       injectionEffectiveness: injectionEffectiveness(projectId, events),
     },

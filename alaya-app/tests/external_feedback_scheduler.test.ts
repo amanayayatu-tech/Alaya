@@ -23,12 +23,14 @@ const {
   runDistiller,
   runOperationalStagesAfterApprovedDirection,
   runOrchestrator,
+  runSensor,
 } = await import("../server/flywheel.ts");
 const { callLlm } = await import("../server/llm.ts");
 const { createProjectFromOnboarding } = await import("../server/onboarding.ts");
 const { updateProjectConfig } = await import("../server/projectConfig.ts");
 
 function createProject(projectId: string) {
+  const cycleIdSuffix = projectId.replace(/[^a-zA-Z0-9_]+/g, "_").slice(-80);
   storage.createProject({
     id: projectId,
     name: `Test ${projectId}`,
@@ -46,7 +48,7 @@ function createProject(projectId: string) {
     version: 1,
   });
   storage.createCycle({
-    id: `cycle_1_${projectId.slice(-4)}`,
+    id: `cycle_1_${cycleIdSuffix}`,
     projectId,
     idx: 1,
     goal: "Validate GitHub issue ingestion",
@@ -1559,6 +1561,111 @@ test("repeated high-approval meaning gates auto-approve without spending human b
   assert.equal(samplePayload.sampleReview, true);
 });
 
+test("repeated meaning gates with explicit contradiction markers are not auto-approved", () => {
+  const projectId = "proj_auto_conflict_576";
+  createProject(projectId);
+  const cycle = storage.listCycles(projectId)[0];
+  const topicKey = "bom";
+
+  for (let i = 1; i <= 10; i++) {
+    storage.createGate({
+      id: `gate_auto_conflict_human_${projectId}_${i}`,
+      cycleId: cycle.id,
+      type: "meaning",
+      blocking: 0,
+      title: `历史 BOM 意义闸 ${i}`,
+      payload: JSON.stringify({ topicKey, userQuote: `approved bom ${i}`, createdAt: now() }),
+      status: "pending",
+      estimatedMinutes: 8,
+      decision: null,
+      version: 1,
+    });
+    storage.updateGate(`gate_auto_conflict_human_${projectId}_${i}`, { status: "approved", decision: "approve" });
+  }
+
+  storage.createGate({
+    id: `gate_auto_conflict_pending_${projectId}`,
+    cycleId: cycle.id,
+    type: "meaning",
+    blocking: 0,
+    title: "混合方案反证：BOM 与认证复杂度过高",
+    payload: JSON.stringify({
+      topicKey,
+      userQuote: "明确冲突：该结论与混合方案推荐互相矛盾，不能同时作为 active 知识复用。",
+      createdAt: now(),
+    }),
+    status: "pending",
+    estimatedMinutes: 8,
+    decision: null,
+    version: 1,
+  });
+
+  const budget = executeGateBudget(projectId);
+  const gate = storage.getGate(`gate_auto_conflict_pending_${projectId}`);
+  assert.equal(gate?.status, "pending");
+  assert.equal(gate?.decision, null);
+  assert.equal(gate?.estimatedMinutes, 8);
+  assert.equal(budget.pendingNonBlocking, 1);
+  const payload = JSON.parse(gate?.payload ?? "{}");
+  assert.equal(payload.sampleReview, true);
+  assert.match(payload.sampleReviewReason, /Explicit contradiction/);
+});
+
+test("repeated meaning gates ignore contradiction-runner source metadata when checking conflict markers", () => {
+  const projectId = "proj_auto_source_577";
+  createProject(projectId);
+  const cycle = storage.listCycles(projectId)[0];
+  const topicKey = "ppg";
+
+  for (let i = 1; i <= 10; i++) {
+    storage.createGate({
+      id: `gate_auto_source_human_${projectId}_${i}`,
+      cycleId: cycle.id,
+      type: "meaning",
+      blocking: 0,
+      title: `历史 PPG 意义闸 ${i}`,
+      payload: JSON.stringify({ topicKey, userQuote: `approved ppg ${i}`, createdAt: now() }),
+      status: "pending",
+      estimatedMinutes: 8,
+      decision: null,
+      version: 1,
+    });
+    storage.updateGate(`gate_auto_source_human_${projectId}_${i}`, { status: "approved", decision: "approve" });
+  }
+
+  storage.createGate({
+    id: `gate_auto_source_pending_${projectId}`,
+    cycleId: cycle.id,
+    type: "meaning",
+    blocking: 0,
+    title: "PPG 优先证据：成本与续航匹配",
+    payload: JSON.stringify({
+      topicKey,
+      userQuote: [
+        "Form Feedback (health-signal-contradiction-runner sample_0133_ppg_support): PPG 优先证据：成本与续航匹配",
+        "",
+        "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低，更容易满足 ¥899 定价与 7 天续航。",
+        "ppg_priority_score >= 0.78。",
+        "当前最优选型决策：优先 PPG，置信度 0.64。",
+      ].join("\n"),
+      createdAt: now(),
+    }),
+    status: "pending",
+    estimatedMinutes: 8,
+    decision: null,
+    version: 1,
+  });
+
+  const budget = executeGateBudget(projectId);
+  const gate = storage.getGate(`gate_auto_source_pending_${projectId}`);
+  assert.equal(gate?.status, "approved");
+  assert.equal(gate?.decision, `auto_approved_repeated_meaning:${topicKey}`);
+  assert.equal(gate?.estimatedMinutes, 0);
+  assert.equal(budget.pendingNonBlocking, 0);
+  const payload = JSON.parse(gate?.payload ?? "{}");
+  assert.equal(payload.sampleReview, false);
+});
+
 test("scheduler pauses after repeated builder task specs misdirect external tools", async () => {
   const projectId = "proj_builder_mis_447";
   createProject(projectId);
@@ -1779,6 +1886,22 @@ test("orchestrator reuses an existing deterministic direction gate on repeated t
   assert.equal(updatedCycle?.goal, first.goal);
   assert.equal(gates.length, 1);
   assert.equal(llmCalls, 1);
+});
+
+test("sensor stage is idempotent when a cycle is resumed after partial feedback writes", async () => {
+  const projectId = "proj_sensor_resume_idempotent";
+  createProject(projectId);
+  const cycle = storage.listCycles(projectId)[0];
+  const scenario = SCENARIO[0];
+
+  await runSensor(projectId, cycle.id, scenario);
+  await runSensor(projectId, cycle.id, scenario);
+
+  assert.equal(storage.listFeedback(cycle.id).length, scenario.feedback.length);
+  assert.equal(
+    storage.listGates(projectId).filter((gate) => gate.cycleId === cycle.id && gate.type === "meaning").length,
+    scenario.feedback.filter((feedback) => feedback.category === "unclear_signal").length,
+  );
 });
 
 test("LLM onboarding seed preserves machine-readable interview fields", async () => {

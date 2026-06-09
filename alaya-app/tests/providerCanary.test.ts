@@ -12,6 +12,7 @@ const { storage } = await import("../server/storage.ts");
 const { classifyLlmFailure, getLlmRetryPolicy, callLlm } = await import("../server/llm.ts");
 const { runProviderCanary } = await import("../server/providerCanary.ts");
 const { buildMetricsSnapshot } = await import("../server/observability/metrics.ts");
+const { HumanGateService } = await import("../server/humanGateService.ts");
 
 storage.createProject({
   id: "proj_canary",
@@ -158,7 +159,71 @@ test("fallback on invalid schema creates a human meaning gate and does not bypas
   const call = storage.listLlmCalls().at(-1);
   assert.equal(call?.schemaValid, 0);
   assert.equal(call?.llmFailureType, "schema_error");
-  assert.ok(storage.listGates("proj_canary").some((gate) => gate.type === "meaning" && gate.status === "pending" && /LLM 输出降级/.test(gate.title)));
+  const gate = storage
+    .listGates("proj_canary")
+    .find((item) => item.type === "meaning" && item.status === "pending" && /LLM 输出降级/.test(item.title));
+  assert.ok(gate);
+  assert.equal(JSON.parse(gate.payload).source, "system_diagnostic");
+});
+
+test("approved LLM degradation gates remain diagnostics and do not materialize product knowledge", async () => {
+  await callLlm({
+    cycleId: "cycle_canary",
+    agent: "orchestrator",
+    promptName: "diagnostic_gate_schema",
+    inputSummary: "diagnostic gate should not become knowledge",
+    mockOutput: { wrong: "shape" },
+    schema: {
+      type: "object",
+      required: ["summary"],
+      additionalProperties: true,
+      properties: { summary: { type: "string" } },
+    },
+  });
+
+  const gate = storage
+    .listGates("proj_canary")
+    .find((item) => item.status === "pending" && /diagnostic_gate_schema/.test(item.payload));
+  assert.ok(gate);
+  const knowledgeCountBefore = storage.listKnowledge("proj_canary").length;
+
+  new HumanGateService(storage).approve(gate.id, { actor: "human", via: "test" });
+
+  assert.equal(storage.getGate(gate.id)?.status, "approved");
+  assert.equal(storage.listKnowledge("proj_canary").length, knowledgeCountBefore);
+  assert.equal(storage.listKnowledgeReviews("proj_canary").some((review) => review.primaryKnowledgeId.includes(gate.id)), false);
+});
+
+test("repeated LLM degradation updates one diagnostic gate instead of spamming human queue", async () => {
+  const promptName = "diagnostic_gate_throttle";
+  const before = storage
+    .listGates("proj_canary")
+    .filter((item) => item.status === "pending" && item.title === `LLM 输出降级: orchestrator/${promptName}`).length;
+  const invalidInput = {
+    cycleId: "cycle_canary",
+    agent: "orchestrator",
+    promptName,
+    inputSummary: "diagnostic gate should be throttled",
+    mockOutput: { wrong: "shape" },
+    schema: {
+      type: "object" as const,
+      required: ["summary"],
+      additionalProperties: true,
+      properties: { summary: { type: "string" } },
+    },
+  };
+
+  await callLlm(invalidInput);
+  await callLlm(invalidInput);
+
+  const gates = storage
+    .listGates("proj_canary")
+    .filter((item) => item.status === "pending" && item.title === `LLM 输出降级: orchestrator/${promptName}`);
+  assert.equal(gates.length - before, 1);
+  const payload = JSON.parse(gates.at(-1)?.payload ?? "{}");
+  assert.equal(payload.source, "system_diagnostic");
+  assert.equal(payload.suppressedCount, 1);
+  assert.match(payload.lastReason, /mock output failed schema validation/);
 });
 
 test("per-agent latency metrics are derivable from raw llm_calls", () => {

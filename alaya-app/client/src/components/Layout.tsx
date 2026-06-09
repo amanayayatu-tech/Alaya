@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Logo } from "./Logo";
 import type { Project } from "@/lib/alaya";
+import { useLocationParam } from "@/lib/hashLocation";
 import { apiRequest, hasApiKey, onApiKeyChange, queryClient, setApiKey } from "@/lib/queryClient";
 
 // ---------- theme ----------
@@ -45,6 +46,9 @@ export function Layout({ children }: { children: ReactNode }) {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [apiKeyDraft, setApiKeyDraft] = useState("");
   const [apiKeyPresent, setApiKeyPresent] = useState(() => hasApiKey());
+  const linkedProjectIdParam = useLocationParam("projectId");
+  const legacyProjectIdParam = useLocationParam("project");
+  const linkedProjectId = linkedProjectIdParam ?? legacyProjectIdParam;
 
   const { data: projects = [] } = useQuery<Project[]>({ queryKey: ["/api/projects"] });
 
@@ -56,8 +60,12 @@ export function Layout({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (linkedProjectId && projects.some((project) => project.id === linkedProjectId)) {
+      if (projectId !== linkedProjectId) setProjectId(linkedProjectId);
+      return;
+    }
     if (!projectId && projects.length > 0) setProjectId(projects[0].id);
-  }, [projects, projectId]);
+  }, [linkedProjectId, projects, projectId]);
 
   const current = projects.find((p) => p.id === projectId);
   const saveApiKey = () => {

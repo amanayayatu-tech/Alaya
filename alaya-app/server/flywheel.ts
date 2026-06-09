@@ -925,8 +925,10 @@ export async function runSensor(projectId: string, cycleId: string, sc: Scenario
   });
 
   for (const f of sc.feedback) {
+    const feedbackId = `${f.id}_${cycleId}`;
+    if (storage.getFeedback(feedbackId)) continue;
     storage.createFeedback({
-      id: `${f.id}_${cycleId}`,
+      id: feedbackId,
       cycleId,
       text: f.text,
       category: f.category,
@@ -941,8 +943,10 @@ export async function runSensor(projectId: string, cycleId: string, sc: Scenario
   }
   // unclear -> meaning gate (merged by topic; single topic here)
   for (const u of unclear) {
+    const gateId = `gate_meaning_${sc.index}_${cycleId.slice(-8)}_${u.id}`;
+    if (storage.getGate(gateId)) continue;
     const gate = storage.createGate({
-      id: `gate_meaning_${sc.index}_${cycleId.slice(-8)}_${u.id}`,
+      id: gateId,
       cycleId, type: "meaning", blocking: 0,
       title: `模糊反馈意义闸: ${u.text.slice(0, 12)}...`,
       payload: JSON.stringify({ userQuote: u.text, mergedCount: 1, topicKey: u.text.slice(0, 18), createdAt: now() }),
@@ -961,6 +965,10 @@ export async function runSensor(projectId: string, cycleId: string, sc: Scenario
 }
 
 export async function runBuilder(cycleId: string, sc: ScenarioRound, plannedAction = sc.action, refs: string[] = [], llmCaller: LlmCaller = callLlm) {
+  const taskId = `task_build_c${sc.index}_${cycleId.slice(-8)}`;
+  const existingTask = storage.listTasks(cycleId).find((task) => task.id === taskId);
+  if (existingTask) return { buildSuccess: existingTask.status === "done" };
+
   const rollbackPlan = rollbackReadyChangePackage(sc, plannedAction);
   const auditSummary = sc.index === 4 ? auditSummaryForCycle4(refs) : undefined;
   const projectId = storage.getCycle(cycleId)?.projectId;
@@ -1014,7 +1022,7 @@ export async function runBuilder(cycleId: string, sc: ScenarioRound, plannedActi
     auditSummary,
   }) : null;
   const task = storage.createTask({
-    id: `task_build_c${sc.index}_${cycleId.slice(-8)}`, cycleId, agent: "builder", kind: "build",
+    id: taskId, cycleId, agent: "builder", kind: "build",
     status: sc.buildSuccess ? "done" : "failed",
     spec: JSON.stringify({ ...taskSpec, actionLedgerId: actionLedger?.id ?? null }),
   });
@@ -1050,6 +1058,15 @@ export function evaluatePrediction(
   };
   claim.error = computeClaimError(claim);
   const cycleErr = computeCycleError([claim]);
+  const predId = sc.index === 4 ? `pred_c4_rollback_${cycleId.slice(-8)}` : `pred_c${sc.index}_${cycleId.slice(-8)}`;
+  const existingPred = storage.getPrediction(predId);
+  if (existingPred) {
+    storage.updateCycle(cycleId, {
+      eCycle: existingPred.predictionError ?? cycleErr.eCycle,
+      worstClaimError: existingPred.worstClaimError ?? cycleErr.worstClaimError,
+    });
+    return { pred: existingPred, claimError: claim.error ?? 0 };
+  }
 
   const errorType = classifyError(claim.error, {
     perceptionFailure: !sc.perceptionOk,
@@ -1075,7 +1092,7 @@ export function evaluatePrediction(
   });
 
   const pred = storage.createPrediction({
-    id: sc.index === 4 ? `pred_c4_rollback_${cycleId.slice(-8)}` : `pred_c${sc.index}_${cycleId.slice(-8)}`,
+    id: predId,
     cycleId,
     belief: plan.belief, prediction: plan.prediction, action: plan.action,
     claims: JSON.stringify([claim]),
@@ -1084,10 +1101,13 @@ export function evaluatePrediction(
     errorType: errorType, updateTarget: routeError(errorType), status: "resolved",
     knowledgeRefs: JSON.stringify(plan.refs),
   });
-  storage.createObservation({
-    id: `obs_c${sc.index}_${cycleId.slice(-8)}`, cycleId, predictionId: pred.id,
-    metric: config.metric, value: config.observed, source: "mock_analytics",
-  });
+  const observationId = `obs_c${sc.index}_${cycleId.slice(-8)}`;
+  if (!storage.listObservations(cycleId).some((observation) => observation.id === observationId)) {
+    storage.createObservation({
+      id: observationId, cycleId, predictionId: pred.id,
+      metric: config.metric, value: config.observed, source: "mock_analytics",
+    });
+  }
   storage.updateCycle(cycleId, { eCycle: cycleErr.eCycle, worstClaimError: cycleErr.worstClaimError });
   logEvent(sc.index, "orchestrator", "predictions", "insert", { predId: pred.id, eCycle: cycleErr.eCycle });
   return { pred, claimError: claim.error ?? 0 };

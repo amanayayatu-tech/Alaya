@@ -239,12 +239,12 @@ Telegram 集成让 Alaya 在手机上主动提醒用户：有 blocking gate、sa
 
 | 场景 | 行为 |
 | --- | --- |
-| Scheduler 新建 pending gate | 推送 Telegram 卡片；按 `gateId` 去重，避免每个 tick 重复通知 |
-| 非阻塞 `meaning` gate | 卡片显示 `✅ 批准` / `❌ 否决`，点击后走 `HumanGateService`，写入 `decision_log`、`event_log` 和 `action_ledger` |
-| 阻塞 `direction` / `risk` gate | 卡片只显示 `在 Web 处理`，跳到 `/#/human-gates?gate=...` |
+| Scheduler 新建 pending gate | 推送 Telegram 卡片；按 `gateId` 去重，避免每个 tick 重复通知；深链携带 `projectId` 和 `gate` |
+| 普通 `meaning` / `direction` / `risk` gate | 卡片显示 `✅ 批准` / `❌ 否决`，点击后统一走 `HumanGateService`，写入 `decision_log`、`event_log` 和 `action_ledger` |
+| 知识冲突复核 gate | 卡片显示 `✅ 隔离当前` / `↔️ 保留既有`，通过 `resolveKnowledgeReview` 收敛冲突，并保留 Web 详情入口 |
 | Safety mode | 推送纯文本通知，包含项目、原因和 Web UI 链接 |
 | `/status` | 返回所有项目的当前 cycle、pending gates、知识数和最后事件时间 |
-| `/gates` | 列出所有 pending gates；可直接处理 non-blocking meaning gate |
+| `/gates` | 列出所有 pending gates；可直接处理普通 Human Gate，并给知识冲突复核提供专门按钮 |
 | `/help` | 返回可用命令 |
 
 ### 本地配置
@@ -306,8 +306,9 @@ help - 查看使用帮助
 - 网络 host 固定校验为 `api.telegram.org`；token 格式会在 adapter 构造时验证。
 - 使用原生 `fetch` 调 Telegram Bot API，不引入 `node-telegram-bot-api`，避免其历史依赖链中的 critical audit 漏洞。
 - Telegram callback 不直接写 `storage.updateGate`；批准/否决统一走 `HumanGateService`，保留 capability gate、运行模式、事件日志和 action ledger。
+- 冲突复核 callback 不绕过知识状态机；`quarantine` 与 `merge_supersede` 统一走 `resolveKnowledgeReview`，已处理卡片会回填详细决策回执。
 - Long polling 的 update offset 持久化到 `telegram-update-offset.json`，该文件已加入 `alaya-app/.gitignore`。
-- 所有 Telegram MarkdownV2 文本都会转义动态内容；通知失败只记录错误，不阻塞 Scheduler 主流程。
+- 所有 Telegram MarkdownV2 文本都会转义动态内容；通知失败只记录错误，不阻塞 Scheduler 主流程。Telegram API 仅对网络错误、408、429 和 5xx 做短重试，400/403 等非临时错误会快速失败，避免拖慢人审链路。
 
 ## P0/P1 证据化内核
 
@@ -337,6 +338,9 @@ npm run provider:canary -- --projectId <projectId> --provider mock  # provider/m
 npm run trace:export -- --cycle <cycleId>  # 导出 cycle trace JSONL
 npm run audit:upgrade       # 升级 readiness 审计
 npm run validation:summary  # 汇总 validation-logs 下最新 SUMMARY.csv
+npm run validation:health-signal  # 匿名健康硬件选型 36h 真实 LLM 长测 runner
+npm run validation:health-signal:timeseries -- --log-dir validation-logs/<run>  # 生成 timeseries_summary.json
+npm run validation:health-signal:conflicts -- --log-dir validation-logs/<run>    # 生成 conflict_lifecycle_summary.json
 npm run secret:scan         # 高置信 secret 扫描
 npm run ops:pre-upgrade     # 升级前状态检查
 npm run ops:backup          # SQLite state 备份
@@ -720,6 +724,64 @@ ALAYA_VALIDATION_MAX_ROUNDS=72 \
 12h 脚本用于长时间稳定性观察：principles guard 失败仍然立即停止；simulation、live、live connectivity `SKIP_NET` 和 flywheel health 属于非关键检查，同一检查项连续 3 次失败会写入 `alerts.log`，但不会中断 runner。连续计数按检查项独立维护，避免 health failure 被 unrelated live/sim success 清零。
 
 12h/24h 验证脚本会先检查 `ALAYA_READY_URL`，默认 `http://localhost:5000/readyz`。如果没有现成服务且 `ALAYA_VALIDATION_START_APP=true`，脚本会启动 `npm run dev`，等待 `/readyz` 就绪后再进入 runner，确保 `/api/flywheel/health` 可读，`compoundingProof.round1vs4KnowledgeDelta` 不再因为健康 API 未启动而只能显示 `NA`。
+
+### 匿名健康信号 36h 真实 LLM 验证
+
+`npm run validation:health-signal` 用匿名穿戴健康硬件选型场景验证知识积累、冲突隔离、Human Gate 收敛和 Stall Guard。该流程不包含真实组织名或品牌名；默认项目名为 `wearable-health-signal-decision`，证据来源为 `health-signal-contradiction-runner`。
+
+场景要求系统在 PPG、ECG、混合方案之间持续做传感器选型判断，并在相互矛盾的证据进入知识库前触发人工复核。默认配置为 36 小时、每 5 分钟采样一次、每个样本最多推进 6 个 scheduler tick，理论上最多 432 个样本。
+
+启动真实 provider 长测：
+
+```bash
+OPENAI_API_KEY_FILE=$HOME/.config/alaya/openai-api-key \
+OPENAI_BASE_URL=<openai-compatible-base-url> \
+OPENAI_MODEL=<model-name> \
+ALAYA_CAP_EXTERNAL_NOTIFICATION=true \
+ALAYA_NOTIFICATION_PROVIDER=telegram \
+ALAYA_TELEGRAM_BOT_TOKEN=<bot-token> \
+ALAYA_TELEGRAM_CHAT_ID=<chat-id> \
+npm run validation:health-signal
+```
+
+常用短窗口 smoke：
+
+```bash
+OPENAI_API_KEY_FILE=$HOME/.config/alaya/openai-api-key \
+OPENAI_BASE_URL=<openai-compatible-base-url> \
+OPENAI_MODEL=<model-name> \
+npm run validation:health-signal -- --duration-minutes=20 --sample-minutes=1 --max-samples=20
+```
+
+runner 会写入：
+
+| 文件 | 用途 |
+| --- | --- |
+| `monitor_log.csv` | 每个 sample 的 delta、gate、knowledge、LLM 成本、RSS、cycle 和 Stall Guard 时序 |
+| `events.jsonl` | provider canary、矛盾注入、scheduler tick、人审、冲突扫描、失败与重试事件 |
+| `issues.md` | 长测中发现的具体工程问题和证据 |
+| `summary.json` | 结束时的要求逐项判定和最终 drain 状态 |
+| `timeseries_summary.json` | 时序窗口、Human Gate backlog、Stall Guard 触发率和事件计数 |
+| `conflict_lifecycle_summary.json` | 矛盾注入、冲突扫描、复核解决和失败生命周期 |
+
+长测结束或中途审计时刷新两个 summary：
+
+```bash
+npm run validation:health-signal:timeseries -- --log-dir validation-logs/<health-signal-run>
+npm run validation:health-signal:conflicts -- --log-dir validation-logs/<health-signal-run>
+```
+
+最终判定口径：
+
+| 指标 | 通过条件 | 说明 |
+| --- | --- | --- |
+| 知识熵变 | `round1vs4KnowledgeDelta >= 8` | 该字段现在表示 round1 到当前知识量的增长；静态 round1-vs-round4 另存为 `round1vs4StaticKnowledgeDelta` |
+| 冲突生命周期 | 累计冲突证据 `>= 5` 且已解决冲突复核 `>= 3` | 判定使用累计 review/event 证据，不再只看瞬时 `conflictCount`，避免快速解决后 CSV 点位显示 0 |
+| Human Gate 收敛 | 后半段 pending gate 均值较前段下降 `>= 30%` | 早期全 0 backlog 时该指标会标记为不可判定 |
+| Stall Guard | 触发数低于已关闭 cycle 的 5% | summary 会同时保留 raw 计数和基于明确事件/gate id 的 true trigger 计数 |
+| 工程稳定性 | 无 `sample_failed`、`runner_crashed`、OOM、DB lock 或持续 request retry | 具体证据来自 `events.jsonl`、`app.log`、`runner.log` 和 `issues.md` |
+
+Telegram 人审优先走真实本地 Telegram 卡片；如果桌面自动点击不可用，辅助脚本会先保留 Telegram 可见证据，再使用本地 API human proxy 处理 gate，并在 status JSON / API 队列中验证结果。知识冲突 risk gate 使用专门的 `quarantine` / `merge_supersede` 路径，不用普通 approve/reject 直接覆盖知识状态。
 
 GitHub Issue Sensor E2E 默认优先使用 sandbox 环境变量，避免污染真实项目：
 

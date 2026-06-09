@@ -1,0 +1,1079 @@
+#!/usr/bin/env node
+import { spawn, execFileSync } from "node:child_process";
+import { appendFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { setTimeout as sleep } from "node:timers/promises";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = resolve(__dirname, "..");
+
+const PROJECT_NAME = "wearable-health-signal-decision";
+const PROJECT_DESCRIPTION = [
+  "你是某智能健康硬件的产品决策系统。你需要对一个穿戴设备的核心传感器选型做出决策：",
+  "在用户静息心率监测场景下，应该优先选用 光学 PPG 传感器 还是 生物电阻抗 ECG 方案？",
+  "",
+  "已知约束：设备定价目标 ¥899，续航目标 7 天，目标用户是 35-50 岁亚健康白领，需要通过 NMPA 三类医疗器械认证。",
+  "",
+  "本次验证窗口为 36 小时，每 5 分钟采样一次。每轮必须复用当前知识库，不得只重算单轮结论；最终需要观察知识熵变、Human Gate 收敛、冲突解决和 Stall Guard 触发率。",
+  "",
+  "每轮任务：基于当前知识库，给出当前最优选型决策，并列明置信度与关键证据。如果遇到矛盾证据，必须在知识库中记录冲突并等待人工审核。",
+].join("\n");
+
+const CONTRACT_FINDINGS = [
+  {
+    severity: "P1",
+    title: "monitor contract mismatch: /api/human-gates returns an array, not { pendingCount }",
+    detail: "The requested jq '.pendingCount' monitor expression returns null against the current API. This runner computes pending gates client-side and records the raw API shape.",
+  },
+  {
+    severity: "P1",
+    title: "monitor contract mismatch: /api/knowledge returns an array, not { total }",
+    detail: "The requested jq '.total' monitor expression returns null against the current API. This runner computes total/status counts client-side.",
+  },
+  {
+    severity: "P2",
+    title: "first four cycle stimuli are partly hard-coded to the generic high-risk automation scenario",
+    detail: "The health-signal onboarding prompt affects seed/project context, but the built-in flywheel scenarios still inject generic product automation feedback. The runner adds PPG/ECG contradiction evidence through the form-feedback path to test the conflict pipeline.",
+  },
+];
+
+const EVIDENCE_TEMPLATES = [
+  {
+    side: "ppg_support",
+    title: "PPG 优先证据：成本与续航匹配",
+    text: [
+      "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低，更容易满足 ¥899 定价与 7 天续航。",
+      "ppg_priority_score >= 0.78。",
+      "当前最优选型决策：优先 PPG，置信度 0.64。",
+      "关键证据：日常趋势监测、佩戴舒适度、连续采样和成本约束更匹配 PPG。",
+    ].join("\n"),
+  },
+  {
+    side: "ecg_support",
+    title: "ECG 优先证据：医疗认证与信号可解释性",
+    text: [
+      "ECG 优先：生物电阻抗 ECG 的心电信号更可解释，NMPA 三类医疗器械认证路径上比单纯 PPG 更有说服力。",
+      "ppg_priority_score <= 0.35。",
+      "明确冲突：该结论与“PPG 优先”互相矛盾，必须进入 conflict 知识状态并等待人工审核。",
+      "当前最优选型决策：优先 ECG，置信度 0.66。",
+    ].join("\n"),
+  },
+  {
+    side: "ppg_risk",
+    title: "PPG 反证：肤色/佩戴/运动干扰",
+    text: [
+      "PPG 风险：肤色、佩戴松紧、环境光和运动伪影会影响 PPG 静息心率可靠性。",
+      "ppg_priority_score <= 0.42。",
+      "明确冲突：该证据削弱之前 PPG 优先结论，不能直接复用为 active 决策依据。",
+      "建议：保留 PPG 作为低功耗连续趋势传感器，但医疗级判定需要 ECG 或人工复核。",
+    ].join("\n"),
+  },
+  {
+    side: "ecg_risk",
+    title: "ECG 反证：功耗/交互/成本压力",
+    text: [
+      "ECG 风险：ECG 需要更严格电极接触和主动测量交互，连续 7 天续航与 ¥899 定价下硬件和体验成本更高。",
+      "ppg_priority_score >= 0.72。",
+      "明确冲突：该证据反驳 ECG 优先，必须隔离到冲突审查流程。",
+      "当前最优选型决策：PPG 做连续监测，ECG 作为二次确认模块，置信度 0.61。",
+    ].join("\n"),
+  },
+  {
+    side: "hybrid_support",
+    title: "混合方案证据：PPG 连续 + ECG 复核",
+    text: [
+      "混合方案：PPG 用于低功耗连续静息心率趋势，ECG 用于疑似异常时主动复核和医疗级证据补强。",
+      "hybrid_decision_confidence >= 0.81。",
+      "明确冲突：混合方案与单一 PPG/单一 ECG 优先的结论都存在边界冲突，需要人工审核选择约束优先级。",
+      "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。",
+    ].join("\n"),
+  },
+  {
+    side: "hybrid_reject",
+    title: "混合方案反证：BOM 与认证复杂度过高",
+    text: [
+      "反对混合方案：双传感器方案会抬高 BOM、结构复杂度和认证范围，可能破坏 ¥899 定价目标。",
+      "hybrid_decision_confidence <= 0.38。",
+      "明确冲突：该结论与混合方案推荐互相矛盾，不能同时作为 active 知识复用。",
+      "当前最优选型决策：先 PPG，保留 ECG 作为 Pro SKU，置信度 0.63。",
+    ].join("\n"),
+  },
+];
+
+function parseArgs(argv) {
+  const out = {};
+  for (const arg of argv) {
+    if (!arg.startsWith("--")) continue;
+    const eq = arg.indexOf("=");
+    if (eq === -1) out[arg.slice(2)] = "true";
+    else out[arg.slice(2, eq)] = arg.slice(eq + 1);
+  }
+  return out;
+}
+
+const args = parseArgs(process.argv.slice(2));
+
+function numArg(name, fallback) {
+  const raw = args[name];
+  if (raw == null) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function boolArg(name, fallback) {
+  const raw = args[name];
+  if (raw == null) return fallback;
+  return ["1", "true", "yes", "on"].includes(String(raw).toLowerCase());
+}
+
+function timestampForPath() {
+  return new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "").replace("T", "_");
+}
+
+const durationHours = numArg("duration-hours", 36);
+const durationMinutes = numArg("duration-minutes", 0);
+const durationLabel = durationMinutes > 0 ? `${durationHours}h${durationMinutes}m` : `${durationHours}h`;
+const durationMs = Math.max(1_000, durationHours * 3_600_000 + durationMinutes * 60_000);
+const sampleMs = Math.max(1_000, numArg("sample-minutes", 5) * 60_000 + numArg("sample-seconds", 0) * 1_000);
+const maxSamples = Math.max(1, Math.min(Math.ceil(durationMs / sampleMs), Math.trunc(numArg("max-samples", Number.POSITIVE_INFINITY))));
+const startApp = boolArg("start-app", true);
+const keepApp = boolArg("keep-app", false);
+const llmProvider = args["llm-provider"] || process.env.ALAYA_LLM_PROVIDER || "openai";
+const openaiModel = args.model || process.env.OPENAI_MODEL || "MiniMax-M3";
+const baseUrlArg = args["base-url"];
+const requestedPort = Math.trunc(numArg("port", 5000));
+const logDir = resolve(args["log-dir"] || join(ROOT, "validation-logs", `health-signal-${durationLabel}_${timestampForPath()}`));
+const decisionVia = args["decision-via"] || "local_api_human_proxy";
+const approveMeaning = boolArg("approve-meaning-gates", true);
+const holdEveryMeaning = Math.max(0, Math.trunc(numArg("hold-every-meaning", 10)));
+const resolveConflictReviewsTarget = Math.max(0, Math.trunc(numArg("resolve-conflict-reviews", 9999)));
+const injectEverySamples = Math.max(1, Math.trunc(numArg("inject-every-samples", 1)));
+const progressTicksPerSample = Math.max(1, Math.trunc(numArg("progress-ticks-per-sample", 6)));
+
+mkdirSync(logDir, { recursive: true });
+const monitorCsv = join(logDir, "monitor_log.csv");
+const eventsJsonl = join(logDir, "events.jsonl");
+const issuesMd = join(logDir, "issues.md");
+const summaryJson = join(logDir, "summary.json");
+const appLogPath = join(logDir, "app.log");
+const runnerLogPath = join(logDir, "runner.log");
+const dbPath = resolve(args["db-path"] || join(logDir, "health-signal.db"));
+
+function logLine(message) {
+  const line = `${new Date().toISOString()} ${message}`;
+  appendFileSync(runnerLogPath, `${line}\n`);
+  console.error(line);
+}
+
+function event(eventType, data = {}) {
+  appendFileSync(eventsJsonl, `${JSON.stringify({ ts: new Date().toISOString(), eventType, ...data })}\n`);
+}
+
+function issue(finding) {
+  const line = [
+    `\n## ${finding.severity || "P2"} ${finding.title}`,
+    "",
+    finding.detail,
+    finding.evidence ? `\nEvidence: ${finding.evidence}` : "",
+  ].join("\n");
+  appendFileSync(issuesMd, `${line}\n`);
+  event("issue", finding);
+}
+
+const existingRun = existsSync(monitorCsv) || existsSync(eventsJsonl) || existsSync(issuesMd);
+
+if (!existsSync(issuesMd)) {
+  writeFileSync(issuesMd, `# Health Signal ${durationLabel} Validation Issues\n\nLog dir: ${logDir}\n`);
+  for (const finding of CONTRACT_FINDINGS) issue(finding);
+}
+
+if (!existsSync(monitorCsv)) {
+  writeFileSync(
+    monitorCsv,
+    [
+      "sample",
+      "epoch",
+      "iso",
+      "round1vs4KnowledgeDelta",
+      "pendingGates",
+      "knowledgeCount",
+      "activeCount",
+      "conflictCount",
+      "strongCount",
+      "quarantinedCount",
+      "deprecatedCount",
+      "totalGates",
+      "directionPending",
+      "meaningPending",
+      "riskPending",
+      "openConflictReviews",
+      "resolvedConflictReviews",
+      "stallGuardCount",
+      "cyclesTotal",
+      "cyclesClosed",
+      "llmEstimatedCostUsd",
+      "appRssMb",
+      "lastSchedulerAction",
+      "lastDecisionVia",
+    ].join(",") + "\n",
+  );
+}
+
+function lastRecordedSample() {
+  if (!existsSync(monitorCsv)) return 0;
+  const lines = readFileSync(monitorCsv, "utf8").trim().split(/\r?\n/).slice(1);
+  let max = 0;
+  for (const line of lines) {
+    const sample = Number(line.split(",")[0]);
+    if (Number.isFinite(sample)) max = Math.max(max, sample);
+  }
+  return max;
+}
+
+function firstRecordedSampleIso() {
+  if (!existsSync(monitorCsv)) return null;
+  const lines = readFileSync(monitorCsv, "utf8").trim().split(/\r?\n/);
+  const header = lines.shift()?.split(",") ?? [];
+  const isoIndex = header.indexOf("iso");
+  if (isoIndex < 0) return null;
+  for (const line of lines) {
+    const iso = line.split(",")[isoIndex];
+    if (iso && Number.isFinite(Date.parse(iso))) return iso;
+  }
+  return null;
+}
+
+function readMonitorSamples() {
+  if (!existsSync(monitorCsv)) return [];
+  const lines = readFileSync(monitorCsv, "utf8").trim().split(/\r?\n/);
+  const header = lines.shift()?.split(",") ?? [];
+  return lines
+    .filter((line) => line.trim().length > 0)
+    .map((line) => {
+      const cells = line.split(",");
+      return Object.fromEntries(header.map((key, index) => [key, cells[index] ?? ""]));
+    });
+}
+
+function readEvents() {
+  if (!existsSync(eventsJsonl)) return [];
+  return readFileSync(eventsJsonl, "utf8")
+    .split(/\r?\n/)
+    .filter((line) => line.trim().length > 0)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return { eventType: "unparseable_jsonl", raw: line };
+      }
+    });
+}
+
+async function findAvailablePort(start) {
+  for (let port = start; port < start + 100; port += 1) {
+    const ok = await new Promise((resolvePort) => {
+      const server = createServer();
+      server.once("error", () => resolvePort(false));
+      server.listen(port, "127.0.0.1", () => {
+        server.close(() => resolvePort(true));
+      });
+    });
+    if (ok) return port;
+  }
+  throw new Error(`No available port found from ${start}`);
+}
+
+async function waitForReady(baseUrl, timeoutMs = 120_000) {
+  const started = Date.now();
+  let lastError = "";
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const res = await fetch(`${baseUrl}/readyz`);
+      if (res.ok) return true;
+      lastError = `${res.status} ${await res.text()}`;
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+    }
+    await sleep(1_000);
+  }
+  throw new Error(`/readyz did not become ready within ${timeoutMs}ms: ${lastError}`);
+}
+
+async function requestJson(baseUrl, path, options = {}) {
+  const method = options.method || "GET";
+  const maxAttempts = Math.max(1, options.attempts ?? 4);
+  let lastError = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          ...(options.headers || {}),
+        },
+        body: options.body == null ? undefined : JSON.stringify(options.body),
+      });
+      const text = await res.text();
+      let json = null;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        json = { raw: text };
+      }
+      if (res.ok) return json;
+      const error = new Error(`${method} ${path} failed: ${res.status} ${JSON.stringify(json).slice(0, 800)}`);
+      if (res.status < 500 && res.status !== 429) {
+        error.retryable = false;
+        throw error;
+      }
+      lastError = error;
+    } catch (err) {
+      lastError = err;
+      if (err instanceof Error && err.retryable === false) throw err;
+      if (attempt >= maxAttempts) break;
+    }
+    event("request_retry", {
+      method,
+      path,
+      attempt,
+      maxAttempts,
+      error: lastError instanceof Error ? lastError.message : String(lastError),
+    });
+    await sleep(500 * attempt);
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+function redactEnvForRecord(env) {
+  const secretKeys = /key|token|secret|password/i;
+  return Object.fromEntries(Object.entries(env)
+    .filter(([key]) => /^(ALAYA|OPENAI|MINIMAX|PORT|HOST|NODE_ENV|REUSE_PORT)/.test(key))
+    .map(([key, value]) => [key, secretKeys.test(key) ? "[redacted]" : value]));
+}
+
+async function startLocalApp() {
+  const port = baseUrlArg ? Number(new URL(baseUrlArg).port || 80) : await findAvailablePort(requestedPort);
+  const baseUrl = baseUrlArg || `http://127.0.0.1:${port}`;
+  if (!startApp) {
+    await waitForReady(baseUrl, 10_000);
+    return { baseUrl, child: null, port };
+  }
+
+  const hasKey = Boolean(process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_FILE || process.env.MINIMAX_API_KEY);
+  if (llmProvider === "openai" && !hasKey) {
+    throw new Error("Real LLM mode requires OPENAI_API_KEY, OPENAI_API_KEY_FILE, or MINIMAX_API_KEY in the environment.");
+  }
+
+  const env = {
+    ...process.env,
+    PORT: String(port),
+    HOST: "127.0.0.1",
+    REUSE_PORT: "false",
+    NODE_ENV: "development",
+    ALAYA_MODE: "development",
+    ALAYA_DB_PATH: dbPath,
+    ALAYA_AUTO_SEED_DEMO: "false",
+    ALAYA_SCHEDULER: "false",
+    ALAYA_SENSOR_FEEDBACK_WINDOW_MS: "0",
+    ALAYA_BASE_URL: baseUrl,
+    ALAYA_LLM_PROVIDER: llmProvider,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY || process.env.MINIMAX_API_KEY || "",
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || "https://api.minimax.io/openai",
+    OPENAI_MODEL: openaiModel,
+    OPENAI_API_MODE: process.env.OPENAI_API_MODE || "chat",
+    OPENAI_MAX_OUTPUT_TOKENS: process.env.OPENAI_MAX_OUTPUT_TOKENS || "1024",
+    OPENAI_REQUEST_TIMEOUT_MS: process.env.OPENAI_REQUEST_TIMEOUT_MS || "90000",
+    OPENAI_MAX_RETRIES: process.env.OPENAI_MAX_RETRIES || "2",
+    OPENAI_RETRY_BASE_MS: process.env.OPENAI_RETRY_BASE_MS || "1500",
+    MINIMAX_THINKING: process.env.MINIMAX_THINKING || "disabled",
+    ALAYA_CAP_LLM_CALL: "true",
+    ALAYA_CAP_KNOWLEDGE_WRITE: "true",
+    ALAYA_CAP_SCHEDULER_LOOP: "true",
+    ALAYA_CAP_EXTERNAL_NOTIFICATION: process.env.ALAYA_CAP_EXTERNAL_NOTIFICATION || "false",
+    ALAYA_ALLOWED_NETWORK_HOSTS: process.env.ALAYA_ALLOWED_NETWORK_HOSTS || "api.github.com,api.openai.com,api.minimax.io,api.minimaxi.com,api.telegram.org,open.feishu.cn",
+    ALAYA_COST_RATE_LIMIT_MAX: process.env.ALAYA_COST_RATE_LIMIT_MAX || "10000",
+  };
+
+  event("app_starting", { baseUrl, dbPath, env: redactEnvForRecord(env) });
+  const appLog = createWriteStream(appLogPath, { flags: "a" });
+  const child = spawn("npm", ["run", "dev"], {
+    cwd: ROOT,
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout.pipe(appLog);
+  child.stderr.pipe(appLog);
+  child.once("exit", (code, signal) => {
+    event("app_exit", { code, signal });
+  });
+  await waitForReady(baseUrl);
+  event("app_ready", { baseUrl, pid: child.pid });
+  return { baseUrl, child, port };
+}
+
+function projectPayload() {
+  return {
+    name: PROJECT_NAME,
+    oneLiner: PROJECT_DESCRIPTION,
+    targetUser: "35-50 岁亚健康白领；匿名智能健康硬件产品与合规团队",
+    currentHypothesis: "在 36 小时连续验证窗口内，¥899 定价、7 天续航和 NMPA 三类认证约束会持续拉扯 PPG/ECG/混合方案选型；系统必须复用历史知识、隔离矛盾知识并让 Human Gate 触发率逐步收敛。",
+    neverDo: "不得把互相矛盾的 PPG/ECG 结论同时作为 active 决策事实复用；不得绕过 NMPA 三类认证约束。",
+    redlines: [
+      "遇到 PPG vs ECG 选型矛盾必须记录 conflict 并等待人工审核",
+      "低置信度或单轮 LLM 结论不得直接晋级 strong",
+      "所有传感器选型建议必须同时说明成本、续航、目标用户和认证约束",
+    ],
+    founderPreference: "优先满足 ¥899 与 7 天续航，但不能牺牲医疗器械认证路径与长期可信度。",
+    competitors: "Apple Watch ECG/PPG、医疗级 Holter、国产健康手环 PPG、血压/心电一体腕带",
+    feedbackSources: "Codex 36h runner 表单反馈矛盾注入、Alaya agent outputs、Human Gate 审核",
+    weeklyHumanMinutes: 10080,
+    weeklyLlmBudgetCents: 1_000_000,
+    firstClaimMetric: "decision_confidence",
+    firstClaimOperator: ">=",
+    firstClaimTarget: 0.7,
+    firstSignal: "每轮输出当前 PPG/ECG/混合方案选型、置信度、关键证据和冲突记录；36h 全程观察 delta、Human Gate、conflict resolution 和 Stall Guard。",
+  };
+}
+
+function projectConfigPatch() {
+  const payload = projectPayload();
+  const validationNote = [
+    "36h 验证目标:",
+    "本轮 Health Signal 验证窗口为 36 小时；runner 使用 sample-minutes=5、progress-ticks-per-sample=6、max-samples=432。",
+    "每轮必须复用当前知识库，不得只重算单轮结论；最终需要观察 delta、Human Gate 收敛、conflict resolution 和 Stall Guard 触发率。",
+  ].join("\n");
+  return {
+    name: payload.name,
+    direction: payload.oneLiner,
+    targetUser: payload.targetUser,
+    redlines: payload.redlines,
+    weeklyHumanMinutes: payload.weeklyHumanMinutes,
+    weeklyLlmBudgetCents: payload.weeklyLlmBudgetCents,
+    firstClaimMetric: payload.firstClaimMetric,
+    firstClaimOperator: payload.firstClaimOperator,
+    firstClaimTarget: payload.firstClaimTarget,
+    seedIdentity: [
+      `身份:${payload.name} —— ${payload.oneLiner}`,
+      `目标用户:${payload.targetUser}`,
+      `创始人偏好:${payload.founderPreference}`,
+      `绝不做:${payload.neverDo}`,
+      `红线:${payload.redlines.join("、")}`,
+      validationNote,
+    ].join("\n"),
+    worldModel: [
+      `初始假设:${payload.currentHypothesis}`,
+      `已知竞品:${payload.competitors}`,
+      `反馈来源:${payload.feedbackSources}`,
+      `第一轮希望看到的信号:${payload.firstSignal}`,
+      `第一轮可观测指标:${payload.firstClaimMetric} ${payload.firstClaimOperator} ${payload.firstClaimTarget}`,
+      validationNote,
+    ].join("\n"),
+  };
+}
+
+async function createProject(baseUrl) {
+  const projectPath = join(logDir, "project.json");
+  if (existsSync(projectPath)) {
+    try {
+      const existing = JSON.parse(readFileSync(projectPath, "utf8"));
+      if (existing?.id) {
+        const project = await requestJson(baseUrl, `/api/projects/${existing.id}`, {
+          method: "PATCH",
+          body: projectConfigPatch(),
+        });
+        writeFileSync(projectPath, JSON.stringify(project, null, 2));
+        event("project_reused", { projectId: project.id, name: project.name, promptCadenceMinutes: 5, maxSamples });
+        return project;
+      }
+    } catch (error) {
+      event("project_reuse_failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  const project = await requestJson(baseUrl, "/api/projects", {
+    method: "POST",
+    body: projectPayload(),
+  });
+  writeFileSync(projectPath, JSON.stringify(project, null, 2));
+  event("project_created", { projectId: project.id, name: project.name });
+  return project;
+}
+
+async function providerCanary(baseUrl, projectId) {
+  const result = await requestJson(baseUrl, `/api/projects/${projectId}/provider-canary`, {
+    method: "POST",
+    body: { provider: llmProvider === "openai" ? "openai" : "mock", model: openaiModel, role: "orchestrator" },
+  });
+  event("provider_canary", result);
+  if (!result.ok) {
+    issue({
+      severity: "P0",
+      title: "MiniMax/OpenAI-compatible provider canary failed",
+      detail: `Provider canary failed before the long run. failureType=${result.llmFailureType || "unknown"}, schemaValid=${result.schemaValid}`,
+      evidence: JSON.stringify({ provider: result.provider, model: result.model, latencyMs: result.latencyMs }),
+    });
+  }
+  return result;
+}
+
+async function injectContradictionEvidence(baseUrl, projectId, sample) {
+  const template = EVIDENCE_TEMPLATES[(sample - 1) % EVIDENCE_TEMPLATES.length];
+  const externalId = `sample_${String(sample).padStart(4, "0")}_${template.side}`;
+  const result = await requestJson(baseUrl, `/api/projects/${projectId}/feedback/form`, {
+    method: "POST",
+    body: {
+      sourceName: "health-signal-contradiction-runner",
+      externalId,
+      title: template.title,
+      text: template.text,
+      url: "",
+    },
+  });
+  event("contradiction_feedback_injected", {
+    sample,
+    side: template.side,
+    imported: result.imported,
+    skipped: result.skipped,
+    gateId: result.gate?.id ?? null,
+    classification: result.classification,
+  });
+  return result;
+}
+
+function parsePayload(gate) {
+  if (!gate?.payload) return {};
+  if (typeof gate.payload === "object") return gate.payload;
+  try {
+    return JSON.parse(gate.payload);
+  } catch {
+    return {};
+  }
+}
+
+function shouldHoldMeaningGate(gate, approvedMeaningCount) {
+  if (!approveMeaning) return true;
+  const payload = parsePayload(gate);
+  if (payload.riskKey === "knowledge_review_reminder") return true;
+  if (meaningGateRequiresHumanReview(gate)) return true;
+  if (holdEveryMeaning > 0 && (approvedMeaningCount + 1) % holdEveryMeaning === 0) return true;
+  return false;
+}
+
+function meaningGateRequiresHumanReview(gate) {
+  const payload = parsePayload(gate);
+  const userQuote = reviewableFeedbackBody(payload.userQuote);
+  const text = [
+    gate.title,
+    payload.summary,
+    payload.reason,
+    payload.requiredAction,
+    userQuote,
+    payload.redactedBody,
+    payload.auditSummary?.whyNow,
+  ].map((item) => String(item ?? "")).join("\n");
+  return /明确冲突|互相矛盾|不能同时|不能直接复用|必须进入\s*conflict|冲突审查|等待人工审核|\bcontradict(?:s|ed|ory)?\b|\bcontradiction\b(?!-runner)|conflicts?\s+with|conflict review|cannot be reused|cannot.*active/i.test(text);
+}
+
+function reviewableFeedbackBody(value) {
+  const text = String(value ?? "");
+  if (!text) return "";
+  if (/^Form Feedback \(/i.test(text)) {
+    const parts = text.split(/\n\s*\n/);
+    if (parts.length > 1) return parts.slice(1).join("\n\n");
+    return text.replace(/^Form Feedback[^\n]*\n?/i, "");
+  }
+  return text;
+}
+
+async function resolvePendingGates(baseUrl, projectId, state) {
+  const gates = await requestJson(baseUrl, `/api/human-gates?projectId=${projectId}`);
+  for (const gate of gates.filter((item) => item.status === "pending")) {
+    const payload = parsePayload(gate);
+    if (gate.type === "meaning" && shouldHoldMeaningGate(gate, state.approvedMeaningCount)) {
+      event("gate_left_pending_for_sampling", { gateId: gate.id, gateType: gate.type, title: gate.title });
+      continue;
+    }
+    if (gate.type === "risk" && payload.riskKey === "knowledge_conflict_review") {
+      event("conflict_gate_left_to_review_resolver", { gateId: gate.id, reviewId: payload.reviewId });
+      continue;
+    }
+    const rationale = [
+      `Health Signal ${durationLabel} validation human proxy via ${decisionVia}.`,
+      gate.type === "direction" ? "Approve the proposed direction so the flywheel can continue and expose compounding/conflict behavior." : "",
+      gate.type === "meaning" ? "Approve injected/ambiguous evidence to materialize knowledge and test conflict isolation." : "",
+      gate.type === "risk" ? "Risk gate recorded for validation; approve to continue after logging the risk." : "",
+    ].filter(Boolean).join(" ");
+    const updated = await requestJson(baseUrl, `/api/human-gates/${gate.id}/approve`, {
+      method: "POST",
+      body: { rationale },
+    });
+    if (gate.type === "meaning") state.approvedMeaningCount += 1;
+    event("gate_approved", {
+      gateId: gate.id,
+      gateType: gate.type,
+      blocking: gate.blocking,
+      title: gate.title,
+      via: decisionVia,
+      status: updated.status,
+      payloadRiskKey: payload.riskKey ?? null,
+    });
+  }
+}
+
+async function scanConflicts(baseUrl, projectId) {
+  const result = await requestJson(baseUrl, `/api/projects/${projectId}/knowledge/conflicts/scan`, {
+    method: "POST",
+    body: {},
+  });
+  event("conflicts_scanned", {
+    conflictCandidateCount: result.conflicts?.length ?? 0,
+    reviewRequiredCount: result.reviews?.length ?? 0,
+  });
+  return result;
+}
+
+function isSeedConflictReview(review) {
+  const left = String(review.primaryKnowledgeId ?? "");
+  const right = String(review.relatedKnowledgeId ?? "");
+  return left.startsWith("kb_seed_") && right.startsWith("kb_seed_");
+}
+
+async function resolveConflictReviews(baseUrl, projectId, state) {
+  if (state.resolvedConflictReviews >= resolveConflictReviewsTarget) return;
+  const reviews = await requestJson(baseUrl, `/api/projects/${projectId}/knowledge-reviews`);
+  const pending = reviews.filter((review) => review.reviewType === "conflict" && review.status === "review_required");
+  for (const review of pending) {
+    if (state.resolvedConflictReviews >= resolveConflictReviewsTarget) break;
+    if (isSeedConflictReview(review) && !state.seedConflictFalsePositiveRecorded) {
+      state.seedConflictFalsePositiveRecorded = true;
+      issue({
+        severity: "P1",
+        title: "conflict detector false-positive on onboarding seed records",
+        detail: "The project brief intentionally contains words such as 明确冲突/互相矛盾. The current explicit marker detector scans seed identity/world-model text and can mark the two onboarding seed records as conflicting with each other before any substantive evidence conflict exists.",
+        evidence: JSON.stringify({
+          reviewId: review.id,
+          primaryKnowledgeId: review.primaryKnowledgeId,
+          relatedKnowledgeId: review.relatedKnowledgeId,
+          reason: review.reason,
+        }),
+      });
+    }
+    const action = state.resolvedConflictReviews % 2 === 0 ? "quarantine" : "merge_supersede";
+    const body = action === "merge_supersede" && review.relatedKnowledgeId
+      ? {
+          action,
+          survivorKnowledgeId: review.relatedKnowledgeId,
+          rationale: `Health Signal validation human proxy via ${decisionVia}: resolve conflict by preserving related item as survivor after recording contradiction.`,
+        }
+      : {
+          action: "quarantine",
+          rationale: `Health Signal validation human proxy via ${decisionVia}: quarantine weaker conflicting item to verify conflict convergence.`,
+        };
+    const resolved = await requestJson(baseUrl, `/api/knowledge-reviews/${review.id}/resolve`, {
+      method: "POST",
+      body,
+    });
+    state.resolvedConflictReviews += 1;
+    event("knowledge_review_resolved", {
+      reviewId: review.id,
+      primaryKnowledgeId: review.primaryKnowledgeId,
+      relatedKnowledgeId: review.relatedKnowledgeId,
+      action: body.action,
+      status: resolved.status,
+      via: decisionVia,
+    });
+  }
+}
+
+async function progressFlywheel(baseUrl, projectId, state, options = {}) {
+  let lastAction = "";
+  for (let i = 0; i < progressTicksPerSample; i += 1) {
+    if (options.deadlineAt && Date.now() >= options.deadlineAt) {
+      event("scheduler_tick_skipped_after_deadline", {
+        tickIndex: i + 1,
+        deadlineAt: new Date(options.deadlineAt).toISOString(),
+      });
+      break;
+    }
+    const tick = await requestJson(baseUrl, `/api/projects/${projectId}/scheduler/tick`, {
+      method: "POST",
+      body: { syncFeedback: false },
+    });
+    lastAction = tick.action;
+    event("scheduler_tick", { action: tick.action, note: tick.note, cycleId: tick.cycleId ?? null });
+    await resolvePendingGates(baseUrl, projectId, state);
+    await scanConflicts(baseUrl, projectId);
+    await resolveConflictReviews(baseUrl, projectId, state);
+    if (tick.action === "ran_operational_stages" || tick.action === "created_next_cycle") continue;
+    if (tick.action === "scenario_exhausted") break;
+  }
+  return lastAction;
+}
+
+async function finalDrainState(baseUrl, projectId) {
+  const [gates, reviews, cycles] = await Promise.all([
+    requestJson(baseUrl, `/api/human-gates?projectId=${projectId}`),
+    requestJson(baseUrl, `/api/projects/${projectId}/knowledge-reviews`),
+    requestJson(baseUrl, `/api/projects/${projectId}/cycles`),
+  ]);
+  return {
+    pendingGates: gates.filter((gate) => gate.status === "pending"),
+    pendingConflictReviews: reviews.filter((review) => review.reviewType === "conflict" && review.status === "review_required"),
+    openCycles: cycles.filter((cycle) => cycle.status !== "closed"),
+  };
+}
+
+async function finalDrainFlywheel(baseUrl, projectId, state) {
+  const maxDrainTicks = 3;
+  let lastAction = "";
+  for (let attempt = 1; attempt <= maxDrainTicks; attempt += 1) {
+    await resolvePendingGates(baseUrl, projectId, state);
+    await scanConflicts(baseUrl, projectId);
+    await resolveConflictReviews(baseUrl, projectId, state);
+
+    const before = await finalDrainState(baseUrl, projectId);
+    if (before.openCycles.length === 0) {
+      const result = { status: "complete", attempts: attempt - 1, lastAction };
+      event("final_drain_complete", result);
+      return result;
+    }
+    if (before.pendingGates.length > 0 || before.pendingConflictReviews.length > 0) {
+      const result = {
+        status: "blocked",
+        attempts: attempt - 1,
+        lastAction,
+        pendingGateCount: before.pendingGates.length,
+        pendingConflictReviewCount: before.pendingConflictReviews.length,
+        openCycleCount: before.openCycles.length,
+      };
+      event("final_drain_blocked", result);
+      return result;
+    }
+
+    const tick = await requestJson(baseUrl, `/api/projects/${projectId}/scheduler/tick`, {
+      method: "POST",
+      body: { syncFeedback: false },
+    });
+    lastAction = tick.action;
+    event("final_drain_scheduler_tick", {
+      attempt,
+      action: tick.action,
+      note: tick.note,
+      cycleId: tick.cycleId ?? null,
+      openCycleCountBeforeTick: before.openCycles.length,
+    });
+    if (tick.action === "scenario_exhausted" || tick.action === "waiting_blocking_gate") break;
+  }
+
+  const after = await finalDrainState(baseUrl, projectId);
+  const result = {
+    status: after.openCycles.length === 0 && after.pendingGates.length === 0 && after.pendingConflictReviews.length === 0 ? "complete" : "incomplete",
+    attempts: maxDrainTicks,
+    lastAction,
+    pendingGateCount: after.pendingGates.length,
+    pendingConflictReviewCount: after.pendingConflictReviews.length,
+    openCycleCount: after.openCycles.length,
+  };
+  event("final_drain_finished", result);
+  return result;
+}
+
+function countStallGuard(gates, traces, actionLedger) {
+  const riskKeys = new Set(["evolution_stalled", "goal_repetition", "maturation_stall", "knowledge_explosion"]);
+  const gateIds = new Set();
+  for (const gate of gates) {
+    const payload = parsePayload(gate);
+    if (riskKeys.has(String(payload.riskKey ?? ""))) gateIds.add(gate.id);
+  }
+  for (const action of actionLedger) {
+    const payload = parsePayload(action.payload ?? action.auditSummary ?? "{}");
+    const gateId = payload.gateId ?? payload.approvalGateId ?? action.approvalGateId ?? action.target;
+    const riskKey = payload.riskKey ?? payload.evidence?.riskKey;
+    if (riskKeys.has(String(riskKey ?? "")) && gateId) gateIds.add(String(gateId));
+  }
+  return gateIds.size;
+}
+
+function appRssMb(pid) {
+  if (!pid) return "";
+  try {
+    const out = execFileSync("ps", ["-o", "rss=", "-p", String(pid)], { encoding: "utf8" }).trim();
+    const kb = Number(out);
+    return Number.isFinite(kb) ? +(kb / 1024).toFixed(1) : "";
+  } catch {
+    return "";
+  }
+}
+
+async function collectMetrics(baseUrl, projectId, appPid, sample, lastAction) {
+  const [health, gates, knowledge, reviews, cycles, ops, traces, actionLedger] = await Promise.all([
+    requestJson(baseUrl, `/api/flywheel/health?projectId=${projectId}`),
+    requestJson(baseUrl, `/api/human-gates?projectId=${projectId}`),
+    requestJson(baseUrl, `/api/knowledge?projectId=${projectId}`),
+    requestJson(baseUrl, `/api/projects/${projectId}/knowledge-reviews`),
+    requestJson(baseUrl, `/api/projects/${projectId}/cycles`),
+    requestJson(baseUrl, `/api/projects/${projectId}/ops-metrics`),
+    requestJson(baseUrl, `/api/projects/${projectId}/traces?limit=5000`),
+    requestJson(baseUrl, `/api/action-ledger?projectId=${projectId}&limit=5000`),
+  ]);
+  const pending = gates.filter((gate) => gate.status === "pending");
+  const openConflictReviews = reviews.filter((review) => review.reviewType === "conflict" && review.status === "review_required").length;
+  const resolvedConflictReviews = reviews.filter((review) => review.reviewType === "conflict" && review.status === "resolved").length;
+  const row = {
+    sample,
+    epoch: Math.floor(Date.now() / 1000),
+    iso: new Date().toISOString(),
+    round1vs4KnowledgeDelta: health.compoundingProof?.round1vs4KnowledgeDelta ?? "",
+    pendingGates: pending.length,
+    knowledgeCount: knowledge.length,
+    activeCount: knowledge.filter((item) => item.status === "active").length,
+    conflictCount: knowledge.filter((item) => item.status === "conflict").length,
+    strongCount: knowledge.filter((item) => item.status === "strong").length,
+    quarantinedCount: knowledge.filter((item) => item.status === "quarantined").length,
+    deprecatedCount: knowledge.filter((item) => item.status === "deprecated").length,
+    totalGates: gates.length,
+    directionPending: pending.filter((gate) => gate.type === "direction").length,
+    meaningPending: pending.filter((gate) => gate.type === "meaning").length,
+    riskPending: pending.filter((gate) => gate.type === "risk").length,
+    openConflictReviews,
+    resolvedConflictReviews,
+    stallGuardCount: countStallGuard(gates, traces, actionLedger),
+    cyclesTotal: cycles.length,
+    cyclesClosed: cycles.filter((cycle) => cycle.status === "closed").length,
+    llmEstimatedCostUsd: ops.llmCostPerCycle?.totalCostUsd ?? "",
+    appRssMb: appRssMb(appPid),
+    lastSchedulerAction: lastAction || "",
+    lastDecisionVia: decisionVia,
+  };
+  appendFileSync(monitorCsv, Object.values(row).map((value) => String(value).replaceAll(",", ";")).join(",") + "\n");
+  event("metrics_sample", row);
+  return { row, health, gates, knowledge, reviews, cycles, ops };
+}
+
+function unique(values) {
+  return Array.from(new Set(values.filter((value) => value != null && value !== "")));
+}
+
+function cumulativeConflictEvidence(samples, events) {
+  const resolvedReviewIds = unique(events
+    .filter((eventItem) => eventItem.eventType === "knowledge_review_resolved")
+    .map((eventItem) => eventItem.reviewId));
+  const maxOpenReviews = Math.max(0, ...samples.map((s) => Number(s.openConflictReviews) || 0));
+  const maxResolvedReviews = Math.max(0, ...samples.map((s) => Number(s.resolvedConflictReviews) || 0), resolvedReviewIds.length);
+  const maxScanReviewRequired = Math.max(0, ...events
+    .filter((eventItem) => eventItem.eventType === "conflicts_scanned")
+    .map((eventItem) => Number(eventItem.reviewRequiredCount) || 0));
+  const maxScanConflictCandidates = Math.max(0, ...events
+    .filter((eventItem) => eventItem.eventType === "conflicts_scanned")
+    .map((eventItem) => Number(eventItem.conflictCandidateCount) || 0));
+  return {
+    maxOpenReviews,
+    maxResolvedReviews,
+    resolvedUniqueReviewCount: resolvedReviewIds.length,
+    maxScanReviewRequired,
+    maxScanConflictCandidates,
+    cumulativeConflictCount: Math.max(
+      maxResolvedReviews + maxOpenReviews,
+      resolvedReviewIds.length + maxOpenReviews,
+      maxScanReviewRequired,
+      maxScanConflictCandidates,
+    ),
+  };
+}
+
+function finalAssessment(samples, events = []) {
+  const first = samples[0] ?? {};
+  const last = samples[samples.length - 1] ?? {};
+  const maxSnapshotConflict = Math.max(0, ...samples.map((s) => Number(s.conflictCount) || 0));
+  const conflictEvidence = cumulativeConflictEvidence(samples, events);
+  const maxConflict = Math.max(maxSnapshotConflict, conflictEvidence.cumulativeConflictCount);
+  const maxResolved = conflictEvidence.maxResolvedReviews;
+  const maxStall = Math.max(0, ...samples.map((s) => Number(s.stallGuardCount) || 0));
+  const totalClosed = Number(last.cyclesClosed) || 0;
+  const earlyGateAvg = avg(samples.slice(0, Math.max(1, Math.floor(samples.length / 4))).map((s) => Number(s.pendingGates) || 0));
+  const lateGateAvg = avg(samples.slice(Math.floor(samples.length / 2)).map((s) => Number(s.pendingGates) || 0));
+  const humanGateDrop = earlyGateAvg > 0 ? +((earlyGateAvg - lateGateAvg) / earlyGateAvg).toFixed(3) : null;
+  return {
+    criteria: {
+      deltaReached8: Number(last.round1vs4KnowledgeDelta) >= 8,
+      conflictAtLeast5: maxConflict >= 5,
+      conflictResolvedAtLeast3: maxResolved >= 3,
+      humanGateDropAtLeast30pct: humanGateDrop != null ? humanGateDrop >= 0.3 : false,
+      stallGuardUnder5pct: totalClosed > 0 ? maxStall / totalClosed < 0.05 : false,
+    },
+    observed: {
+      firstDelta: first.round1vs4KnowledgeDelta ?? null,
+      lastDelta: last.round1vs4KnowledgeDelta ?? null,
+      maxConflictCount: maxConflict,
+      maxSnapshotConflictCount: maxSnapshotConflict,
+      maxResolvedConflictReviews: maxResolved,
+      cumulativeConflictEvidence: conflictEvidence,
+      maxStallGuardCount: maxStall,
+      cyclesClosed: totalClosed,
+      earlyPendingGateAverage: earlyGateAvg,
+      latePendingGateAverage: lateGateAvg,
+      humanGatePendingDropRatio: humanGateDrop,
+    },
+  };
+}
+
+function avg(values) {
+  if (!values.length) return 0;
+  return +(values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(3);
+}
+
+async function main() {
+  logLine(`Health Signal validation starting. logDir=${logDir}`);
+  if (existingRun) {
+    event("runner_resumed", {
+      logDir,
+      lastRecordedSample: lastRecordedSample(),
+      reason: "resume existing validation log without truncating monitor/events/issues",
+    });
+  }
+  const { baseUrl, child } = await startLocalApp();
+  let shuttingDown = false;
+  const stopApp = async () => {
+    if (shuttingDown || !child || keepApp) return;
+    shuttingDown = true;
+    child.kill("SIGTERM");
+    await sleep(1_000);
+    if (child.exitCode == null) child.kill("SIGKILL");
+  };
+  process.on("SIGINT", async () => {
+    event("runner_signal", { signal: "SIGINT" });
+    await stopApp();
+    process.exit(130);
+  });
+  process.on("SIGTERM", async () => {
+    event("runner_signal", { signal: "SIGTERM" });
+    await stopApp();
+    process.exit(143);
+  });
+
+  const project = await createProject(baseUrl);
+  const canary = await providerCanary(baseUrl, project.id);
+  if (llmProvider === "openai" && !canary.ok) {
+    logLine("Provider canary failed; continuing to collect failure evidence.");
+  }
+
+  const state = { approvedMeaningCount: 0, resolvedConflictReviews: 0 };
+  const samples = [];
+  const firstSample = lastRecordedSample() + 1;
+  const started = Date.now();
+  const firstRecordedIso = firstRecordedSampleIso();
+  const validationStartedAt = firstRecordedIso ? Date.parse(firstRecordedIso) : started;
+  event("runner_timing_config", {
+    durationHours,
+    durationMinutes,
+    durationMs,
+    sampleMs,
+    sampleMinutes: +(sampleMs / 60_000).toFixed(3),
+    maxSamples,
+    progressTicksPerSample,
+    firstSample,
+    firstRecordedIso,
+    validationStartedAtIso: new Date(validationStartedAt).toISOString(),
+    elapsedBeforeThisProcessMs: Math.max(0, started - validationStartedAt),
+  });
+  let lastAction = "";
+  const deadlineAt = validationStartedAt + durationMs;
+  for (let sample = firstSample; sample <= maxSamples; sample += 1) {
+    if (Date.now() >= deadlineAt) {
+      event("sample_skipped_after_deadline", {
+        sample,
+        deadlineAt: new Date(deadlineAt).toISOString(),
+      });
+      break;
+    }
+    if (child?.exitCode != null) {
+      issue({
+        severity: "P0",
+        title: "app process exited during validation",
+        detail: `App exited before sample ${sample}. code=${child.exitCode}, signal=${child.signalCode}`,
+      });
+      break;
+    }
+    try {
+      if (sample % injectEverySamples === 0) {
+        await injectContradictionEvidence(baseUrl, project.id, sample);
+      }
+      lastAction = await progressFlywheel(baseUrl, project.id, state, { deadlineAt });
+      const metrics = await collectMetrics(baseUrl, project.id, child?.pid, sample, lastAction);
+      samples.push(metrics.row);
+      if (samples.length > 1 && sample > 4) {
+        const prev = samples[samples.length - 2];
+        if (metrics.row.knowledgeCount > prev.knowledgeCount && metrics.row.round1vs4KnowledgeDelta === prev.round1vs4KnowledgeDelta) {
+          event("delta_static_while_knowledge_grows", {
+            sample,
+            delta: metrics.row.round1vs4KnowledgeDelta,
+            previousKnowledgeCount: prev.knowledgeCount,
+            currentKnowledgeCount: metrics.row.knowledgeCount,
+          });
+        }
+      }
+    } catch (err) {
+      const detail = err instanceof Error ? err.stack || err.message : String(err);
+      issue({
+        severity: "P0",
+        title: `sample ${sample} failed`,
+        detail,
+      });
+      event("sample_failed", { sample, error: detail });
+    }
+
+    const elapsed = Date.now() - validationStartedAt;
+    if (sample >= maxSamples || elapsed >= durationMs) break;
+    const nextAt = started + (sample - firstSample + 1) * sampleMs;
+    await sleep(Math.max(0, nextAt - Date.now()));
+  }
+
+  const finalDrain = await finalDrainFlywheel(baseUrl, project.id, state);
+  const assessmentSamples = readMonitorSamples();
+  const assessment = finalAssessment(assessmentSamples.length ? assessmentSamples : samples, readEvents());
+  writeFileSync(summaryJson, JSON.stringify({
+    projectId: project.id,
+    projectName: project.name,
+    baseUrl,
+    dbPath,
+    logDir,
+    startedAt: new Date(started).toISOString(),
+    endedAt: new Date().toISOString(),
+    validationStartedAt: new Date(validationStartedAt).toISOString(),
+    sampleCount: assessmentSamples.length || samples.length,
+    processDurationMs: Date.now() - started,
+    validationDurationMs: Date.now() - validationStartedAt,
+    timing: {
+      durationMs,
+      sampleMs,
+      maxSamples,
+      progressTicksPerSample,
+    },
+    llmProvider,
+    model: openaiModel,
+    decisionVia,
+    finalDrain,
+    assessment,
+    files: {
+      monitorCsv,
+      eventsJsonl,
+      issuesMd,
+      appLogPath,
+      runnerLogPath,
+    },
+  }, null, 2));
+  event("validation_complete", assessment);
+  logLine(`Health Signal validation complete. summary=${summaryJson}`);
+  await stopApp();
+}
+
+main().catch((err) => {
+  const detail = err instanceof Error ? err.stack || err.message : String(err);
+  issue({ severity: "P0", title: "runner crashed", detail });
+  event("runner_crashed", { error: detail });
+  console.error(detail);
+  process.exit(1);
+});

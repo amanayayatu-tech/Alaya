@@ -108,6 +108,15 @@ function knowledgeIdForMeaningGate(gateId: string): string {
   return `kb_gate_${gateId.replace(/[^a-zA-Z0-9_]+/g, "_").slice(0, 96)}`;
 }
 
+function isSystemDiagnosticMeaningGate(gate: HumanGateItem, payload: Record<string, any>): boolean {
+  const source = stringValue(payload.source);
+  return (
+    source === "system_diagnostic" ||
+    gate.id.startsWith("gate_llm_") ||
+    (gate.title.startsWith("LLM 输出降级") && Boolean(payload.promptVersion))
+  );
+}
+
 export class HumanGateService {
   constructor(private store: IStorage = storage) {}
 
@@ -193,6 +202,7 @@ export class HumanGateService {
 
     const cycle = this.store.getCycle(gate.cycleId);
     const payload = parseGatePayload(gate.payload);
+    if (isSystemDiagnosticMeaningGate(gate, payload)) return;
     const source = stringValue(payload.source, "meaning_gate");
     const topicKey = stringValue(payload.topicKey, "external_feedback");
     const summary = stringValue(payload.summary, gate.title);

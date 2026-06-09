@@ -10,6 +10,7 @@ import { observeSchedulerCycle } from "./observability/metrics";
 import { HumanGateService } from "./humanGateService";
 import { createKnowledgeReviewReminders, detectKnowledgeConflicts } from "./knowledgeReview";
 import { NotificationBus, type NotificationEmitFailure } from "./notifications/bus";
+import { formatGateDecisionReceiptText, knowledgeIdForMeaningGate } from "./notifications/gateNarrative";
 import { CallbackRouter } from "./notifications/router";
 import { TelegramAdapter } from "./notifications/telegram";
 import { claimSchema, type HumanGateItem, type KnowledgeItem, type Task } from "@shared/schema";
@@ -64,6 +65,7 @@ export interface SchedulerTickOptions {
 const runningProjectTicks = new Set<string>();
 let notificationBus: NotificationBus | null = null;
 let notificationBusStarted = false;
+let notificationResolvedReceiptsReconciled = false;
 
 interface TelegramNotificationConfig {
   token: string;
@@ -94,11 +96,16 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-function gateWebUrl(baseUrl: string): string {
-  return `${trimTrailingSlash(baseUrl)}/#/human-gates`;
+export function gateWebUrl(baseUrl: string, projectId?: string, gateId?: string): string {
+  const params = new URLSearchParams();
+  if (projectId) params.set("projectId", projectId);
+  if (gateId) params.set("gate", gateId);
+  const query = params.toString();
+  const suffix = query ? `?${query}` : "";
+  return `${trimTrailingSlash(baseUrl)}/#/human-gates${suffix}`;
 }
 
-function notificationBaseUrl(): string {
+export function notificationBaseUrl(): string {
   return telegramNotificationConfig()?.baseUrl ?? process.env.ALAYA_BASE_URL?.trim() ?? "http://localhost:5000";
 }
 
@@ -129,6 +136,14 @@ function gateNotificationBody(gate: HumanGateItem): string {
   ];
   const body = candidates.find((item): item is string => typeof item === "string" && item.trim().length > 0)?.trim() ?? "";
   return body.length > 100 ? `${body.slice(0, 100)}...` : body;
+}
+
+function gateNotificationMeta(gate: HumanGateItem): Record<string, string> {
+  const payload = parsePayload(gate.payload);
+  const meta: Record<string, string> = { cycleId: gate.cycleId };
+  if (typeof payload.riskKey === "string" && payload.riskKey.trim()) meta.riskKey = payload.riskKey.trim();
+  if (typeof payload.reviewId === "string" && payload.reviewId.trim()) meta.reviewId = payload.reviewId.trim();
+  return meta;
 }
 
 function buildSafetyModeBody(result: SchedulerTickResult): string {
@@ -185,7 +200,7 @@ export function recordNotificationEmitFailure(failure: NotificationEmitFailure):
   });
 }
 
-async function getNotificationBus(): Promise<NotificationBus | null> {
+export async function getNotificationBus(): Promise<NotificationBus | null> {
   const config = telegramNotificationConfig();
   if (!config) return null;
   try {
@@ -194,11 +209,20 @@ async function getNotificationBus(): Promise<NotificationBus | null> {
       const gateService = new HumanGateService(storage);
       const router = new CallbackRouter(adapter, storage, gateService, config.baseUrl);
       adapter.onCallbackQuery((callbackId, data, ref) => router.route(callbackId, data, ref));
-      notificationBus = new NotificationBus(recordNotificationEmitFailure).addAdapter(adapter, [config.chatId]);
+      notificationBus = new NotificationBus(recordNotificationEmitFailure, {
+        shouldSend: (event) => {
+          if (event.type !== "gate_opened" || !event.gateId) return true;
+          return storage.getGate(event.gateId)?.status === "pending";
+        },
+      }).addAdapter(adapter, [config.chatId]);
     }
     if (!notificationBusStarted) {
       notificationBusStarted = true;
       await notificationBus.start();
+    }
+    if (!notificationResolvedReceiptsReconciled) {
+      notificationResolvedReceiptsReconciled = true;
+      await reconcilePersistedResolvedGateReceipts(notificationBus, config.baseUrl);
     }
     return notificationBus;
   } catch (error) {
@@ -207,14 +231,49 @@ async function getNotificationBus(): Promise<NotificationBus | null> {
   }
 }
 
+async function reconcilePersistedResolvedGateReceipts(bus: NotificationBus, baseUrl: string): Promise<void> {
+  for (const gateId of bus.knownGateIds()) {
+    const gate = storage.getGate(gateId);
+    if (!gate || gate.status === "pending") continue;
+    const cycle = storage.getCycle(gate.cycleId);
+    const projectId = cycle?.projectId ?? "system";
+    const action = gate.status === "rejected" ? "reject" : "approve";
+    const label = action === "approve" ? "已批准" : "已否决";
+    const pendingGatesAfter = storage.listGates(projectId).filter((item) => item.status === "pending").length;
+    const openConflictReviewsAfter = storage
+      .listKnowledgeReviews(projectId)
+      .filter((review) => review.reviewType === "conflict" && review.status === "review_required")
+      .length;
+    await bus.emit({
+      type: "gate_resolved",
+      projectId,
+      title: `${label} — ${gate.title}`,
+      body: formatGateDecisionReceiptText(gate, {
+        action,
+        via: "startup notification reconciliation",
+        decidedAt: new Date(),
+        pendingGatesAfter,
+        openConflictReviewsAfter,
+        knowledgeId: action === "approve" && gate.type === "meaning" ? knowledgeIdForMeaningGate(gate.id) : null,
+        projectId,
+        rationale: "App startup reconciled a persisted Telegram gate card whose backend gate was already resolved.",
+      }),
+      gateId: gate.id,
+      gateType: gate.type as "direction" | "meaning" | "risk",
+      isBlocking: gate.blocking === 1,
+      actionUrl: gateWebUrl(baseUrl, projectId, gate.id),
+      meta: { source: "startup_resolved_gate_reconciliation" },
+    });
+  }
+}
+
 function emitSchedulerNotifications(
   bus: NotificationBus,
-  beforePendingGateIds: Set<string>,
+  _beforePendingGateIds: Set<string>,
   result: SchedulerTickResult,
 ): void {
   for (const gate of storage.listGates(result.projectId)) {
     if (gate.status !== "pending") continue;
-    if (beforePendingGateIds.has(gate.id)) continue;
     void bus.emit({
       type: "gate_opened",
       projectId: result.projectId,
@@ -223,7 +282,8 @@ function emitSchedulerNotifications(
       gateId: gate.id,
       gateType: gate.type as "direction" | "meaning" | "risk",
       isBlocking: gate.blocking === 1,
-      actionUrl: `${gateWebUrl(notificationBaseUrl())}?gate=${encodeURIComponent(gate.id)}`,
+      actionUrl: gateWebUrl(notificationBaseUrl(), result.projectId, gate.id),
+      meta: gateNotificationMeta(gate),
     });
   }
 
@@ -234,7 +294,7 @@ function emitSchedulerNotifications(
     title: "Safety Mode 已触发",
     body: buildSafetyModeBody(result),
     gateId: result.cycleId,
-    actionUrl: gateWebUrl(notificationBaseUrl()),
+    actionUrl: gateWebUrl(notificationBaseUrl(), result.projectId),
     meta: result.cycleId ? { cycleId: result.cycleId } : undefined,
   });
 }
@@ -1117,6 +1177,17 @@ function autoApproveRepeatedLowValueMeaningGates(projectId: string) {
     const pending = group.filter((g) => g.status === "pending" && g.blocking === 0);
     const priorAutoApproved = group.filter((g) => (g.decision ?? "").startsWith("auto_approved_repeated_meaning:")).length;
     pending.forEach((gate, idx) => {
+      if (meaningGateRequiresHumanReview(gate)) {
+        storage.updateGate(gate.id, {
+          payload: JSON.stringify({
+            ...parsePayload(gate.payload),
+            sampleReview: true,
+            sampleReviewReason: "Explicit contradiction or conflict marker requires human review; repeated-topic auto-approval is disabled.",
+            sampleReviewAt: now(),
+          }),
+        });
+        return;
+      }
       const autoCandidateNo = priorAutoApproved + idx + 1;
       if (autoCandidateNo % 10 === 0) {
         storage.updateGate(gate.id, {
@@ -1142,6 +1213,32 @@ function autoApproveRepeatedLowValueMeaningGates(projectId: string) {
       });
     });
   }
+}
+
+function meaningGateRequiresHumanReview(gate: HumanGateItem): boolean {
+  const payload = parsePayload(gate.payload);
+  const userQuote = reviewableFeedbackBody(payload.userQuote);
+  const text = [
+    gate.title,
+    payload.summary,
+    payload.reason,
+    payload.requiredAction,
+    userQuote,
+    payload.redactedBody,
+    payload.auditSummary?.whyNow,
+  ].map((item) => String(item ?? "")).join("\n");
+  return /明确冲突|互相矛盾|不能同时|不能直接复用|必须进入\s*conflict|冲突审查|等待人工审核|\bcontradict(?:s|ed|ory)?\b|\bcontradiction\b(?!-runner)|conflicts?\s+with|conflict review|cannot be reused|cannot.*active/i.test(text);
+}
+
+function reviewableFeedbackBody(value: unknown): string {
+  const text = String(value ?? "");
+  if (!text) return "";
+  if (/^Form Feedback \(/i.test(text)) {
+    const parts = text.split(/\n\s*\n/);
+    if (parts.length > 1) return parts.slice(1).join("\n\n");
+    return text.replace(/^Form Feedback[^\n]*\n?/i, "");
+  }
+  return text;
 }
 
 function builderTimeoutMs(): number {
@@ -1381,15 +1478,17 @@ async function schedulerTickProjectUnlocked(projectId: string, options: Schedule
         const draft = await generateNextGoal(input);
         const stall = evaluateEvolutionStall(projectId, draft, input.rejectedGoals);
         if (stall) {
-          openEvolutionRiskGate(projectId, current.id, stall.riskKey, stall.evidence);
-          return {
-            projectId,
-            action: "safety_mode",
-            cycleId: current.id,
-            budget: gateBudgetForProject(projectId),
-            llmBudget,
-            note: `${stall.riskKey} guard triggered; waiting for human review`,
-          };
+          const gate = openEvolutionRiskGate(projectId, current.id, stall.riskKey, stall.evidence);
+          if (gate.status === "pending") {
+            return {
+              projectId,
+              action: "safety_mode",
+              cycleId: current.id,
+              budget: gateBudgetForProject(projectId),
+              llmBudget,
+              note: `${stall.riskKey} guard triggered; waiting for human review`,
+            };
+          }
         }
         nextGoal = draft.proposedGoal;
         nextReasoning = draft.reasoningHowKnowledgeChangedDecision;

@@ -14,6 +14,7 @@ process.env.ALAYA_LLM_PROVIDER = "mock";
 const { storage, now } = await import("../server/storage.ts");
 const { registerRoutes } = await import("../server/routes.ts");
 const { HumanGateService } = await import("../server/humanGateService.ts");
+const { detectKnowledgeConflicts, resolveKnowledgeReview } = await import("../server/knowledgeReview.ts");
 
 storage.createProject({
   id: "proj_validation",
@@ -361,4 +362,100 @@ test("human gate decision comes from route path, not body decision", async () =>
   const body = await response.json() as any;
   assert.equal(body.status, "approved");
   assert.equal(body.decision, "approve");
+});
+
+test("knowledge reviews route filters review_required status without resolved history", async () => {
+  storage.createKnowledge({
+    id: "kb_route_review_strong",
+    projectId: "proj_validation",
+    type: "principle",
+    title: "Route review strong",
+    content: "route_review_score >= 0.8",
+    sourceType: "test",
+    sourceRef: "route-review-strong",
+    evidenceAlpha: 8,
+    evidenceBeta: 1,
+    confidenceScore: 0.9,
+    confidenceLevel: "high",
+    status: "strong",
+    humanApprovedCount: 1,
+    externalVerifiedCount: 1,
+    validFrom: "2026-01-01",
+    validUntil: null,
+    lastValidatedCycle: 1,
+    createdByCycle: 1,
+    createdBy: "test",
+    approvedBy: "owner",
+    usageCount: 0,
+    lastInjectedAt: null,
+    lastVerifiedAt: Date.parse("2026-01-01T00:00:00Z"),
+    lastDecayedAt: null,
+    storageStrength: 1,
+    noveltyScore: null,
+    sourceRound: 1,
+    tags: JSON.stringify(["route_review"]),
+    notes: "",
+    supersededBy: null,
+    semanticKey: "route_review_score",
+    version: 1,
+  });
+  storage.createKnowledge({
+    id: "kb_route_review_candidate",
+    projectId: "proj_validation",
+    type: "principle",
+    title: "Route review candidate",
+    content: "route_review_score <= 0.2",
+    sourceType: "test",
+    sourceRef: "route-review-candidate",
+    evidenceAlpha: 2,
+    evidenceBeta: 2,
+    confidenceScore: 0.6,
+    confidenceLevel: "medium",
+    status: "active",
+    humanApprovedCount: 0,
+    externalVerifiedCount: 0,
+    validFrom: "2026-01-01",
+    validUntil: null,
+    lastValidatedCycle: 1,
+    createdByCycle: 1,
+    createdBy: "test",
+    approvedBy: null,
+    usageCount: 0,
+    lastInjectedAt: null,
+    lastVerifiedAt: Date.parse("2026-01-01T00:00:00Z"),
+    lastDecayedAt: null,
+    storageStrength: 1,
+    noveltyScore: null,
+    sourceRound: 1,
+    tags: JSON.stringify(["route_review"]),
+    notes: "",
+    supersededBy: null,
+    semanticKey: "route_review_score",
+    version: 1,
+  });
+
+  detectKnowledgeConflicts("proj_validation");
+  const pendingResponse = await fetch(url("/api/projects/proj_validation/knowledge-reviews?status=pending&reviewType=conflict"));
+  assert.equal(pendingResponse.status, 200);
+  const pending = await pendingResponse.json() as any[];
+  assert.ok(pending.some((review) => review.primaryKnowledgeId === "kb_route_review_candidate"));
+  assert.ok(pending.every((review) => review.status === "review_required"));
+
+  const review = pending.find((item) => item.primaryKnowledgeId === "kb_route_review_candidate");
+  resolveKnowledgeReview(review.id, {
+    action: "quarantine",
+    actor: "human",
+    rationale: "route filter test resolution",
+  });
+
+  const afterPending = await fetch(url("/api/projects/proj_validation/knowledge-reviews?status=pending&reviewType=conflict"));
+  assert.equal(afterPending.status, 200);
+  const afterPendingBody = await afterPending.json() as any[];
+  assert.ok(!afterPendingBody.some((item) => item.id === review.id));
+
+  const resolvedResponse = await fetch(url("/api/projects/proj_validation/knowledge-reviews?status=resolved&reviewType=conflict"));
+  assert.equal(resolvedResponse.status, 200);
+  const resolved = await resolvedResponse.json() as any[];
+  assert.ok(resolved.some((item) => item.id === review.id));
+  assert.ok(resolved.every((reviewItem) => reviewItem.status === "resolved"));
 });

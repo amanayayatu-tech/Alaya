@@ -61,6 +61,39 @@ function createCycle(projectId: string, idx: number) {
   });
 }
 
+type KnowledgeStatus = "draft" | "active" | "strong" | "stale" | "expired" | "quarantined" | "conflict" | "deprecated" | "rejected";
+
+function createKnowledge(projectId: string, id: string, createdByCycle: number, status: KnowledgeStatus = "active") {
+  return storage.createKnowledge({
+    id,
+    projectId,
+    type: "principle",
+    title: `Knowledge ${id}`,
+    content: `Dynamic compounding evidence ${id}`,
+    sourceType: "test",
+    sourceRef: id,
+    evidenceAlpha: 2,
+    evidenceBeta: 1,
+    confidenceScore: 2 / 3,
+    confidenceLevel: "medium",
+    status,
+    humanApprovedCount: 0,
+    externalVerifiedCount: 1,
+    validFrom: "2026-06-04",
+    validUntil: null,
+    lastValidatedCycle: createdByCycle,
+    createdByCycle,
+    createdBy: "test",
+    approvedBy: null,
+    usageCount: 0,
+    tags: JSON.stringify(["test"]),
+    notes: "",
+    semanticKey: id,
+    supersededBy: null,
+    version: 1,
+  });
+}
+
 const projectId = "proj_health_four_rounds";
 
 test.before(async () => {
@@ -71,9 +104,9 @@ test.before(async () => {
   }
 });
 
-async function getHealth() {
+async function getHealth(targetProjectId = projectId) {
   const address = server.address() as AddressInfo;
-  const response = await fetch(`http://127.0.0.1:${address.port}/api/flywheel/health?projectId=${projectId}`);
+  const response = await fetch(`http://127.0.0.1:${address.port}/api/flywheel/health?projectId=${targetProjectId}`);
   const body = await response.json() as any;
   return { response, body };
 }
@@ -105,4 +138,62 @@ test("flywheel health strong total matches knowledge_items", async () => {
 test("flywheel health proves four-round knowledge compounding", async () => {
   const { body } = await getHealth();
   assert.ok(body.compoundingProof.round1vs4KnowledgeDelta > 0);
+});
+
+test("flywheel health delta keeps moving after round 4", async () => {
+  const dynamicProjectId = "proj_health_dynamic_delta";
+  createProject(dynamicProjectId);
+  createCycle(dynamicProjectId, 1);
+  createCycle(dynamicProjectId, 5);
+  createKnowledge(dynamicProjectId, "kb_dynamic_r1", 1);
+  createKnowledge(dynamicProjectId, "kb_dynamic_r5", 5);
+
+  const { body } = await getHealth(dynamicProjectId);
+  assert.equal(body.compoundingProof.round1vs4StaticKnowledgeDelta, 0);
+  assert.equal(body.compoundingProof.round1vsCurrentKnowledgeDelta, 1);
+  assert.equal(body.compoundingProof.round1vs4KnowledgeDelta, 1);
+});
+
+test("knowledge and human gate list endpoints support status filters and summaries", async () => {
+  const filterProjectId = "proj_api_filter_contract";
+  createProject(filterProjectId);
+  const cycle = createCycle(filterProjectId, 1);
+  createKnowledge(filterProjectId, "kb_filter_active", 1, "active");
+  createKnowledge(filterProjectId, "kb_filter_conflict", 1, "conflict");
+  storage.createGate({
+    id: "gate_filter_pending",
+    cycleId: cycle.id,
+    type: "meaning",
+    blocking: 0,
+    title: "pending gate",
+    payload: "{}",
+    status: "pending",
+    estimatedMinutes: 3,
+    decision: null,
+    version: 1,
+  });
+  storage.createGate({
+    id: "gate_filter_approved",
+    cycleId: cycle.id,
+    type: "meaning",
+    blocking: 0,
+    title: "approved gate",
+    payload: "{}",
+    status: "approved",
+    estimatedMinutes: 3,
+    decision: "approve",
+    version: 1,
+  });
+
+  const address = server.address() as AddressInfo;
+  const activeKnowledge = await fetch(`http://127.0.0.1:${address.port}/api/knowledge?projectId=${filterProjectId}&status=active`).then((res) => res.json()) as any[];
+  const knowledgeSummary = await fetch(`http://127.0.0.1:${address.port}/api/knowledge?projectId=${filterProjectId}&status=conflict&summary=true`).then((res) => res.json()) as any;
+  const gateSummary = await fetch(`http://127.0.0.1:${address.port}/api/human-gates?projectId=${filterProjectId}&status=pending&summary=true`).then((res) => res.json()) as any;
+
+  assert.deepEqual(activeKnowledge.map((item) => item.id), ["kb_filter_active"]);
+  assert.equal(knowledgeSummary.total, 1);
+  assert.deepEqual(knowledgeSummary.items.map((item: any) => item.id), ["kb_filter_conflict"]);
+  assert.equal(gateSummary.total, 1);
+  assert.equal(gateSummary.pendingCount, 1);
+  assert.deepEqual(gateSummary.items.map((item: any) => item.id), ["gate_filter_pending"]);
 });
