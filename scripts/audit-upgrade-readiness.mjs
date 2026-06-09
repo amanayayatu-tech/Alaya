@@ -18,6 +18,10 @@ function has(rel, pattern) {
   return pattern.test(read(rel));
 }
 
+function hasAny(rels, pattern) {
+  return rels.some((rel) => has(rel, pattern));
+}
+
 function secretFileUsable(path) {
   if (!path || !existsSync(path)) return false;
   try {
@@ -57,6 +61,18 @@ const githubTarget = inferGitHubTarget({ cwd: root });
 const hasGithubTarget = Boolean(githubTarget.owner && githubTarget.repo);
 const hasGithubToken = envPresent("ALAYA_GITHUB_TOKEN", "GITHUB_TOKEN") ||
   [process.env.ALAYA_GITHUB_TOKEN_FILE, process.env.GITHUB_TOKEN_FILE].some(secretFileUsable);
+
+const schedulerSources = [
+  "alaya-app/server/scheduler.ts",
+  "alaya-app/server/scheduler/core.ts",
+  "alaya-app/server/scheduler/notifications.ts",
+  "alaya-app/server/scheduler/types.ts",
+];
+const flywheelSources = [
+  "alaya-app/server/flywheel.ts",
+  "alaya-app/server/flywheel/core.ts",
+  "alaya-app/server/flywheel/scenario.ts",
+];
 
 const checks = [
   {
@@ -141,11 +157,11 @@ const checks = [
     layer: "Layer 3",
     kind: "structural",
     ok: exists("alaya-app/server/scheduler.ts") &&
-      has("alaya-app/server/scheduler.ts", /startCycleScheduler/) &&
-      has("alaya-app/server/scheduler.ts", /executeGateBudget/) &&
-      has("alaya-app/server/scheduler.ts", /blockingGatesResolved/) &&
-      has("alaya-app/server/scheduler.ts", /feedbackWindowState/) &&
-      has("alaya-app/server/scheduler.ts", /auto_approved_repeated_meaning/),
+      hasAny(schedulerSources, /startCycleScheduler/) &&
+      hasAny(schedulerSources, /executeGateBudget/) &&
+      hasAny(schedulerSources, /blockingGatesResolved/) &&
+      hasAny(schedulerSources, /feedbackWindowState/) &&
+      hasAny(schedulerSources, /auto_approved_repeated_meaning/),
     evidence: "Cycle scheduler and gate budget executor are implemented",
   },
   {
@@ -167,17 +183,17 @@ const checks = [
     id: "cycle4-rollback-audit-assets",
     layer: "Flywheel",
     kind: "structural",
-    ok: has("alaya-app/server/flywheel.ts", /index:\s*4/) &&
-      has("alaya-app/server/flywheel.ts", /rollback-ready change package/) &&
-      has("alaya-app/server/flywheel.ts", /auditSummaryForCycle4/) &&
-      has("alaya-app/server/flywheel.ts", /gate_dir_c4_rollback_/) &&
-      has("alaya-app/server/flywheel.ts", /pred_c4_rollback_/) &&
-      has("alaya-app/server/flywheel.ts", /rollbackReadyChangePackage/) &&
-      has("alaya-app/server/flywheel.ts", /高风险动作进入执行前必须具备可回滚路径与审计摘要/) &&
-      has("alaya-app/server/flywheel.ts", /resolveCycleStimulus/) &&
-      has("alaya-app/server/scheduler.ts", /buildNextGoalInput/) &&
-      has("alaya-app/server/scheduler.ts", /generateNextGoal/) &&
-      has("alaya-app/server/scheduler.ts", /evolution_stalled/) &&
+    ok: hasAny(flywheelSources, /index:\s*4/) &&
+      hasAny(flywheelSources, /rollback-ready change package/) &&
+      hasAny(flywheelSources, /auditSummaryForCycle4/) &&
+      hasAny(flywheelSources, /gate_dir_c4_rollback_/) &&
+      hasAny(flywheelSources, /pred_c4_rollback_/) &&
+      hasAny(flywheelSources, /rollbackReadyChangePackage/) &&
+      hasAny(flywheelSources, /高风险动作进入执行前必须具备可回滚路径与审计摘要/) &&
+      hasAny(flywheelSources, /resolveCycleStimulus/) &&
+      hasAny(schedulerSources, /buildNextGoalInput/) &&
+      hasAny(schedulerSources, /generateNextGoal/) &&
+      hasAny(schedulerSources, /evolution_stalled/) &&
       has("alaya-core/src/sim/scenario.ts", /index:\s*4/) &&
       has("alaya-core/src/sim/scenario.ts", /可回滚变更包 \+ 审计摘要/) &&
       has("alaya-core/src/agents/agents.ts", /gate_dir_c4_rollback/) &&
@@ -294,7 +310,7 @@ const checks = [
       /knowledge_maturity_stagnation/,
       /librarian_stale_conflict_audit_failure/,
       /builder_misdirected_specs/,
-    ].every((pattern) => has("alaya-app/server/scheduler.ts", pattern)) &&
+    ].every((pattern) => hasAny(schedulerSources, pattern)) &&
       has("alaya-app/server/externalFeedback.ts", /external_feedback_sync_error/) &&
       has("alaya-app/tests/external_feedback_scheduler.test.ts", /pending human gate backlog exceeds twice the weekly budget/) &&
       has("alaya-app/tests/external_feedback_scheduler.test.ts", /weekly human time is high but backlog is clear/) &&
