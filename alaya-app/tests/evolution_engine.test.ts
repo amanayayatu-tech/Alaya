@@ -256,9 +256,12 @@ test("knowledgeSimilarity detects duplicates and contradictions", () => {
   const previewB = { title: "高风险操作需要可预览差异", content: "用户要先看到影响范围才敢确认。" };
   const unrelated = { title: "视觉主题模板", content: "优化颜色和排版。" };
   const conflict = { title: "高风险动作不需要预览", content: "删除前无需展示差异。" };
+  const ppgChoice = { title: "静息心率监测 PPG 优先", content: "静息心率监测应该以 PPG 为主。", semanticKey: "health_sensor_choice" };
+  const ecgChoice = { title: "静息心率监测 ECG 优先", content: "静息心率监测应以 ECG 为主。", semanticKey: "health_sensor_choice" };
   assert.equal(isSemanticDuplicate(previewA, previewB, 0.55), true);
   assert.equal(isSemanticDuplicate(previewA, unrelated, 0.55), false);
   assert.equal(isContradiction(previewA, conflict), true);
+  assert.equal(isContradiction(ppgChoice, ecgChoice), true);
 });
 
 test("Librarian merges near-duplicate knowledge without physical deletion and records merge audit", async () => {

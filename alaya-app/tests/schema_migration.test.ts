@@ -32,7 +32,7 @@ test("knowledge_items migration adds maturity and injection fields without break
   const llmColumns = new Set(
     (rawDb.prepare("PRAGMA table_info(llm_calls)").all() as Array<{ name: string }>).map((row) => row.name),
   );
-  for (const name of ["provider", "model", "route_reason"]) {
+  for (const name of ["provider", "model", "route_reason", "token_source"]) {
     assert.equal(llmColumns.has(name), true, `llm_calls.${name} should exist`);
   }
 

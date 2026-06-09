@@ -9,6 +9,7 @@ import { recordTrace } from "./trace";
 import { observeSchedulerCycle } from "./observability/metrics";
 import { HumanGateService } from "./humanGateService";
 import { createKnowledgeReviewReminders, detectKnowledgeConflicts } from "./knowledgeReview";
+import { isContradiction, semanticSimilarity } from "./knowledgeSimilarity";
 import { NotificationBus, type NotificationEmitFailure } from "./notifications/bus";
 import { formatGateDecisionReceiptText, knowledgeIdForMeaningGate } from "./notifications/gateNarrative";
 import { CallbackRouter } from "./notifications/router";
@@ -1177,12 +1178,13 @@ function autoApproveRepeatedLowValueMeaningGates(projectId: string) {
     const pending = group.filter((g) => g.status === "pending" && g.blocking === 0);
     const priorAutoApproved = group.filter((g) => (g.decision ?? "").startsWith("auto_approved_repeated_meaning:")).length;
     pending.forEach((gate, idx) => {
-      if (meaningGateRequiresHumanReview(gate)) {
+      const reviewRequirement = meaningGateHumanReviewRequirement(projectId, gate);
+      if (reviewRequirement) {
         storage.updateGate(gate.id, {
           payload: JSON.stringify({
             ...parsePayload(gate.payload),
             sampleReview: true,
-            sampleReviewReason: "Explicit contradiction or conflict marker requires human review; repeated-topic auto-approval is disabled.",
+            sampleReviewReason: reviewRequirement,
             sampleReviewAt: now(),
           }),
         });
@@ -1215,10 +1217,10 @@ function autoApproveRepeatedLowValueMeaningGates(projectId: string) {
   }
 }
 
-function meaningGateRequiresHumanReview(gate: HumanGateItem): boolean {
+function meaningGateText(gate: HumanGateItem): string {
   const payload = parsePayload(gate.payload);
   const userQuote = reviewableFeedbackBody(payload.userQuote);
-  const text = [
+  return [
     gate.title,
     payload.summary,
     payload.reason,
@@ -1227,7 +1229,51 @@ function meaningGateRequiresHumanReview(gate: HumanGateItem): boolean {
     payload.redactedBody,
     payload.auditSummary?.whyNow,
   ].map((item) => String(item ?? "")).join("\n");
-  return /明确冲突|互相矛盾|不能同时|不能直接复用|必须进入\s*conflict|冲突审查|等待人工审核|\bcontradict(?:s|ed|ory)?\b|\bcontradiction\b(?!-runner)|conflicts?\s+with|conflict review|cannot be reused|cannot.*active/i.test(text);
+}
+
+function parseTags(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function knowledgeMatchesGateTopic(item: KnowledgeItem, topicKey: string, gateLike: Pick<KnowledgeItem, "title" | "content" | "semanticKey">): boolean {
+  const normalizedTopic = topicKey.trim().toLowerCase();
+  if (normalizedTopic) {
+    const tags = parseTags(item.tags).map((tag) => tag.toLowerCase());
+    if (tags.includes(normalizedTopic)) return true;
+    if ((item.semanticKey ?? "").trim().toLowerCase() === normalizedTopic) return true;
+  }
+  return semanticSimilarity(gateLike, item) >= 0.45;
+}
+
+function semanticContradictionWithActiveKnowledge(projectId: string, gate: HumanGateItem): boolean {
+  const payload = parsePayload(gate.payload);
+  const text = meaningGateText(gate);
+  const topicKey = String(payload.topicKey ?? "").trim();
+  const gateLike = {
+    title: gate.title,
+    content: text,
+    semanticKey: topicKey,
+  };
+  return storage.listKnowledge(projectId)
+    .filter((item) => !item.supersededBy && (item.status === "active" || item.status === "strong"))
+    .filter((item) => knowledgeMatchesGateTopic(item, topicKey, gateLike))
+    .some((item) => isContradiction(gateLike, item));
+}
+
+function meaningGateHumanReviewRequirement(projectId: string, gate: HumanGateItem): string | null {
+  const text = meaningGateText(gate);
+  if (/明确冲突|互相矛盾|不能同时|不能直接复用|必须进入\s*conflict|冲突审查|等待人工审核|\bcontradict(?:s|ed|ory)?\b|\bcontradiction\b(?!-runner)|conflicts?\s+with|conflict review|cannot be reused|cannot.*active/i.test(text)) {
+    return "explicit contradiction marker";
+  }
+  if (semanticContradictionWithActiveKnowledge(projectId, gate)) {
+    return "semantic contradiction with existing active knowledge";
+  }
+  return null;
 }
 
 function reviewableFeedbackBody(value: unknown): string {

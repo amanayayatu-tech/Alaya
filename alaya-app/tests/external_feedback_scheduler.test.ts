@@ -78,6 +78,43 @@ function measurableActivationClaim(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function createActiveKnowledge(projectId: string, id: string, patch: Record<string, any>) {
+  storage.createKnowledge({
+    id,
+    projectId,
+    type: patch.type ?? "principle",
+    title: patch.title ?? "Knowledge fixture",
+    content: patch.content ?? "fixture knowledge",
+    sourceType: patch.sourceType ?? "test",
+    sourceRef: patch.sourceRef ?? id,
+    evidenceAlpha: patch.evidenceAlpha ?? 5,
+    evidenceBeta: patch.evidenceBeta ?? 1,
+    confidenceScore: patch.confidenceScore ?? 0.82,
+    confidenceLevel: patch.confidenceLevel ?? "high",
+    status: patch.status ?? "active",
+    humanApprovedCount: patch.humanApprovedCount ?? 1,
+    externalVerifiedCount: patch.externalVerifiedCount ?? 1,
+    validFrom: patch.validFrom ?? "2026-01-01",
+    validUntil: patch.validUntil ?? null,
+    lastValidatedCycle: patch.lastValidatedCycle ?? 1,
+    createdByCycle: patch.createdByCycle ?? 1,
+    createdBy: patch.createdBy ?? "test",
+    approvedBy: patch.approvedBy ?? "human",
+    usageCount: patch.usageCount ?? 0,
+    lastInjectedAt: patch.lastInjectedAt ?? null,
+    lastVerifiedAt: patch.lastVerifiedAt ?? Date.parse("2026-01-01T00:00:00Z"),
+    lastDecayedAt: patch.lastDecayedAt ?? null,
+    storageStrength: patch.storageStrength ?? 1,
+    noveltyScore: patch.noveltyScore ?? null,
+    sourceRound: patch.sourceRound ?? 1,
+    tags: JSON.stringify(patch.tags ?? []),
+    notes: patch.notes ?? "",
+    supersededBy: patch.supersededBy ?? null,
+    semanticKey: patch.semanticKey ?? "",
+    version: 1,
+  });
+}
+
 function installFakeGithubFetch(issueTitle = "I am confused about setup") {
   const calls: string[] = [];
   const authHeaders: string[] = [];
@@ -1608,7 +1645,120 @@ test("repeated meaning gates with explicit contradiction markers are not auto-ap
   assert.equal(budget.pendingNonBlocking, 1);
   const payload = JSON.parse(gate?.payload ?? "{}");
   assert.equal(payload.sampleReview, true);
-  assert.match(payload.sampleReviewReason, /Explicit contradiction/);
+  assert.match(payload.sampleReviewReason, /explicit contradiction marker/);
+});
+
+test("repeated meaning gates with semantic contradictions are not auto-approved", () => {
+  const projectId = "proj_auto_semantic_conflict_578";
+  createProject(projectId);
+  const cycle = storage.listCycles(projectId)[0];
+  const topicKey = "health_sensor_choice";
+
+  createActiveKnowledge(projectId, `kb_${projectId}_ppg`, {
+    title: "静息心率监测 PPG 优先",
+    content: "静息心率监测应该以 PPG 为主，PPG 更符合 7 天续航和 ¥899 成本约束。",
+    tags: [topicKey],
+    semanticKey: topicKey,
+  });
+
+  for (let i = 1; i <= 10; i++) {
+    storage.createGate({
+      id: `gate_auto_semantic_human_${projectId}_${i}`,
+      cycleId: cycle.id,
+      type: "meaning",
+      blocking: 0,
+      title: `历史传感器意义闸 ${i}`,
+      payload: JSON.stringify({ topicKey, userQuote: `approved sensor note ${i}`, createdAt: now() }),
+      status: "pending",
+      estimatedMinutes: 8,
+      decision: null,
+      version: 1,
+    });
+    storage.updateGate(`gate_auto_semantic_human_${projectId}_${i}`, { status: "approved", decision: "approve" });
+  }
+
+  storage.createGate({
+    id: `gate_auto_semantic_pending_${projectId}`,
+    cycleId: cycle.id,
+    type: "meaning",
+    blocking: 0,
+    title: "ECG 优先证据：医疗认证与信号可解释性",
+    payload: JSON.stringify({
+      topicKey,
+      userQuote: "静息心率监测应以 ECG 为主，心电信号更可解释，医疗认证材料也更充分。",
+      createdAt: now(),
+    }),
+    status: "pending",
+    estimatedMinutes: 8,
+    decision: null,
+    version: 1,
+  });
+
+  const budget = executeGateBudget(projectId);
+  const gate = storage.getGate(`gate_auto_semantic_pending_${projectId}`);
+  assert.equal(gate?.status, "pending");
+  assert.equal(gate?.decision, null);
+  assert.equal(gate?.estimatedMinutes, 8);
+  assert.equal(budget.pendingNonBlocking, 1);
+  const payload = JSON.parse(gate?.payload ?? "{}");
+  assert.equal(payload.sampleReview, true);
+  assert.match(payload.sampleReviewReason, /semantic contradiction/);
+});
+
+test("repeated meaning gates with same-direction semantic evidence still auto-approve", () => {
+  const projectId = "proj_auto_semantic_repeat_579";
+  createProject(projectId);
+  const cycle = storage.listCycles(projectId)[0];
+  const topicKey = "health_sensor_choice_repeat";
+
+  createActiveKnowledge(projectId, `kb_${projectId}_ppg`, {
+    title: "静息心率监测 PPG 优先",
+    content: "静息心率监测应该以 PPG 为主，PPG 更符合 7 天续航和 ¥899 成本约束。",
+    tags: [topicKey],
+    semanticKey: topicKey,
+  });
+
+  for (let i = 1; i <= 10; i++) {
+    storage.createGate({
+      id: `gate_auto_semantic_repeat_human_${projectId}_${i}`,
+      cycleId: cycle.id,
+      type: "meaning",
+      blocking: 0,
+      title: `历史传感器意义闸 ${i}`,
+      payload: JSON.stringify({ topicKey, userQuote: `approved sensor note ${i}`, createdAt: now() }),
+      status: "pending",
+      estimatedMinutes: 8,
+      decision: null,
+      version: 1,
+    });
+    storage.updateGate(`gate_auto_semantic_repeat_human_${projectId}_${i}`, { status: "approved", decision: "approve" });
+  }
+
+  storage.createGate({
+    id: `gate_auto_semantic_repeat_pending_${projectId}`,
+    cycleId: cycle.id,
+    type: "meaning",
+    blocking: 0,
+    title: "PPG 优先证据：成本与续航匹配",
+    payload: JSON.stringify({
+      topicKey,
+      userQuote: "静息心率监测建议继续以 PPG 为主，低功耗连续采样更适合当前用户。",
+      createdAt: now(),
+    }),
+    status: "pending",
+    estimatedMinutes: 8,
+    decision: null,
+    version: 1,
+  });
+
+  const budget = executeGateBudget(projectId);
+  const gate = storage.getGate(`gate_auto_semantic_repeat_pending_${projectId}`);
+  assert.equal(gate?.status, "approved");
+  assert.equal(gate?.decision, `auto_approved_repeated_meaning:${topicKey}`);
+  assert.equal(gate?.estimatedMinutes, 0);
+  assert.equal(budget.pendingNonBlocking, 0);
+  const payload = JSON.parse(gate?.payload ?? "{}");
+  assert.equal(payload.sampleReview, false);
 });
 
 test("repeated meaning gates ignore contradiction-runner source metadata when checking conflict markers", () => {

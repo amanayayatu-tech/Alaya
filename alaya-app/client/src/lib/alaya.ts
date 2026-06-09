@@ -98,6 +98,7 @@ export interface LlmCall {
   inputSummary: string; outputSummary: string; schemaValid: number;
   retryCount: number; latencyMs: number;
   inputTokenCount: number; outputTokenCount: number; tokenCount: number;
+  tokenSource: "provider" | "estimated";
   estimatedCost: number; ts: string;
 }
 export interface Dashboard {

@@ -38,7 +38,7 @@ const REQUIRED_TABLES = [
 ];
 
 const REQUIRED_COLUMNS: Record<string, string[]> = {
-  llm_calls: ["input_token_count", "output_token_count", "llm_failure_type"],
+  llm_calls: ["input_token_count", "output_token_count", "llm_failure_type", "token_source"],
   knowledge_items: ["usage_count", "last_injected_at", "last_verified_at", "last_decayed_at", "semantic_key"],
   external_feedback_sources: ["config", "status", "last_synced_at"],
   action_ledger: ["idempotency_key", "status", "payload"],
@@ -182,7 +182,8 @@ export function runSchemaMigrations() {
     output_summary TEXT NOT NULL DEFAULT '', schema_valid INTEGER NOT NULL DEFAULT 1,
     retry_count INTEGER NOT NULL DEFAULT 0, latency_ms INTEGER NOT NULL DEFAULT 0,
     input_token_count INTEGER NOT NULL DEFAULT 0, output_token_count INTEGER NOT NULL DEFAULT 0,
-    token_count INTEGER NOT NULL DEFAULT 0, estimated_cost REAL NOT NULL DEFAULT 0, ts TEXT NOT NULL
+    token_count INTEGER NOT NULL DEFAULT 0, token_source TEXT NOT NULL DEFAULT 'estimated',
+    estimated_cost REAL NOT NULL DEFAULT 0, ts TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS trace_events (
     id TEXT PRIMARY KEY, trace_id TEXT NOT NULL, span_id TEXT NOT NULL,
@@ -292,6 +293,7 @@ export function runSchemaMigrations() {
     ["llm_failure_type", "TEXT"],
     ["input_token_count", "INTEGER NOT NULL DEFAULT 0"],
     ["output_token_count", "INTEGER NOT NULL DEFAULT 0"],
+    ["token_source", "TEXT NOT NULL DEFAULT 'estimated'"],
   ];
   for (const [name, spec] of llmColumnSpecs) {
     if (!llmColumns.has(name)) sqlite.exec(`ALTER TABLE llm_calls ADD COLUMN ${name} ${spec}`);
@@ -476,6 +478,7 @@ function rowToLlm(r: any): LlmCall {
     inputTokenCount: r.input_token_count ?? r.token_count ?? 0,
     outputTokenCount: r.output_token_count ?? 0,
     tokenCount: r.token_count,
+    tokenSource: r.token_source ?? "estimated",
     estimatedCost: r.estimated_cost, ts: r.ts,
   };
 }
@@ -544,8 +547,8 @@ function escapeSqlLike(value: string): string {
   return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
-type LlmCallInsert = Omit<LlmCall, "id" | "provider" | "model" | "routeReason" | "inputTokenCount" | "outputTokenCount" | "llmFailureType"> &
-  Partial<Pick<LlmCall, "provider" | "model" | "routeReason" | "inputTokenCount" | "outputTokenCount" | "llmFailureType">>;
+type LlmCallInsert = Omit<LlmCall, "id" | "provider" | "model" | "routeReason" | "inputTokenCount" | "outputTokenCount" | "llmFailureType" | "tokenSource"> &
+  Partial<Pick<LlmCall, "provider" | "model" | "routeReason" | "inputTokenCount" | "outputTokenCount" | "llmFailureType" | "tokenSource">>;
 
 export interface IStorage {
   withTransaction?<T>(fn: () => T): T;
@@ -867,7 +870,9 @@ export class DatabaseStorage implements IStorage {
       storageStrength: rawPatch.storageStrength ?? cur.storageStrength ?? 1,
       noveltyScore: rawPatch.noveltyScore ?? cur.noveltyScore ?? null,
       sourceRound: rawPatch.sourceRound ?? cur.sourceRound ?? cur.createdByCycle ?? null,
-      supersededBy: rawPatch.supersededBy ?? cur.supersededBy ?? null,
+      supersededBy: Object.prototype.hasOwnProperty.call(rawPatch, "supersededBy")
+        ? rawPatch.supersededBy ?? null
+        : cur.supersededBy ?? null,
       semanticKey: rawPatch.semanticKey ?? cur.semanticKey ?? "",
       version: cur.version + 1,
     };
@@ -1001,12 +1006,13 @@ export class DatabaseStorage implements IStorage {
       llmFailureType: c.llmFailureType ?? null,
       inputTokenCount: c.inputTokenCount ?? c.tokenCount ?? 0,
       outputTokenCount: c.outputTokenCount ?? 0,
+      tokenSource: c.tokenSource ?? "estimated",
     };
-    rawDb.prepare(`INSERT INTO llm_calls (cycle_id,agent,provider,model,route_reason,prompt_version,input_summary,output_summary,schema_valid,llm_failure_type,retry_count,latency_ms,input_token_count,output_token_count,token_count,estimated_cost,ts)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    rawDb.prepare(`INSERT INTO llm_calls (cycle_id,agent,provider,model,route_reason,prompt_version,input_summary,output_summary,schema_valid,llm_failure_type,retry_count,latency_ms,input_token_count,output_token_count,token_count,token_source,estimated_cost,ts)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
       n.cycleId, n.agent, n.provider, n.model, n.routeReason, n.promptVersion,
       n.inputSummary, n.outputSummary, n.schemaValid, n.llmFailureType, n.retryCount, n.latencyMs,
-      n.inputTokenCount, n.outputTokenCount, n.tokenCount, n.estimatedCost, n.ts,
+      n.inputTokenCount, n.outputTokenCount, n.tokenCount, n.tokenSource, n.estimatedCost, n.ts,
     );
     this.auditWrite(c.agent || "llm", "llm_calls", "insert", null, n, this.cycleIdxFor(c.cycleId));
   }

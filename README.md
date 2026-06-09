@@ -734,9 +734,14 @@ ALAYA_VALIDATION_MAX_ROUNDS=72 \
 启动真实 provider 长测：
 
 ```bash
+ALAYA_SCHEDULER=false \
+ALAYA_AUTO_SEED_DEMO=false \
+ALAYA_LLM_PROVIDER=openai \
 OPENAI_API_KEY_FILE=$HOME/.config/alaya/openai-api-key \
-OPENAI_BASE_URL=<openai-compatible-base-url> \
-OPENAI_MODEL=<model-name> \
+OPENAI_BASE_URL=https://api.minimax.io/openai \
+OPENAI_MODEL=MiniMax-M3 \
+PORT=5300 \
+ALAYA_DB_PATH=$PWD/validation-logs/health-signal-36h/health-signal.db \
 ALAYA_CAP_EXTERNAL_NOTIFICATION=true \
 ALAYA_NOTIFICATION_PROVIDER=telegram \
 ALAYA_TELEGRAM_BOT_TOKEN=<bot-token> \
@@ -747,17 +752,87 @@ npm run validation:health-signal
 常用短窗口 smoke：
 
 ```bash
+ALAYA_SCHEDULER=false \
+ALAYA_AUTO_SEED_DEMO=false \
+ALAYA_LLM_PROVIDER=openai \
 OPENAI_API_KEY_FILE=$HOME/.config/alaya/openai-api-key \
-OPENAI_BASE_URL=<openai-compatible-base-url> \
-OPENAI_MODEL=<model-name> \
+OPENAI_BASE_URL=https://api.minimax.io/openai \
+OPENAI_MODEL=MiniMax-M3 \
+PORT=5300 \
+ALAYA_DB_PATH=$PWD/validation-logs/health-signal-smoke/health-signal.db \
 npm run validation:health-signal -- --duration-minutes=20 --sample-minutes=1 --max-samples=20
 ```
+
+10h clean retest 需要先冻结代码基线：Goal 1-4 修复必须已经 commit，`git status --short` 必须为空，再用全新 DB 和明确端口启动。不要复用旧 `validation-logs/wonz-*` DB，也不要在已有 5300 旧 app/watchers 上直接续跑。
+
+推荐启动方式是让 runner 按 Goal 4 guard 自己启动 app：
+
+```bash
+RUN_DIR=$PWD/validation-logs/health-signal-10h_$(date -u +%Y%m%d_%H%M%S)
+mkdir -p "$RUN_DIR"
+
+ALAYA_SCHEDULER=false \
+ALAYA_AUTO_SEED_DEMO=false \
+ALAYA_LLM_PROVIDER=openai \
+OPENAI_API_KEY_FILE=$HOME/.config/alaya/openai-api-key \
+OPENAI_BASE_URL=https://api.minimax.io/openai \
+OPENAI_MODEL=MiniMax-M3 \
+PORT=5300 \
+ALAYA_DB_PATH="$RUN_DIR/health-signal.db" \
+npm run validation:health-signal -- \
+  --duration-hours=10 \
+  --sample-minutes=5 \
+  --progress-ticks-per-sample=6 \
+  --max-samples=120 \
+  --resolve-conflict-reviews=0 \
+  --log-dir="$RUN_DIR"
+```
+
+如果 app 已由独立固化脚本启动，则 runner 必须显式接入该 clean app，并且同样传入 guard env：
+
+```bash
+ALAYA_SCHEDULER=false \
+ALAYA_AUTO_SEED_DEMO=false \
+ALAYA_LLM_PROVIDER=openai \
+OPENAI_API_KEY_FILE=$HOME/.config/alaya/openai-api-key \
+OPENAI_BASE_URL=https://api.minimax.io/openai \
+OPENAI_MODEL=MiniMax-M3 \
+PORT=5300 \
+ALAYA_DB_PATH="$RUN_DIR/health-signal.db" \
+npm run validation:health-signal -- \
+  --duration-hours=10 \
+  --sample-minutes=5 \
+  --progress-ticks-per-sample=6 \
+  --max-samples=120 \
+  --resolve-conflict-reviews=0 \
+  --start-app=false \
+  --base-url=http://127.0.0.1:5300 \
+  --log-dir="$RUN_DIR"
+```
+
+`--resolve-conflict-reviews=0` 是 clean retest 的关键参数：runner 不再用占位 human proxy 自动 `quarantine` / `merge_supersede` 清空冲突复核，冲突会保持为 pending，交给真实人工或独立判断代理处理。这样才能验证 active 知识不会归零，以及语义矛盾不会被 repeated-meaning 自动批准旁路吞掉。
+
+启动 guard 会在创建日志和启动 app 前拒绝脏环境：`ALAYA_SCHEDULER`、`ALAYA_AUTO_SEED_DEMO`、MiniMax provider 配置、`PORT` 和 `ALAYA_DB_PATH` 都必须显式传入；`OPENAI_API_KEY` 或非空 `OPENAI_API_KEY_FILE` 至少存在一个。可先用 dry-run 预检：
+
+```bash
+ALAYA_SCHEDULER=false \
+ALAYA_AUTO_SEED_DEMO=false \
+ALAYA_LLM_PROVIDER=openai \
+OPENAI_API_KEY_FILE=$HOME/.config/alaya/openai-api-key \
+OPENAI_BASE_URL=https://api.minimax.io/openai \
+OPENAI_MODEL=MiniMax-M3 \
+PORT=5300 \
+ALAYA_DB_PATH=$PWD/validation-logs/health-signal-smoke/health-signal.db \
+npm run validation:health-signal -- --check-only
+```
+
+app ready 后 runner 会调用 provider canary；只有返回 `ok=true`、`provider=openai` 且 `model=MiniMax-M3` 才会继续长测，返回 mock、错误模型或 canary 失败都会终止。清理端口时不要使用 `lsof -ti tcp:<port>` 批量 kill，这可能误杀 runner client；应先确认监听 PID，再只停止该监听进程。
 
 runner 会写入：
 
 | 文件 | 用途 |
 | --- | --- |
-| `monitor_log.csv` | 每个 sample 的 delta、gate、knowledge、LLM 成本、RSS、cycle 和 Stall Guard 时序 |
+| `monitor_log.csv` | 每个 sample 的 delta、active knowledge、gate、conflict review、`newGatesThisHour`、`llmTokenSource`、LLM 成本、RSS、cycle 和 Stall Guard 时序 |
 | `events.jsonl` | provider canary、矛盾注入、scheduler tick、人审、冲突扫描、失败与重试事件 |
 | `issues.md` | 长测中发现的具体工程问题和证据 |
 | `summary.json` | 结束时的要求逐项判定和最终 drain 状态 |
@@ -775,6 +850,9 @@ npm run validation:health-signal:conflicts -- --log-dir validation-logs/<health-
 
 | 指标 | 通过条件 | 说明 |
 | --- | --- | --- |
+| active 不归零 | 全程 `activeCount >= 1` 且终值 `>= 1` | `activeCount` 来自 `/api/flywheel/health.totals.activeKnowledgeCount`，不是临时脚本私算 |
+| 语义矛盾隔离 | 对立证据被 `auto_approved_repeated_meaning` 旁路的比例为 0 | 带 `sampleReviewReason` 的 semantic/explicit contradiction gate 会被 runner 保留为 pending，不会被本地 proxy 批掉 |
+| token 来源真实 | `token_source=provider` 占比 `>= 95%` | `monitor_log.csv` 的 `llmTokenSource` 和 `metrics_sample.llmTokenSourceStats` 用于抽查 MiniMax usage 是否真实落库 |
 | 知识熵变 | `round1vs4KnowledgeDelta >= 8` | 该字段现在表示 round1 到当前知识量的增长；静态 round1-vs-round4 另存为 `round1vs4StaticKnowledgeDelta` |
 | 冲突生命周期 | 累计冲突证据 `>= 5` 且已解决冲突复核 `>= 3` | 判定使用累计 review/event 证据，不再只看瞬时 `conflictCount`，避免快速解决后 CSV 点位显示 0 |
 | Human Gate 收敛 | 后半段 pending gate 均值较前段下降 `>= 30%` | 早期全 0 backlog 时该指标会标记为不可判定 |

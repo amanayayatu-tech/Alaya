@@ -96,6 +96,159 @@ test("per-call model routing override does not mutate global routing env", async
   }
 });
 
+test("chat provider usage is persisted as provider token counts", async () => {
+  const previousProvider = process.env.ALAYA_LLM_PROVIDER;
+  const previousApiKey = process.env.OPENAI_API_KEY;
+  const previousBaseUrl = process.env.OPENAI_BASE_URL;
+  const previousApiMode = process.env.OPENAI_API_MODE;
+  const previousChatEndpoint = process.env.OPENAI_CHAT_COMPLETIONS_ENDPOINT;
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    requestedUrl = String(url);
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ summary: "provider usage ok" }) } }],
+      usage: { prompt_tokens: 37, completion_tokens: 11 },
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+
+  try {
+    process.env.ALAYA_LLM_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "test-api-key-not-a-real-secret";
+    process.env.OPENAI_BASE_URL = "https://api.openai.com/v1";
+    delete process.env.OPENAI_API_MODE;
+    delete process.env.OPENAI_CHAT_COMPLETIONS_ENDPOINT;
+
+    await callLlm({
+      cycleId: "cycle_canary",
+      agent: "sensor",
+      promptName: "chat_provider_usage",
+      inputSummary: "record provider token usage",
+      mockOutput: { summary: "mock" },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousProvider == null) delete process.env.ALAYA_LLM_PROVIDER;
+    else process.env.ALAYA_LLM_PROVIDER = previousProvider;
+    if (previousApiKey == null) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousApiKey;
+    if (previousBaseUrl == null) delete process.env.OPENAI_BASE_URL;
+    else process.env.OPENAI_BASE_URL = previousBaseUrl;
+    if (previousApiMode == null) delete process.env.OPENAI_API_MODE;
+    else process.env.OPENAI_API_MODE = previousApiMode;
+    if (previousChatEndpoint == null) delete process.env.OPENAI_CHAT_COMPLETIONS_ENDPOINT;
+    else process.env.OPENAI_CHAT_COMPLETIONS_ENDPOINT = previousChatEndpoint;
+  }
+
+  assert.match(requestedUrl, /\/chat\/completions$/);
+  const call = storage.listLlmCalls().find((item) => item.promptVersion === "chat_provider_usage@v1");
+  assert.ok(call);
+  assert.equal(call.inputTokenCount, 37);
+  assert.equal(call.outputTokenCount, 11);
+  assert.equal(call.tokenCount, 48);
+  assert.equal(call.tokenSource, "provider");
+  assert.equal(call.estimatedCost, 0.000096);
+});
+
+test("responses provider usage is persisted from input and output tokens", async () => {
+  const previousProvider = process.env.ALAYA_LLM_PROVIDER;
+  const previousApiKey = process.env.OPENAI_API_KEY;
+  const previousBaseUrl = process.env.OPENAI_BASE_URL;
+  const previousApiMode = process.env.OPENAI_API_MODE;
+  const previousResponsesEndpoint = process.env.OPENAI_RESPONSES_ENDPOINT;
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    requestedUrl = String(url);
+    return new Response(JSON.stringify({
+      output_text: JSON.stringify({ summary: "responses usage ok" }),
+      usage: { input_tokens: 19, output_tokens: 7, total_tokens: 26 },
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+
+  try {
+    process.env.ALAYA_LLM_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "test-api-key-not-a-real-secret";
+    process.env.OPENAI_API_MODE = "responses";
+    process.env.OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
+    delete process.env.OPENAI_BASE_URL;
+
+    await callLlm({
+      cycleId: "cycle_canary",
+      agent: "sensor",
+      promptName: "responses_provider_usage",
+      inputSummary: "record responses token usage",
+      mockOutput: { summary: "mock" },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousProvider == null) delete process.env.ALAYA_LLM_PROVIDER;
+    else process.env.ALAYA_LLM_PROVIDER = previousProvider;
+    if (previousApiKey == null) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousApiKey;
+    if (previousBaseUrl == null) delete process.env.OPENAI_BASE_URL;
+    else process.env.OPENAI_BASE_URL = previousBaseUrl;
+    if (previousApiMode == null) delete process.env.OPENAI_API_MODE;
+    else process.env.OPENAI_API_MODE = previousApiMode;
+    if (previousResponsesEndpoint == null) delete process.env.OPENAI_RESPONSES_ENDPOINT;
+    else process.env.OPENAI_RESPONSES_ENDPOINT = previousResponsesEndpoint;
+  }
+
+  assert.equal(requestedUrl, "https://api.openai.com/v1/responses");
+  const call = storage.listLlmCalls().find((item) => item.promptVersion === "responses_provider_usage@v1");
+  assert.ok(call);
+  assert.equal(call.inputTokenCount, 19);
+  assert.equal(call.outputTokenCount, 7);
+  assert.equal(call.tokenCount, 26);
+  assert.equal(call.tokenSource, "provider");
+});
+
+test("missing provider usage falls back to estimated token counts", async () => {
+  const previousProvider = process.env.ALAYA_LLM_PROVIDER;
+  const previousApiKey = process.env.OPENAI_API_KEY;
+  const previousBaseUrl = process.env.OPENAI_BASE_URL;
+  const previousApiMode = process.env.OPENAI_API_MODE;
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    choices: [{ message: { content: JSON.stringify({ summary: "no usage still works" }) } }],
+  }), { status: 200, headers: { "Content-Type": "application/json" } })) as typeof fetch;
+
+  try {
+    process.env.ALAYA_LLM_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "test-api-key-not-a-real-secret";
+    process.env.OPENAI_BASE_URL = "https://api.openai.com/v1";
+    delete process.env.OPENAI_API_MODE;
+
+    await callLlm({
+      cycleId: "cycle_canary",
+      agent: "sensor",
+      promptName: "estimated_usage_fallback",
+      inputSummary: "record estimated token usage when provider omits usage",
+      mockOutput: { summary: "mock" },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousProvider == null) delete process.env.ALAYA_LLM_PROVIDER;
+    else process.env.ALAYA_LLM_PROVIDER = previousProvider;
+    if (previousApiKey == null) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousApiKey;
+    if (previousBaseUrl == null) delete process.env.OPENAI_BASE_URL;
+    else process.env.OPENAI_BASE_URL = previousBaseUrl;
+    if (previousApiMode == null) delete process.env.OPENAI_API_MODE;
+    else process.env.OPENAI_API_MODE = previousApiMode;
+  }
+
+  const call = storage.listLlmCalls().find((item) => item.promptVersion === "estimated_usage_fallback@v1");
+  assert.ok(call);
+  assert.equal(call.tokenSource, "estimated");
+  assert.ok(call.inputTokenCount > 0);
+  assert.ok(call.outputTokenCount > 0);
+  assert.equal(call.tokenCount, call.inputTokenCount + call.outputTokenCount);
+});
+
 test("mock provider canary success and schema failure are persisted", async () => {
   const previousRouting = process.env.ALAYA_MODEL_ROUTING_JSON;
   process.env.ALAYA_MODEL_ROUTING_JSON = JSON.stringify({

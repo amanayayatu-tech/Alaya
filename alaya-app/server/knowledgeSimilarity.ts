@@ -15,6 +15,9 @@ const CANONICAL_TERMS: Array<[string, RegExp]> = [
   ["automation", /自动化|自动操作|agent|飞轮|scheduler/i],
   ["knowledge", /知识|原则|world model|playbook|认知/i],
   ["metric", /指标|activation|conversion|error|误差/i],
+  ["health_sensor", /静息心率|心率|传感器|sensor|wearable|穿戴|健康/i],
+  ["ppg", /\bppg\b|光学\s*ppg|光电/i],
+  ["ecg", /\becg\b|心电|生物电阻抗/i],
 ];
 
 const STOP_WORDS = new Set([
@@ -122,9 +125,42 @@ function polarity(text: string): "positive" | "negative" | "neutral" {
   return "neutral";
 }
 
+function optionPriorityScore(text: string, term: RegExp): number {
+  const priority = /优先|为主|首选|主方案|选用|采用|使用|建议|应该|应当|应以|prefer|preferred|primary|recommend|should|must/i;
+  const windows = [
+    new RegExp(`(?:${term.source})[\\s\\S]{0,28}(?:${priority.source})`, "i"),
+    new RegExp(`(?:${priority.source})[\\s\\S]{0,28}(?:${term.source})`, "i"),
+  ];
+  return windows.filter((pattern) => pattern.test(text)).length;
+}
+
+function sensorPreference(text: string): "ppg" | "ecg" | "hybrid" | null {
+  const ppgTerm = /\bppg\b|光学\s*ppg|光电/i;
+  const ecgTerm = /\becg\b|心电|生物电阻抗/i;
+  const hybrid = /混合|组合|分层|二次确认|ppg\s*\+\s*ecg|ecg\s*\+\s*ppg/i.test(text);
+  const ppgScore = optionPriorityScore(text, ppgTerm);
+  const ecgScore = optionPriorityScore(text, ecgTerm);
+  if (hybrid && ppgScore > 0 && ecgScore > 0) return "hybrid";
+  if (ppgScore > ecgScore) return "ppg";
+  if (ecgScore > ppgScore) return "ecg";
+  return null;
+}
+
+function hasOpposingSensorPreference(a: KnowledgeLike, b: KnowledgeLike): boolean {
+  const textA = `${a.title}\n${a.content}`;
+  const textB = `${b.title}\n${b.content}`;
+  const prefA = sensorPreference(textA);
+  const prefB = sensorPreference(textB);
+  if (!prefA || !prefB || prefA === prefB || prefA === "hybrid" || prefB === "hybrid") return false;
+  const related = semanticSimilarity(a, b) >= 0.3 || Boolean(a.semanticKey?.trim() && a.semanticKey === b.semanticKey);
+  return related;
+}
+
 export function isContradiction(a: KnowledgeLike, b: KnowledgeLike): boolean {
   const textA = `${a.title}\n${a.content}`;
   const textB = `${b.title}\n${b.content}`;
+  if (hasOpposingSensorPreference(a, b)) return true;
+
   const polarityA = polarity(textA);
   const polarityB = polarity(textB);
   if (polarityA === "neutral" || polarityB === "neutral" || polarityA === polarityB) return false;

@@ -27,6 +27,13 @@ export interface ResolveKnowledgeReviewInput {
   survivorKnowledgeId?: string;
 }
 
+export interface ResolvedConflictSurvivorViolation {
+  reviewId: string;
+  projectId: string;
+  knowledgeIds: string[];
+  reason: string;
+}
+
 function parseTags(value: string): string[] {
   try {
     const parsed = JSON.parse(value);
@@ -265,6 +272,55 @@ function weakerFirst(a: KnowledgeItem, b: KnowledgeItem): [KnowledgeItem, Knowle
   return a.id < b.id ? [a, b] : [b, a];
 }
 
+function parseReviewResolution(review: KnowledgeReviewItem): Partial<ResolveKnowledgeReviewInput> {
+  if (!review.resolution) return {};
+  try {
+    const parsed = JSON.parse(review.resolution) as Partial<ResolveKnowledgeReviewInput>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function clusterKnowledgeIds(review: KnowledgeReviewItem): string[] {
+  const resolution = parseReviewResolution(review);
+  return Array.from(new Set([
+    review.primaryKnowledgeId,
+    review.relatedKnowledgeId ?? "",
+    resolution.survivorKnowledgeId ?? "",
+  ].filter((id): id is string => typeof id === "string" && id.length > 0)));
+}
+
+export function resolvedConflictActiveSurvivorViolations(projectId: string): ResolvedConflictSurvivorViolation[] {
+  const violations: ResolvedConflictSurvivorViolation[] = [];
+  for (const review of storage.listKnowledgeReviews(projectId)) {
+    if (review.reviewType !== "conflict" || review.status !== "resolved") continue;
+    const ids = clusterKnowledgeIds(review);
+    const items = ids
+      .map((id) => storage.getKnowledge(id))
+      .filter((item): item is KnowledgeItem => !!item && item.projectId === projectId);
+    if (items.length === 0) continue;
+    const explicitlyQuarantinedCluster = items.every((item) => item.status === "quarantined");
+    if (explicitlyQuarantinedCluster) continue;
+    const hasActiveSurvivor = items.some((item) => !item.supersededBy && (item.status === "active" || item.status === "strong"));
+    if (!hasActiveSurvivor) {
+      violations.push({
+        reviewId: review.id,
+        projectId,
+        knowledgeIds: ids,
+        reason: "resolved conflict cluster has no active/strong non-superseded survivor",
+      });
+    }
+  }
+  return violations;
+}
+
+export function assertResolvedConflictActiveSurvivors(projectId: string): void {
+  const violations = resolvedConflictActiveSurvivorViolations(projectId);
+  if (violations.length === 0) return;
+  throw new Error(`resolved conflict survivor invariant failed: ${violations.map((item) => `${item.reviewId}:${item.knowledgeIds.join("|")}`).join(", ")}`);
+}
+
 export function detectKnowledgeConflicts(projectId: string): ConflictCandidate[] {
   const active = storage.listKnowledge(projectId).filter((item) => (
     !item.supersededBy && ["active", "strong"].includes(item.status)
@@ -378,10 +434,23 @@ export function resolveKnowledgeReview(reviewId: string, input: ResolveKnowledge
     } else if (input.action === "merge_supersede") {
       const survivor = input.survivorKnowledgeId || review.relatedKnowledgeId;
       if (!survivor) throw new Error("merge_supersede requires survivorKnowledgeId or relatedKnowledgeId");
+      const survivorKnowledge = storage.getKnowledge(survivor);
+      if (!survivorKnowledge || survivorKnowledge.projectId !== review.projectId) {
+        throw new Error(`survivor knowledge not found: ${survivor}`);
+      }
+      const survivorStatus = survivorKnowledge.status === "strong" ? "strong" : "active";
       storage.updateKnowledge(primary.id, {
         status: "deprecated",
         supersededBy: survivor,
         notes: `${primary.notes}\nReview ${review.id}: superseded by ${survivor}.`.trim(),
+        actor,
+      });
+      storage.updateKnowledge(survivorKnowledge.id, {
+        status: survivorStatus,
+        supersededBy: null,
+        lastVerifiedAt: Date.now(),
+        lastValidatedCycle: cycle?.idx ?? survivorKnowledge.lastValidatedCycle,
+        notes: `${survivorKnowledge.notes}\nReview ${review.id}: survivor retained as active knowledge after absorbing contradiction from ${primary.id}. ${input.rationale ?? ""}`.trim(),
         actor,
       });
     }
@@ -398,6 +467,12 @@ export function resolveKnowledgeReview(reviewId: string, input: ResolveKnowledge
   };
   if (storage.withTransaction) storage.withTransaction(applyResolution);
   else applyResolution();
+  if (review.reviewType === "conflict" && input.action === "merge_supersede") {
+    const currentViolation = resolvedConflictActiveSurvivorViolations(review.projectId).find((item) => item.reviewId === review.id);
+    if (currentViolation) {
+      throw new Error(`resolved conflict survivor invariant failed: ${currentViolation.reviewId}:${currentViolation.knowledgeIds.join("|")}`);
+    }
+  }
 
   const resolved = storage.getKnowledgeReview(review.id);
   if (!resolved) throw new Error(`knowledge review disappeared: ${review.id}`);

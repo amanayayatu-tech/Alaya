@@ -9,6 +9,11 @@ import { setTimeout as sleep } from "node:timers/promises";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 
+const REQUIRED_LLM_PROVIDER = "openai";
+const REQUIRED_OPENAI_BASE_URL = "https://api.minimax.io/openai";
+const REQUIRED_OPENAI_MODEL = "MiniMax-M3";
+const LAUNCH_GUARD_FAILURE_EXIT_CODE = 2;
+
 const PROJECT_NAME = "wearable-health-signal-decision";
 const PROJECT_DESCRIPTION = [
   "你是某智能健康硬件的产品决策系统。你需要对一个穿戴设备的核心传感器选型做出决策：",
@@ -128,8 +133,99 @@ function boolArg(name, fallback) {
   return ["1", "true", "yes", "on"].includes(String(raw).toLowerCase());
 }
 
+function readNonEmptySecretFile(path) {
+  if (!path?.trim()) return { usable: false, reason: "path is empty" };
+  try {
+    return readFileSync(path, "utf8").trim()
+      ? { usable: true, reason: "" }
+      : { usable: false, reason: "file is empty" };
+  } catch (error) {
+    return {
+      usable: false,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function parseExplicitPort(raw) {
+  if (!raw?.trim()) return { ok: false, error: "PORT or --port must be explicitly set." };
+  if (!/^\d+$/.test(raw.trim())) return { ok: false, error: `PORT must be an integer, got ${JSON.stringify(raw)}.` };
+  const port = Number(raw.trim());
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    return { ok: false, error: `PORT must be in 1..65535, got ${JSON.stringify(raw)}.` };
+  }
+  return { ok: true, port };
+}
+
+function healthSignalLaunchGuard({ argv, env }) {
+  const errors = [];
+  const portRaw = argv.port ?? env.PORT ?? "";
+  const dbPathRaw = argv["db-path"] ?? env.ALAYA_DB_PATH ?? "";
+  const portCheck = parseExplicitPort(String(portRaw));
+  if (!portCheck.ok) errors.push(portCheck.error);
+  if (!dbPathRaw?.trim()) errors.push("ALAYA_DB_PATH or --db-path must be explicitly set.");
+
+  if (env.ALAYA_SCHEDULER !== "false") {
+    errors.push(`ALAYA_SCHEDULER must be explicitly set to false, got ${JSON.stringify(env.ALAYA_SCHEDULER ?? "")}.`);
+  }
+  if (env.ALAYA_AUTO_SEED_DEMO !== "false") {
+    errors.push(`ALAYA_AUTO_SEED_DEMO must be explicitly set to false, got ${JSON.stringify(env.ALAYA_AUTO_SEED_DEMO ?? "")}.`);
+  }
+  if (env.ALAYA_LLM_PROVIDER !== REQUIRED_LLM_PROVIDER) {
+    errors.push(`ALAYA_LLM_PROVIDER must be ${REQUIRED_LLM_PROVIDER}, got ${JSON.stringify(env.ALAYA_LLM_PROVIDER ?? "")}.`);
+  }
+  if (argv["llm-provider"] && argv["llm-provider"] !== REQUIRED_LLM_PROVIDER) {
+    errors.push(`--llm-provider must be ${REQUIRED_LLM_PROVIDER}, got ${JSON.stringify(argv["llm-provider"])}.`);
+  }
+  if (env.OPENAI_BASE_URL !== REQUIRED_OPENAI_BASE_URL) {
+    errors.push(`OPENAI_BASE_URL must be ${REQUIRED_OPENAI_BASE_URL}, got ${JSON.stringify(env.OPENAI_BASE_URL ?? "")}.`);
+  }
+  if (env.OPENAI_MODEL !== REQUIRED_OPENAI_MODEL) {
+    errors.push(`OPENAI_MODEL must be ${REQUIRED_OPENAI_MODEL}, got ${JSON.stringify(env.OPENAI_MODEL ?? "")}.`);
+  }
+  if (argv.model && argv.model !== REQUIRED_OPENAI_MODEL) {
+    errors.push(`--model must be ${REQUIRED_OPENAI_MODEL}, got ${JSON.stringify(argv.model)}.`);
+  }
+
+  const hasInlineKey = Boolean(env.OPENAI_API_KEY?.trim());
+  const keyFile = env.OPENAI_API_KEY_FILE?.trim() || "";
+  const keyFileCheck = hasInlineKey ? { usable: false, reason: "inline key present" } : readNonEmptySecretFile(keyFile);
+  if (!hasInlineKey && !keyFileCheck.usable) {
+    errors.push(`OPENAI_API_KEY or a non-empty OPENAI_API_KEY_FILE is required for real MiniMax validation${keyFile ? `; OPENAI_API_KEY_FILE=${keyFile} is unusable (${keyFileCheck.reason})` : ""}.`);
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    config: {
+      port: portCheck.ok ? portCheck.port : null,
+      dbPath: dbPathRaw?.trim() || null,
+      scheduler: env.ALAYA_SCHEDULER ?? null,
+      autoSeedDemo: env.ALAYA_AUTO_SEED_DEMO ?? null,
+      llmProvider: env.ALAYA_LLM_PROVIDER ?? null,
+      openaiBaseUrl: env.OPENAI_BASE_URL ?? null,
+      openaiModel: env.OPENAI_MODEL ?? null,
+      hasOpenaiApiKey: hasInlineKey,
+      openaiApiKeyFile: keyFile || null,
+      openaiApiKeyFileUsable: keyFile ? keyFileCheck.usable : false,
+    },
+  };
+}
+
 function timestampForPath() {
   return new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "").replace("T", "_");
+}
+
+const checkOnly = boolArg("check-only", false);
+const launchGuard = healthSignalLaunchGuard({ argv: args, env: process.env });
+if (checkOnly) {
+  console.log(JSON.stringify(launchGuard, null, 2));
+  process.exit(launchGuard.ok ? 0 : LAUNCH_GUARD_FAILURE_EXIT_CODE);
+}
+if (!launchGuard.ok) {
+  console.error("Health Signal validation launch guard failed:");
+  for (const error of launchGuard.errors) console.error(`- ${error}`);
+  process.exit(LAUNCH_GUARD_FAILURE_EXIT_CODE);
 }
 
 const durationHours = numArg("duration-hours", 36);
@@ -143,7 +239,7 @@ const keepApp = boolArg("keep-app", false);
 const llmProvider = args["llm-provider"] || process.env.ALAYA_LLM_PROVIDER || "openai";
 const openaiModel = args.model || process.env.OPENAI_MODEL || "MiniMax-M3";
 const baseUrlArg = args["base-url"];
-const requestedPort = Math.trunc(numArg("port", 5000));
+const requestedPort = launchGuard.config.port;
 const logDir = resolve(args["log-dir"] || join(ROOT, "validation-logs", `health-signal-${durationLabel}_${timestampForPath()}`));
 const decisionVia = args["decision-via"] || "local_api_human_proxy";
 const approveMeaning = boolArg("approve-meaning-gates", true);
@@ -159,7 +255,7 @@ const issuesMd = join(logDir, "issues.md");
 const summaryJson = join(logDir, "summary.json");
 const appLogPath = join(logDir, "app.log");
 const runnerLogPath = join(logDir, "runner.log");
-const dbPath = resolve(args["db-path"] || join(logDir, "health-signal.db"));
+const dbPath = resolve(launchGuard.config.dbPath);
 
 function logLine(message) {
   const line = `${new Date().toISOString()} ${message}`;
@@ -197,6 +293,7 @@ if (!existsSync(monitorCsv)) {
       "epoch",
       "iso",
       "round1vs4KnowledgeDelta",
+      "round1vsCurrentKnowledgeDelta",
       "pendingGates",
       "knowledgeCount",
       "activeCount",
@@ -213,6 +310,8 @@ if (!existsSync(monitorCsv)) {
       "stallGuardCount",
       "cyclesTotal",
       "cyclesClosed",
+      "newGatesThisHour",
+      "llmTokenSource",
       "llmEstimatedCostUsd",
       "appRssMb",
       "lastSchedulerAction",
@@ -271,18 +370,18 @@ function readEvents() {
     });
 }
 
-async function findAvailablePort(start) {
-  for (let port = start; port < start + 100; port += 1) {
-    const ok = await new Promise((resolvePort) => {
-      const server = createServer();
-      server.once("error", () => resolvePort(false));
-      server.listen(port, "127.0.0.1", () => {
-        server.close(() => resolvePort(true));
-      });
+async function assertPortAvailable(port) {
+  const ok = await new Promise((resolvePort) => {
+    const server = createServer();
+    server.once("error", () => resolvePort(false));
+    server.listen(port, "127.0.0.1", () => {
+      server.close(() => resolvePort(true));
     });
-    if (ok) return port;
+  });
+  if (!ok) {
+    throw new Error(`PORT ${port} is already in use; stop the listening PID precisely instead of using lsof -ti tcp:${port}.`);
   }
-  throw new Error(`No available port found from ${start}`);
+  return port;
 }
 
 async function waitForReady(baseUrl, timeoutMs = 120_000) {
@@ -354,16 +453,11 @@ function redactEnvForRecord(env) {
 }
 
 async function startLocalApp() {
-  const port = baseUrlArg ? Number(new URL(baseUrlArg).port || 80) : await findAvailablePort(requestedPort);
+  const port = baseUrlArg ? Number(new URL(baseUrlArg).port || 80) : await assertPortAvailable(requestedPort);
   const baseUrl = baseUrlArg || `http://127.0.0.1:${port}`;
   if (!startApp) {
     await waitForReady(baseUrl, 10_000);
     return { baseUrl, child: null, port };
-  }
-
-  const hasKey = Boolean(process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_FILE || process.env.MINIMAX_API_KEY);
-  if (llmProvider === "openai" && !hasKey) {
-    throw new Error("Real LLM mode requires OPENAI_API_KEY, OPENAI_API_KEY_FILE, or MINIMAX_API_KEY in the environment.");
   }
 
   const env = {
@@ -379,8 +473,8 @@ async function startLocalApp() {
     ALAYA_SENSOR_FEEDBACK_WINDOW_MS: "0",
     ALAYA_BASE_URL: baseUrl,
     ALAYA_LLM_PROVIDER: llmProvider,
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY || process.env.MINIMAX_API_KEY || "",
-    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || "https://api.minimax.io/openai",
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
+    OPENAI_BASE_URL: REQUIRED_OPENAI_BASE_URL,
     OPENAI_MODEL: openaiModel,
     OPENAI_API_MODE: process.env.OPENAI_API_MODE || "chat",
     OPENAI_MAX_OUTPUT_TOKENS: process.env.OPENAI_MAX_OUTPUT_TOKENS || "1024",
@@ -505,7 +599,7 @@ async function createProject(baseUrl) {
 async function providerCanary(baseUrl, projectId) {
   const result = await requestJson(baseUrl, `/api/projects/${projectId}/provider-canary`, {
     method: "POST",
-    body: { provider: llmProvider === "openai" ? "openai" : "mock", model: openaiModel, role: "orchestrator" },
+    body: { role: "orchestrator" },
   });
   event("provider_canary", result);
   if (!result.ok) {
@@ -517,6 +611,30 @@ async function providerCanary(baseUrl, projectId) {
     });
   }
   return result;
+}
+
+function assertValidationCanary(result) {
+  const errors = [];
+  if (!result.ok) errors.push(`ok=false failureType=${result.llmFailureType || "unknown"}`);
+  if (result.provider !== REQUIRED_LLM_PROVIDER) errors.push(`provider=${result.provider || "unknown"}`);
+  if (result.provider === "mock") errors.push("provider canary returned mock");
+  if (result.model !== REQUIRED_OPENAI_MODEL) errors.push(`model=${result.model || "unknown"}`);
+  if (errors.length === 0) return;
+
+  const detail = `Provider canary must return ok=true, provider=${REQUIRED_LLM_PROVIDER}, model=${REQUIRED_OPENAI_MODEL}; got ${errors.join(", ")}.`;
+  issue({
+    severity: "P0",
+    title: "Health Signal launch guard rejected provider canary",
+    detail,
+    evidence: JSON.stringify({
+      provider: result.provider,
+      model: result.model,
+      ok: result.ok,
+      llmFailureType: result.llmFailureType,
+      schemaValid: result.schemaValid,
+    }),
+  });
+  throw new Error(detail);
 }
 
 async function injectContradictionEvidence(baseUrl, projectId, sample) {
@@ -569,6 +687,7 @@ function meaningGateRequiresHumanReview(gate) {
     gate.title,
     payload.summary,
     payload.reason,
+    payload.sampleReviewReason,
     payload.requiredAction,
     userQuote,
     payload.redactedBody,
@@ -808,8 +927,28 @@ function appRssMb(pid) {
   }
 }
 
+function countNewGatesThisHour(gates, now = Date.now()) {
+  const oneHourAgo = now - 3_600_000;
+  return gates.filter((gate) => {
+    const createdAt = Date.parse(String(gate.createdAt ?? ""));
+    return Number.isFinite(createdAt) && createdAt >= oneHourAgo && createdAt <= now;
+  }).length;
+}
+
+function llmTokenSourceStats(calls) {
+  const total = calls.length;
+  const provider = calls.filter((call) => call.tokenSource === "provider").length;
+  const estimated = calls.filter((call) => call.tokenSource === "estimated").length;
+  const providerRatio = total > 0 ? +(provider / total).toFixed(4) : null;
+  let label = "none";
+  if (total > 0 && provider === total) label = "provider";
+  else if (total > 0 && estimated === total) label = "estimated";
+  else if (total > 0) label = `mixed_provider_${Math.round((providerRatio ?? 0) * 100)}pct`;
+  return { total, provider, estimated, providerRatio, label };
+}
+
 async function collectMetrics(baseUrl, projectId, appPid, sample, lastAction) {
-  const [health, gates, knowledge, reviews, cycles, ops, traces, actionLedger] = await Promise.all([
+  const [health, gates, knowledge, reviews, cycles, ops, traces, actionLedger, llmCalls] = await Promise.all([
     requestJson(baseUrl, `/api/flywheel/health?projectId=${projectId}`),
     requestJson(baseUrl, `/api/human-gates?projectId=${projectId}`),
     requestJson(baseUrl, `/api/knowledge?projectId=${projectId}`),
@@ -818,18 +957,21 @@ async function collectMetrics(baseUrl, projectId, appPid, sample, lastAction) {
     requestJson(baseUrl, `/api/projects/${projectId}/ops-metrics`),
     requestJson(baseUrl, `/api/projects/${projectId}/traces?limit=5000`),
     requestJson(baseUrl, `/api/action-ledger?projectId=${projectId}&limit=5000`),
+    requestJson(baseUrl, `/api/projects/${projectId}/llm-calls`),
   ]);
   const pending = gates.filter((gate) => gate.status === "pending");
   const openConflictReviews = reviews.filter((review) => review.reviewType === "conflict" && review.status === "review_required").length;
   const resolvedConflictReviews = reviews.filter((review) => review.reviewType === "conflict" && review.status === "resolved").length;
+  const tokenSource = llmTokenSourceStats(llmCalls);
   const row = {
     sample,
     epoch: Math.floor(Date.now() / 1000),
     iso: new Date().toISOString(),
     round1vs4KnowledgeDelta: health.compoundingProof?.round1vs4KnowledgeDelta ?? "",
+    round1vsCurrentKnowledgeDelta: health.compoundingProof?.round1vsCurrentKnowledgeDelta ?? "",
     pendingGates: pending.length,
     knowledgeCount: knowledge.length,
-    activeCount: knowledge.filter((item) => item.status === "active").length,
+    activeCount: health.totals?.activeKnowledgeCount ?? knowledge.filter((item) => item.status === "active").length,
     conflictCount: knowledge.filter((item) => item.status === "conflict").length,
     strongCount: knowledge.filter((item) => item.status === "strong").length,
     quarantinedCount: knowledge.filter((item) => item.status === "quarantined").length,
@@ -843,14 +985,16 @@ async function collectMetrics(baseUrl, projectId, appPid, sample, lastAction) {
     stallGuardCount: countStallGuard(gates, traces, actionLedger),
     cyclesTotal: cycles.length,
     cyclesClosed: cycles.filter((cycle) => cycle.status === "closed").length,
+    newGatesThisHour: countNewGatesThisHour(gates),
+    llmTokenSource: tokenSource.label,
     llmEstimatedCostUsd: ops.llmCostPerCycle?.totalCostUsd ?? "",
     appRssMb: appRssMb(appPid),
     lastSchedulerAction: lastAction || "",
     lastDecisionVia: decisionVia,
   };
   appendFileSync(monitorCsv, Object.values(row).map((value) => String(value).replaceAll(",", ";")).join(",") + "\n");
-  event("metrics_sample", row);
-  return { row, health, gates, knowledge, reviews, cycles, ops };
+  event("metrics_sample", { ...row, llmTokenSourceStats: tokenSource });
+  return { row, health, gates, knowledge, reviews, cycles, ops, llmCalls };
 }
 
 function unique(values) {
@@ -896,17 +1040,40 @@ function finalAssessment(samples, events = []) {
   const earlyGateAvg = avg(samples.slice(0, Math.max(1, Math.floor(samples.length / 4))).map((s) => Number(s.pendingGates) || 0));
   const lateGateAvg = avg(samples.slice(Math.floor(samples.length / 2)).map((s) => Number(s.pendingGates) || 0));
   const humanGateDrop = earlyGateAvg > 0 ? +((earlyGateAvg - lateGateAvg) / earlyGateAvg).toFixed(3) : null;
+  const minActive = Math.min(...samples.map((s) => Number(s.activeCount)).filter(Number.isFinite));
+  const tokenEvents = events
+    .filter((eventItem) => eventItem.eventType === "metrics_sample" && eventItem.llmTokenSourceStats)
+    .map((eventItem) => eventItem.llmTokenSourceStats);
+  const lastTokenSource = tokenEvents[tokenEvents.length - 1] ?? null;
+  const semanticBypassCount = events.filter((eventItem) => (
+    eventItem.eventType === "gate_approved" &&
+    eventItem.via === "auto_approved_repeated_meaning" &&
+    /contradiction|conflict|矛盾|冲突|ppg|ecg|hybrid/i.test(JSON.stringify(eventItem))
+  )).length;
+  const sampleFailedCount = events.filter((eventItem) => eventItem.eventType === "sample_failed").length;
   return {
     criteria: {
       deltaReached8: Number(last.round1vs4KnowledgeDelta) >= 8,
+      activeNeverZero: Number.isFinite(minActive) ? minActive >= 1 : false,
+      tokenSourceProviderAtLeast95pct: (lastTokenSource?.providerRatio ?? 0) >= 0.95,
+      semanticContradictionBypassZero: semanticBypassCount === 0,
       conflictAtLeast5: maxConflict >= 5,
       conflictResolvedAtLeast3: maxResolved >= 3,
       humanGateDropAtLeast30pct: humanGateDrop != null ? humanGateDrop >= 0.3 : false,
       stallGuardUnder5pct: totalClosed > 0 ? maxStall / totalClosed < 0.05 : false,
+      sampleFailedZero: sampleFailedCount === 0,
     },
     observed: {
       firstDelta: first.round1vs4KnowledgeDelta ?? null,
       lastDelta: last.round1vs4KnowledgeDelta ?? null,
+      firstCurrentDelta: first.round1vsCurrentKnowledgeDelta ?? null,
+      lastCurrentDelta: last.round1vsCurrentKnowledgeDelta ?? null,
+      minActiveKnowledgeCount: Number.isFinite(minActive) ? minActive : null,
+      finalActiveKnowledgeCount: last.activeCount ?? null,
+      finalLlmTokenSource: last.llmTokenSource ?? null,
+      lastLlmTokenSourceStats: lastTokenSource,
+      semanticContradictionBypassCount: semanticBypassCount,
+      sampleFailedCount,
       maxConflictCount: maxConflict,
       maxSnapshotConflictCount: maxSnapshotConflict,
       maxResolvedConflictReviews: maxResolved,
@@ -956,9 +1123,7 @@ async function main() {
 
   const project = await createProject(baseUrl);
   const canary = await providerCanary(baseUrl, project.id);
-  if (llmProvider === "openai" && !canary.ok) {
-    logLine("Provider canary failed; continuing to collect failure evidence.");
-  }
+  assertValidationCanary(canary);
 
   const state = { approvedMeaningCount: 0, resolvedConflictReviews: 0 };
   const samples = [];

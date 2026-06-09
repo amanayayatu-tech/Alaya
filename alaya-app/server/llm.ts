@@ -38,6 +38,19 @@ interface LlmCallInput {
   prohibited?: string[];
 }
 
+type TokenSource = "provider" | "estimated";
+
+interface ProviderTokenUsage {
+  inputTokenCount?: number;
+  outputTokenCount?: number;
+  tokenCount?: number;
+}
+
+interface LlmProviderResult {
+  data: Record<string, unknown>;
+  usage?: ProviderTokenUsage;
+}
+
 const DEFAULT_SCHEMA: JsonSchema = {
   type: "object",
   required: ["summary"],
@@ -88,6 +101,67 @@ function approxTokens(value: unknown): number {
 
 function estimateCost(tokens: number): number {
   return +(tokens * 0.000002).toFixed(6);
+}
+
+function tokenInteger(value: unknown): number | undefined {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  if (!Number.isFinite(parsed) || parsed < 0) return undefined;
+  return Math.floor(parsed);
+}
+
+function extractProviderUsage(json: unknown): ProviderTokenUsage | undefined {
+  if (!json || typeof json !== "object") return undefined;
+  const usage = (json as { usage?: unknown }).usage;
+  if (!usage || typeof usage !== "object") return undefined;
+  const raw = usage as Record<string, unknown>;
+  const inputTokenCount = tokenInteger(raw.prompt_tokens) ?? tokenInteger(raw.input_tokens);
+  const outputTokenCount = tokenInteger(raw.completion_tokens) ?? tokenInteger(raw.output_tokens);
+  const tokenCount = tokenInteger(raw.total_tokens);
+  if (inputTokenCount == null && outputTokenCount == null && tokenCount == null) return undefined;
+  return { inputTokenCount, outputTokenCount, tokenCount };
+}
+
+function tokenMetrics(
+  input: LlmCallInput,
+  data: Record<string, unknown>,
+  usage?: ProviderTokenUsage,
+): { inputTokenCount: number; outputTokenCount: number; tokenCount: number; tokenSource: TokenSource } {
+  const estimatedInputTokens = approxTokens(llmInputForLog(input));
+  const estimatedOutputTokens = approxTokens(data);
+  if (!usage) {
+    return {
+      inputTokenCount: estimatedInputTokens,
+      outputTokenCount: estimatedOutputTokens,
+      tokenCount: estimatedInputTokens + estimatedOutputTokens,
+      tokenSource: "estimated",
+    };
+  }
+
+  let inputTokenCount = usage.inputTokenCount;
+  let outputTokenCount = usage.outputTokenCount;
+  let tokenCount = usage.tokenCount;
+
+  if (tokenCount == null) {
+    tokenCount = (inputTokenCount ?? 0) + (outputTokenCount ?? 0);
+  }
+  if (inputTokenCount == null && outputTokenCount == null) {
+    const estimatedTotal = estimatedInputTokens + estimatedOutputTokens;
+    inputTokenCount = estimatedTotal > 0
+      ? Math.min(tokenCount, Math.round((tokenCount * estimatedInputTokens) / estimatedTotal))
+      : tokenCount;
+    outputTokenCount = Math.max(0, tokenCount - inputTokenCount);
+  } else if (inputTokenCount == null) {
+    inputTokenCount = Math.max(0, tokenCount - (outputTokenCount ?? 0));
+  } else if (outputTokenCount == null) {
+    outputTokenCount = Math.max(0, tokenCount - inputTokenCount);
+  }
+
+  return {
+    inputTokenCount: inputTokenCount ?? 0,
+    outputTokenCount: outputTokenCount ?? 0,
+    tokenCount,
+    tokenSource: "provider",
+  };
 }
 
 function requestTimeoutMs(): number {
@@ -162,10 +236,9 @@ function record(
   retryCount: number,
   latencyMs: number,
   failureType: LlmFailureType | null = null,
+  usage?: ProviderTokenUsage,
 ) {
-  const inputTokenCount = approxTokens(llmInputForLog(input));
-  const outputTokenCount = approxTokens(data);
-  const tokenCount = inputTokenCount + outputTokenCount;
+  const { inputTokenCount, outputTokenCount, tokenCount, tokenSource } = tokenMetrics(input, data, usage);
   storage.recordLlmCall({
     cycleId: input.cycleId,
     agent: input.agent,
@@ -182,6 +255,7 @@ function record(
     inputTokenCount,
     outputTokenCount,
     tokenCount,
+    tokenSource,
     estimatedCost: estimateCost(tokenCount),
     ts: now(),
   });
@@ -207,6 +281,7 @@ function record(
         inputTokenCount,
         outputTokenCount,
         tokenCount,
+        tokenSource,
         estimatedCost: estimateCost(tokenCount),
       },
     });
@@ -335,7 +410,7 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
       transportRetries += result.retries;
       const errors = validationErrors(data, schema);
       if (errors.length === 0) {
-        record(safeInput, route, data, true, attempt + transportRetries, Date.now() - started);
+        record(safeInput, route, data, true, attempt + transportRetries, Date.now() - started, null, result.usage);
         return data;
       }
       lastError = `schema validation failed: ${errors.join("; ")}. Include every required key; use [] for empty arrays.`;
@@ -358,10 +433,10 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
     if (validate(simpleData, simpleSchema)) {
       const originalErrors = validationErrors(simpleData, schema);
       if (originalErrors.length === 0) {
-        record(safeInput, route, simpleData, true, 2 + transportRetries, Date.now() - started);
+        record(safeInput, route, simpleData, true, 2 + transportRetries, Date.now() - started, null, simpleResult.usage);
         return simpleData;
       }
-      record(safeInput, route, simpleData, false, 2 + transportRetries, Date.now() - started, "schema_error");
+      record(safeInput, route, simpleData, false, 2 + transportRetries, Date.now() - started, "schema_error", simpleResult.usage);
       createDegradedGate(safeInput, `degraded to simplified schema after: ${lastError || "schema validation failed"}`);
       return simpleData;
     }
@@ -420,13 +495,13 @@ async function callOpenAIWithRetry(
   previousError: string,
   apiKey: string,
   model: string,
-): Promise<{ data: Record<string, unknown>; retries: number }> {
+): Promise<LlmProviderResult & { retries: number }> {
   let retries = 0;
   let lastError: unknown;
   const maxRetries = maxTransportRetries();
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
     try {
-      return { data: await callOpenAI(input, schema, previousError, apiKey, model), retries };
+      return { ...await callOpenAI(input, schema, previousError, apiKey, model), retries };
     } catch (error) {
       lastError = error;
       if (!isRetryableLlmError(error) || attempt === maxRetries) break;
@@ -437,7 +512,7 @@ async function callOpenAIWithRetry(
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-async function callOpenAI(input: LlmCallInput, schema: JsonSchema, previousError: string, apiKey: string, model: string): Promise<Record<string, unknown>> {
+async function callOpenAI(input: LlmCallInput, schema: JsonSchema, previousError: string, apiKey: string, model: string): Promise<LlmProviderResult> {
   const mode = resolveOpenAIApiMode();
   if (mode === "chat") return callChatCompletions(input, schema, previousError, apiKey, model);
   return callResponses(input, schema, previousError, apiKey, model);
@@ -473,7 +548,7 @@ function minimaxChatEndpointAlias(cleanBaseUrl: string): string | undefined {
   return undefined;
 }
 
-async function callResponses(input: LlmCallInput, schema: JsonSchema, previousError: string, apiKey: string, model: string): Promise<Record<string, unknown>> {
+async function callResponses(input: LlmCallInput, schema: JsonSchema, previousError: string, apiKey: string, model: string): Promise<LlmProviderResult> {
   const endpoint = process.env.OPENAI_RESPONSES_ENDPOINT ?? "https://api.openai.com/v1/responses";
   const response = await fetchWithTimeout(endpoint, {
     method: "POST",
@@ -517,10 +592,10 @@ async function callResponses(input: LlmCallInput, schema: JsonSchema, previousEr
   }
   const json = await response.json() as any;
   const text = extractOutputText(json);
-  return parseJsonObjectText(text, "OpenAI");
+  return { data: parseJsonObjectText(text, "OpenAI"), usage: extractProviderUsage(json) };
 }
 
-async function callChatCompletions(input: LlmCallInput, schema: JsonSchema, previousError: string, apiKey: string, model: string): Promise<Record<string, unknown>> {
+async function callChatCompletions(input: LlmCallInput, schema: JsonSchema, previousError: string, apiKey: string, model: string): Promise<LlmProviderResult> {
   const endpoint = process.env.OPENAI_CHAT_COMPLETIONS_ENDPOINT
     ?? chatCompletionsEndpoint(process.env.OPENAI_BASE_URL ?? "https://api.openai.com");
   const response = await fetchWithTimeout(endpoint, {
@@ -562,7 +637,7 @@ async function callChatCompletions(input: LlmCallInput, schema: JsonSchema, prev
   }
   const json = await response.json() as any;
   const text = extractChatOutputText(json);
-  return parseJsonObjectText(text, "OpenAI-compatible chat");
+  return { data: parseJsonObjectText(text, "OpenAI-compatible chat"), usage: extractProviderUsage(json) };
 }
 
 function providerChatExtras(model: string, endpoint: string): Record<string, unknown> {

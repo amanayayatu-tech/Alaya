@@ -10,7 +10,13 @@ process.env.ALAYA_LLM_PROVIDER = "mock";
 
 const { storage } = await import("../server/storage.ts");
 const { buildKnowledgeContext } = await import("../server/knowledgeInjection.ts");
-const { detectKnowledgeConflicts, createKnowledgeReviewReminders, resolveKnowledgeReview } = await import("../server/knowledgeReview.ts");
+const {
+  assertResolvedConflictActiveSurvivors,
+  detectKnowledgeConflicts,
+  createKnowledgeReviewReminders,
+  resolveKnowledgeReview,
+} = await import("../server/knowledgeReview.ts");
+const { buildFlywheelHealth } = await import("../server/flywheelHealth.ts");
 const { ingestFormFeedback } = await import("../server/externalFeedback.ts");
 const { HumanGateService } = await import("../server/humanGateService.ts");
 const { parseTraceEvent } = await import("../server/trace.ts");
@@ -78,6 +84,26 @@ function knowledge(projectId: string, id: string, patch: Record<string, any>) {
     notes: patch.notes ?? "",
     supersededBy: patch.supersededBy ?? null,
     semanticKey: patch.semanticKey ?? "",
+    version: 1,
+  });
+}
+
+function conflictReview(projectId: string, primaryKnowledgeId: string, relatedKnowledgeId: string, suffix = primaryKnowledgeId) {
+  return storage.createKnowledgeReview({
+    id: `kr_${projectId}_${suffix}`.replace(/[^a-zA-Z0-9_]/g, "_").slice(0, 120),
+    projectId,
+    cycleId: `cycle_${projectId}`,
+    reviewType: "conflict",
+    status: "review_required",
+    primaryKnowledgeId,
+    relatedKnowledgeId,
+    reason: "test conflict",
+    evidence: "{}",
+    recommendedAction: "merge weaker knowledge into the survivor",
+    createdAt: "2026-06-07T00:00:00.000Z",
+    resolvedAt: null,
+    resolvedBy: null,
+    resolution: null,
     version: 1,
   });
 }
@@ -174,6 +200,108 @@ test("resolved reviews cannot be resolved again or rewrite prior resolution", ()
   assert.equal(storage.getKnowledge("kb_once_candidate")?.status, "deprecated");
   assert.equal(storage.getKnowledge("kb_once_candidate")?.supersededBy, "kb_once_strong");
   assert.equal(storage.listActionLedger(projectId).filter((row) => row.actionType.startsWith("knowledge_review.")).length, firstLedgerCount);
+});
+
+test("merge_supersede keeps active and strong survivors in the reusable pool", () => {
+  for (const [projectId, survivorStatus] of [["proj_merge_survivor_active", "active"], ["proj_merge_survivor_strong", "strong"]] as const) {
+    project(projectId);
+    knowledge(projectId, `kb_${projectId}_survivor`, {
+      status: survivorStatus,
+      content: "activation_rate >= 0.8",
+      confidenceScore: survivorStatus === "strong" ? 0.92 : 0.82,
+    });
+    knowledge(projectId, `kb_${projectId}_primary`, {
+      status: "active",
+      content: "activation_rate <= 0.2",
+      confidenceScore: 0.62,
+    });
+    const review = conflictReview(projectId, `kb_${projectId}_primary`, `kb_${projectId}_survivor`);
+
+    resolveKnowledgeReview(review.id, {
+      action: "merge_supersede",
+      actor: "human",
+      survivorKnowledgeId: `kb_${projectId}_survivor`,
+      rationale: "preserve the stronger survivor",
+    });
+
+    assert.equal(storage.getKnowledge(`kb_${projectId}_primary`)?.status, "deprecated");
+    assert.equal(storage.getKnowledge(`kb_${projectId}_primary`)?.supersededBy, `kb_${projectId}_survivor`);
+    assert.equal(storage.getKnowledge(`kb_${projectId}_survivor`)?.status, survivorStatus);
+    assert.equal(storage.getKnowledge(`kb_${projectId}_survivor`)?.supersededBy, null);
+    assert.doesNotThrow(() => assertResolvedConflictActiveSurvivors(projectId));
+  }
+});
+
+test("merge_supersede reactivates stale or deprecated survivors", () => {
+  for (const [projectId, staleStatus] of [["proj_merge_stale_survivor", "stale"], ["proj_merge_deprecated_survivor", "deprecated"]] as const) {
+    project(projectId);
+    knowledge(projectId, `kb_${projectId}_older`, {
+      status: "active",
+      content: "activation_rate >= 0.7",
+      confidenceScore: 0.88,
+    });
+    knowledge(projectId, `kb_${projectId}_survivor`, {
+      status: staleStatus,
+      content: "activation_rate >= 0.8",
+      confidenceScore: 0.82,
+      supersededBy: staleStatus === "deprecated" ? `kb_${projectId}_older` : null,
+    });
+    knowledge(projectId, `kb_${projectId}_primary`, {
+      status: "active",
+      content: "activation_rate <= 0.2",
+      confidenceScore: 0.62,
+    });
+    const review = conflictReview(projectId, `kb_${projectId}_primary`, `kb_${projectId}_survivor`);
+
+    resolveKnowledgeReview(review.id, {
+      action: "merge_supersede",
+      actor: "human",
+      survivorKnowledgeId: `kb_${projectId}_survivor`,
+      rationale: "reactivate survivor after absorbing contradiction",
+    });
+
+    assert.equal(storage.getKnowledge(`kb_${projectId}_primary`)?.status, "deprecated");
+    assert.equal(storage.getKnowledge(`kb_${projectId}_survivor`)?.status, "active");
+    assert.equal(storage.getKnowledge(`kb_${projectId}_survivor`)?.supersededBy, null);
+    assert.doesNotThrow(() => assertResolvedConflictActiveSurvivors(projectId));
+  }
+});
+
+test("repeated merge_supersede resolutions leave at least one active survivor in health totals", () => {
+  const projectId = "proj_merge_repeated_active";
+  project(projectId);
+  knowledge(projectId, "kb_repeated_survivor", {
+    status: "active",
+    title: "Activation threshold",
+    content: "activation_rate >= 0.8",
+    confidenceScore: 0.9,
+  });
+
+  for (let i = 1; i <= 5; i += 1) {
+    const primaryId = `kb_repeated_primary_${i}`;
+    knowledge(projectId, primaryId, {
+      status: "active",
+      title: "Activation threshold",
+      content: `activation_rate <= 0.${i}`,
+      confidenceScore: 0.5 + i / 100,
+    });
+    const conflicts = detectKnowledgeConflicts(projectId);
+    assert.ok(conflicts.some((conflict) => conflict.primaryKnowledgeId === primaryId));
+    const review = storage.listKnowledgeReviews(projectId).find((item) => item.primaryKnowledgeId === primaryId);
+    assert.ok(review);
+
+    resolveKnowledgeReview(review.id, {
+      action: "merge_supersede",
+      actor: "human",
+      survivorKnowledgeId: "kb_repeated_survivor",
+      rationale: "keep one reusable survivor for the semantic cluster",
+    });
+  }
+
+  assert.equal(storage.getKnowledge("kb_repeated_survivor")?.status, "active");
+  assert.equal(storage.getKnowledge("kb_repeated_survivor")?.supersededBy, null);
+  assert.ok(buildFlywheelHealth(projectId).totals.activeKnowledgeCount >= 1);
+  assert.doesNotThrow(() => assertResolvedConflictActiveSurvivors(projectId));
 });
 
 test("approve_as_current preserves strong status on review reminders", () => {

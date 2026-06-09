@@ -186,6 +186,7 @@ export const llmCalls = sqliteTable("llm_calls", {
   inputTokenCount: integer("input_token_count").notNull().default(0),
   outputTokenCount: integer("output_token_count").notNull().default(0),
   tokenCount: integer("token_count").notNull().default(0),
+  tokenSource: text("token_source").notNull().default("estimated"),
   estimatedCost: real("estimated_cost").notNull().default(0),
   ts: text("ts").notNull(),
 });
