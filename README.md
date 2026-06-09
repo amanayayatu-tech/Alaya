@@ -4,70 +4,16 @@
 
 Alaya 是一个本地优先的 AI-native「认知复利飞轮」系统。它把每一轮产品或运营动作沉淀为可审计资产：预测、观察、误差归因、知识、人工闸门和下一轮决策。
 
-项目的核心目标不是让 Agent 无限制自动行动，而是让 AI 在可追责、可回滚、可复盘的约束下，持续把经验变成下一轮更好的判断。
-
-## 一句话理解
-
-Alaya = 本地 SQLite 记忆层 + 5 个 Agent 飞轮 + 人工闸门 + 预测账簿 + 知识库 + 可选真实 LLM / GitHub Sensor。
-
-默认模式使用 deterministic mock LLM，不调用外部模型；配置 OpenAI-compatible provider 后可以切到真实 LLM。
-
-## 当前状态
-
-| 部分 | 状态 | 说明 |
-| --- | --- | --- |
-| Core | 可运行 | TypeScript 纯内核，验证 4 轮认知复利飞轮 |
-| Web App | 可运行 | Express + React + SQLite，本地完整 MVP |
-| LLM | mock / OpenAI-compatible | 默认 mock，可切 OpenAI / MiniMax 等兼容端点；提供 provider canary、失败类型分类和分 Agent latency 聚合 |
-| Scheduler | 可运行 | 自动推进 cycle；第 5 轮起可由自主目标生成器接管，受 blocking gate、预算和反空转风险闸约束 |
-| Prediction Ledger | 可运行 | Claim schema 强制 `operator >=/<=`、scale 正下限、metric weight 下限、完整预测契约和 `worstClaimError` |
-| Sensor | 可运行 | 支持 GitHub Issues、表单反馈和本地 CSV/JSON 业务信号导入；所有信号先过 Meaning Gate，不直接激活知识 |
-| Notifications | 可运行 | Telegram 单向通知与双向审批卡片；支持 Human Gate 推送、`/status`、`/gates`、长轮询 callback 和 offset 持久化 |
-| Builder | 可运行 | 支持 governed Codex/Codex CLI dry-run 变更包；非 dry-run apply 必须有 shell capability 和匹配 idempotency risk gate，且不自动执行 patch |
-| Knowledge | 可运行 | SQLite FTS5 搜索、任务前知识注入、近义合并、`supersededBy` 保留、冲突检测、复核工作流、时间衰减和详情引用上限保护 |
-| Ops Metrics | 可运行 | 提供 human gate resolution、LLM cost per cycle、measurable claim ratio、knowledge reuse、blocking backlog 和 compounding gain proxy |
-| Health | 可运行 | `/healthz`、`/readyz`、`/metrics` 提供运行探针；`/health` 页面与 `/api/flywheel/health` API 展示复利、知识成熟和 human gate 压力 |
-| Governance | 可运行 | `PRINCIPLES.md`、guard 脚本、CI、secret scan、capability gate、autonomous stop risks 和验证脚本约束核心底线 |
-| Long-run Hardening | 可运行 | 显式运行模式、env fail-fast、脱敏、action ledger、health/ready/metrics、Docker shadow compose 和备份/恢复脚本 |
-
-## 目录
-
-- [快速开始](#快速开始)
-- [项目结构](#项目结构)
-- [系统架构](#系统架构)
-- [核心概念](#核心概念)
-- [自主进化与长期验证](#自主进化与长期验证)
-- [Web 功能地图](#web-功能地图)
-- [Telegram 移动端通知与审批](#telegram-移动端通知与审批)
-- [常用命令](#常用命令)
-- [运行模式与安全模型](#运行模式与安全模型)
-- [数据库迁移、备份与恢复](#数据库迁移备份与恢复)
-- [Docker Shadow 部署与 smoke 验证](#docker-shadow-部署与-smoke-验证)
-- [可观测性与审计账本](#可观测性与审计账本)
-- [真实 LLM 与 Secret](#真实-llm-与-secret)
-- [CI 与 24h 验证](#ci-与-24h-验证)
-- [本地数据](#本地数据)
-- [API 概览](#api-概览)
-- [验证记录](#验证记录)
-- [路线图](#路线图)
-- [文档索引](#文档索引)
+默认运行使用 deterministic mock LLM，不调用外部模型；只有显式配置 OpenAI-compatible provider 和 capability 后才会走真实 LLM。
 
 ## 快速开始
 
-要求：
+要求：Node.js 20+ 和 npm。
 
-- Node.js 20+
-- npm
-
-安装依赖：
+安装依赖并启动本地 Web 应用：
 
 ```bash
 npm run install:all
-```
-
-启动 Web 应用：
-
-```bash
 npm run dev
 ```
 
@@ -83,26 +29,62 @@ http://localhost:5000
 PORT=5001 npm run dev
 ```
 
-首次启动会在 `alaya-app/` 下创建本地 SQLite 数据库，并 seed 一个「一键发布演示项目」。演示数据包含 4 轮闭环、知识沉淀、预测账簿、人工闸门和 Agent 运行记录。
+首次启动会在 `alaya-app/` 下创建本地 SQLite 数据库并写入演示项目。需要重置本地演示数据时，停止服务后删除 `alaya-app/data.db*`，再重新启动。
+
+## 本地门禁
+
+PR 前至少运行：
+
+```bash
+npm --prefix alaya-app run check
+npm --prefix alaya-app test
+npm run test:scripts
+npm run guard
+npm run secret:scan
+git diff --check
+```
+
+生产构建：
+
+```bash
+npm run build
+```
+
+更多脚本和运行模式见 [docs/configuration.md](./docs/configuration.md)。贡献流程见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+
+## 当前状态
+
+| 部分 | 状态 | 说明 |
+| --- | --- | --- |
+| Core | 可运行 | TypeScript 纯内核，验证 4 轮认知复利飞轮 |
+| Web App | 可运行 | Express + React + SQLite 本地 MVP |
+| LLM | mock / OpenAI-compatible | 默认 mock，可切 OpenAI / MiniMax 等兼容端点 |
+| Scheduler | 可运行 | 自动推进 cycle；第 5 轮起可由自主目标生成器接管 |
+| Sensor | 可运行 | GitHub Issues、表单反馈、本地 CSV/JSON 业务信号导入 |
+| Human Gates | 可运行 | Direction / Meaning / Risk gate；支持 Web 和 Telegram 审批 |
+| Knowledge | 可运行 | SQLite FTS5、任务前知识注入、合并、冲突复核、时间衰减 |
+| Ops | 可运行 | health/ready/metrics、action ledger、secret scan、Docker shadow、备份恢复 |
 
 ## 项目结构
 
 ```text
 .
-├── alaya-core/     # 纯 TypeScript 内核：飞轮、状态机、LLM provider、单元测试
-├── alaya-app/      # Express + React + SQLite 本地 Web MVP
-├── scripts/        # 守卫、E2E、live readiness、本地 secret 工具
-├── PRINCIPLES.md   # 项目底线：纯函数、人工闸门、审计写路径、LLM 边界等
-├── Alaya_PRD.md    # 原始产品需求文档
-└── README.md       # 当前入口文档
+├── alaya-core/       # 纯 TypeScript 内核：飞轮、状态机、LLM provider、单元测试
+├── alaya-app/        # Express + React + SQLite 本地 Web MVP
+├── scripts/          # 守卫、E2E、validation、本地 secret 和运维脚本
+├── docs/             # PRD、架构、配置、验证、运维和 AI 工作文档
+├── PRINCIPLES.md     # 项目底线：纯函数、人工闸门、审计写路径、LLM 边界等
+├── CONTRIBUTING.md   # 本地开发、PR 和验证规范
+├── LICENSE           # MIT license
+└── README.md         # 当前入口文档
 ```
 
 两个主要包：
 
-- `alaya-core`：回答「飞轮逻辑是否成立」。它不依赖 Web，也不依赖数据库。
-- `alaya-app`：把 core 接入数据库、页面、Scheduler、Human Gates、Sensor 和 API。
+- `alaya-core`：回答「飞轮逻辑是否成立」，不依赖 Web 或数据库。
+- `alaya-app`：把 core 接入 SQLite、页面、Scheduler、Human Gates、Sensor 和 API。
 
-## 系统架构
+## 架构概览
 
 ```mermaid
 flowchart LR
@@ -110,12 +92,10 @@ flowchart LR
   API --> DB["SQLite + FTS5"]
   API --> Scheduler["Scheduler"]
   API --> Sensor["External Sensor"]
-  Scheduler --> Notify["NotificationBus"]
-  Notify --> Telegram["Telegram Bot API"]
-  Telegram --> Phone["Mobile Telegram"]
   Scheduler --> Agents["5 Agents"]
+  Scheduler --> Notify["NotificationBus"]
+  Notify --> Telegram["Telegram"]
   Sensor --> Gates["Human Gates"]
-  Telegram --> Gates
   Agents --> LLM["Mock or OpenAI-compatible LLM"]
   Agents --> Core["Pure Core Functions"]
   Core --> KB["Knowledge Base"]
@@ -124,1120 +104,57 @@ flowchart LR
   DB --> UI
 ```
 
-运行链路：
+运行链路：`React/Vite -> Express API -> SQLite/FTS5 -> Scheduler -> 5 Agents -> LLM Provider`。所有高风险自动化都必须经过预测账簿、知识状态机、审计日志、capability gate 和人工闸门。
 
-```text
-React/Vite -> Express API -> SQLite/FTS5 -> Scheduler -> 5 Agents -> LLM Provider
-```
+## 核心模型
 
-所有高风险自动化都必须经过代码约束和人工闸门。LLM 可以给建议，但不能绕过预测账簿、知识状态机、审计日志和 gate budget。
-
-## 核心概念
-
-### 1. Flywheel
-
-每一轮 cycle 都会经历：
+每个 cycle 遵循：
 
 ```text
 预测 -> 行动 -> 观察 -> 误差归因 -> 知识沉淀 -> 下一轮引用
 ```
 
-第 3 轮必须被前两轮知识真实改变，而不是形式上引用。第 4 轮继续要求产出 rollback-ready change package 和 audit summary。第 5 轮起，如果脚本化场景已经用尽，Scheduler 会生成新的自主目标，而不是复用最后一轮模板或停止在场景耗尽状态。
-
-### 2. Five Agents
+五个 Agent 分工：
 
 | Agent | 作用 |
 | --- | --- |
-| Orchestrator | 选择本轮目标、引用知识、提出预测与动作 |
+| Orchestrator | 选择目标、引用知识、提出预测与动作 |
 | Sensor | 收集反馈和外部信号 |
 | Builder | 形成任务或变更包 |
 | Distiller | 把观察与误差提炼成知识 |
 | Librarian | 管理知识状态、晋级、过期、冲突和隔离 |
 
-### 3. Human Gates
+详细概念、Telegram、API、运行模式、Docker、观测和 secret 说明见 [docs/configuration.md](./docs/configuration.md)。
 
-系统内置三类闸门：
+## 验证与长跑
 
-- Direction gate：方向是否允许执行
-- Meaning gate：信号是否值得进入知识循环
-- Risk gate：风险、成本、阻断条件是否需要人工处理
+默认 PR 门禁只跑 mock / 本地检查，不连接真实 LLM，不执行长测。历史长跑、真实 LLM 验证、health-signal clean retest 说明和逐次验证记录已迁到 [docs/validation/validation-history.md](./docs/validation/validation-history.md)。
 
-Human Gate 可以在 Web UI 中处理，也可以通过 Telegram 接收移动端通知。非阻塞 `meaning` gate 会在 Telegram 卡片中显示批准/否决按钮；阻塞型 `direction` / `risk` gate 只显示 Web 深链，避免手机端一键放行高风险阻断闸。
+当前关键本地验收口径：
 
-Meaning Gate 被批准后，`HumanGateService` 会把对应外部信号写成 active knowledge，并通过同一条审批服务记录 `decision_log`、`event_log` 和 `action_ledger`。Gate resolve 与知识写入在数据库事务中执行；如果知识写入失败，gate 不会被错误地标记为已批准，后续重试也会幂等补建缺失知识。
-
-### 4. Prediction Ledger
-
-每个 claim 都要能被观测和计算误差。系统不会把「感觉变好」当作成功证明，而是保存目标、实际值、误差、归因和修正动作。
-
-`metric_threshold` claim 的核心契约：
-
-- `operator` 必填且只能是 `>=` 或 `<=`。误差方向因子由 `operator` 推导：`>=` 表示越大越好，`<=` 表示越小越好；调用方不再手填方向。
-- `scale` 如提供必须 `>= 1e-6`；未提供时使用 `max(abs(target), 1e-6)`，避免 target 为 0 时除零。
-- `metric_threshold` 的 `weight` 必须至少为 3；`E_cycle` 计算也会在 compute 层强制关键指标权重下限，避免大量低价值预测稀释关键失败。
-- `E_cycle` 同时输出 `worstClaimError`，用于连续两轮关键 claim 超阈值的单独判定。
-
-所有可测 claim，包括 `metric_threshold`、`binary`、`categorical` 和 `directional`，都可以携带预测契约字段：
-
-```text
-expectedObservation
-timeWindow
-successThreshold
-failureThreshold
-uncertainty
-```
-
-Scheduler 会用这些字段判断预测是否能成为可靠学习信号。New Project 的 Onboarding Interview 强制用户设置首条可测 claim 的指标、operator 和目标阈值；Project Setup 可后续调整，但同样只允许 `>=` / `<=`。
-
-### 5. Knowledge Base
-
-知识不是普通笔记。每条知识都有置信度、状态、来源、引用记录、有效期和治理字段。过期、冲突或未经验证的知识不能无条件支撑下一轮决策。
-
-Librarian 会对近义知识做熵减合并：保留主条目，给被合并条目写入 `supersededBy`，不做物理删除。检索和高风险证据集默认排除 stale、quarantined、conflict 和 superseded 条目。
-
-任务前知识注入由 `alaya-app/server/knowledgeInjection.ts` 负责：系统根据当前任务文本从 FTS5 检索 active/strong 且未被 supersede 的知识，构造有上限的 `[PRIOR KNOWLEDGE]` 上下文并写回 `usageCount`、`lastInjectedAt` 和审计事件。显式 schema migration 会执行 FTS5 `rebuild`，确保旧库已有知识也能被新建索引检索到；shadow/staging/production 的常态启动只校验 schema readiness。
-
-时间衰减由 `applyTimeDecay` 和 Scheduler 共同执行。`lastVerifiedAt` 保留真实验证时间，`lastDecayedAt` 记录最近一次自动衰减时间，避免周期性 tick 对同一历史区间重复衰减。被衰减到阈值以下的知识会降级为 stale，并通过 `time_decay_scheduler` 写入审计日志。
-
-## 自主进化与长期验证
-
-Alaya 的默认 4 轮场景仍然作为治理回归基线保留。超过第 4 轮后，系统会基于当前项目身份、世界模型、已验证知识、上轮误差和近期反馈生成下一轮目标。
-
-自主进化有四类停机风险闸：
-
-- `evolution_stalled`：连续误差不改善。
-- `goal_repetition`：新目标与历史目标或被拒方向重复。
-- `maturation_stall`：决策知识增长但 strong 知识不成熟。
-- `knowledge_explosion`：可决策知识规模异常增长。
-
-长程离线验证：
-
-```bash
-npm run e2e:long-evolution
-```
-
-该脚本会跑 20 轮 mock LLM 飞轮，检查不再出现 `scenario_exhausted`、目标不重复、知识规模有界、合并事件有审计记录、blocking gate 不膨胀。
-
-## Web 功能地图
-
-| 页面 | 作用 |
+| 命令 | 期望 |
 | --- | --- |
-| Dashboard | 当前项目、cycle、风险、预算、最近知识 |
-| Human Gates | 批准、修改或否决方向闸、意义闸、风险闸 |
-| Prediction Ledger | 查看预测、观察、误差和归因 |
-| Knowledge Base | 搜索知识、查看置信度、来源和 Agent 引用 |
-| Cycle Review | 复盘单轮 cycle、Agent 输出、复利证据和本轮高风险 action ledger 时间线 |
-| Flywheel Health | 查看每轮新增知识、晋级、纠错、知识注入、知识状态和复利证明 |
-| New Project | Onboarding Interview，创建新项目 |
-| Project Setup | 修正 seed identity、world model、redlines 和第一轮 claim |
-
-## Telegram 移动端通知与审批
-
-Telegram 集成让 Alaya 在手机上主动提醒用户：有 blocking gate、safety mode 或 pending Human Gate 时，不需要一直打开桌面浏览器。实现位于 `alaya-app/server/notifications/`，由 `scheduler.ts` 懒加载 `NotificationBus` 与 `TelegramAdapter`。
-
-### 功能范围
-
-| 场景 | 行为 |
-| --- | --- |
-| Scheduler 新建 pending gate | 推送 Telegram 卡片；按 `gateId` 去重，避免每个 tick 重复通知；深链携带 `projectId` 和 `gate` |
-| 普通 `meaning` / `direction` / `risk` gate | 卡片显示 `✅ 批准` / `❌ 否决`，点击后统一走 `HumanGateService`，写入 `decision_log`、`event_log` 和 `action_ledger` |
-| 知识冲突复核 gate | 卡片显示 `✅ 隔离当前` / `↔️ 保留既有`，通过 `resolveKnowledgeReview` 收敛冲突，并保留 Web 详情入口 |
-| Safety mode | 推送纯文本通知，包含项目、原因和 Web UI 链接 |
-| `/status` | 返回所有项目的当前 cycle、pending gates、知识数和最后事件时间 |
-| `/gates` | 列出所有 pending gates；可直接处理普通 Human Gate，并给知识冲突复核提供专门按钮 |
-| `/help` | 返回可用命令 |
-
-### 本地配置
-
-复制并编辑本地 env。不要提交真实 token：
-
-```bash
-cp alaya-app/.env.example alaya-app/.env
-```
-
-最小配置：
-
-```bash
-ALAYA_CAP_EXTERNAL_NOTIFICATION=true
-ALAYA_NOTIFICATION_PROVIDER=telegram
-ALAYA_TELEGRAM_BOT_TOKEN=<BotFather token>
-ALAYA_TELEGRAM_CHAT_ID=<your chat id>
-ALAYA_BASE_URL=http://localhost:5000
-ALAYA_ALLOWED_NETWORK_HOSTS=api.github.com,api.openai.com,api.minimax.io,api.minimaxi.com,api.telegram.org
-```
-
-如果 5000 端口被占用：
-
-```bash
-PORT=5001
-ALAYA_BASE_URL=http://localhost:5001
-```
-
-启动：
-
-```bash
-npm --prefix alaya-app run dev
-```
-
-打开 Web UI：
-
-```text
-http://localhost:5001/#/human-gates
-```
-
-### 获取 Telegram Chat ID
-
-1. 在 Telegram 里找 `@BotFather` 创建 bot，拿到 token。
-2. 给 bot 发任意消息。
-3. 请求 `https://api.telegram.org/bot<TOKEN>/getUpdates`。
-4. 在返回 JSON 中找到 `message.chat.id`，填入 `ALAYA_TELEGRAM_CHAT_ID`。
-
-Bot 可选命令菜单：
-
-```text
-status - 查看飞轮当前状态
-gates - 列出所有待处理闸门
-help - 查看使用帮助
-```
-
-### 安全与审计
-
-- 所有出站 Telegram 请求必须同时通过 `ALAYA_CAP_EXTERNAL_NOTIFICATION` 和 `ALAYA_ALLOWED_NETWORK_HOSTS`。
-- 网络 host 固定校验为 `api.telegram.org`；token 格式会在 adapter 构造时验证。
-- 使用原生 `fetch` 调 Telegram Bot API，不引入 `node-telegram-bot-api`，避免其历史依赖链中的 critical audit 漏洞。
-- Telegram callback 不直接写 `storage.updateGate`；批准/否决统一走 `HumanGateService`，保留 capability gate、运行模式、事件日志和 action ledger。
-- 冲突复核 callback 不绕过知识状态机；`quarantine` 与 `merge_supersede` 统一走 `resolveKnowledgeReview`，已处理卡片会回填详细决策回执。
-- Long polling 的 update offset 持久化到 `telegram-update-offset.json`，该文件已加入 `alaya-app/.gitignore`。
-- 所有 Telegram MarkdownV2 文本都会转义动态内容；通知失败只记录错误，不阻塞 Scheduler 主流程。Telegram API 仅对网络错误、408、429 和 5xx 做短重试，400/403 等非临时错误会快速失败，避免拖慢人审链路。
-
-## P0/P1 证据化内核
-
-本轮 P0/P1 在本地 SQLite 架构上增加可追踪、可评测、可审计的证据层，不依赖外部 OTel 或 LangSmith 服务。
-
-- `trace_events` 记录 OTel-compatible 的 cycle state、agent run、LLM call、knowledge injection、error classification、principle transition、approval 和 action risk 事件；`event_log` 保留为原有审计流。
-- `action_ledger` 记录高风险动作的 risk level、approval gate、rollback plan、audit summary 和 idempotency key。只有 `approved` direction gate，或与该动作 idempotency key 匹配的 `approved` risk gate，才能放行需要审批的动作；`pending`、`modified`、`rejected` 都不会被视为批准。
-- `RiskLevel` 分为 `read_only`、`draft_only`、`local_write`、`external_write`、`destructive`、`financial`、`compliance_sensitive`。内部 local write 默认可免审批；external/destructive/financial/compliance-sensitive 必须经过 gate。
-- Model router 默认沿用 `ALAYA_LLM_PROVIDER` / `OPENAI_MODEL`，也支持 `ALAYA_MODEL_ROUTING_JSON` 和 role-specific env override；`llm_calls` 会记录 provider/model/route reason。
-- `npm run benchmark:smoke` 使用 deterministic mock cases 覆盖 round4、knowledge injection、rollback package、source reliability、principle decay、prompt injection、action risk、model routing 和 trace completeness。
-
-## 常用命令
-
-从仓库根目录运行：
-
-```bash
-npm run test:all       # core + app + scripts 测试
-npm run guard          # 治理底线守卫
-npm run typecheck      # core + app 类型检查
-npm run build          # Web app 生产构建
-npm run flywheel            # 4 轮飞轮模拟
-npm run e2e:long-evolution  # 20 轮自主进化离线验收
-npm run e2e:github          # GitHub Issue Sensor 完整链路，建议指向 sandbox repo
-npm run e2e:github-autonomous # 自主调度 + GitHub Sensor 完整链路
-npm run benchmark:smoke      # P0/P1 deterministic benchmark
-npm run provider:canary -- --projectId <projectId> --provider mock  # provider/model/role canary
-npm run trace:export -- --cycle <cycleId>  # 导出 cycle trace JSONL
-npm run audit:upgrade       # 升级 readiness 审计
-npm run validation:summary  # 汇总 validation-logs 下最新 SUMMARY.csv
-npm run validation:health-signal  # 匿名健康硬件选型 36h 真实 LLM 长测 runner
-npm run validation:health-signal:timeseries -- --log-dir validation-logs/<run>  # 生成 timeseries_summary.json
-npm run validation:health-signal:conflicts -- --log-dir validation-logs/<run>    # 生成 conflict_lifecycle_summary.json
-npm run secret:scan         # 高置信 secret 扫描
-npm run ops:pre-upgrade     # 升级前状态检查
-npm run ops:backup          # SQLite state 备份
-npm run ops:migrate         # 显式 schema migration
-npm run ops:restore -- --backup tmp/alaya-backups/<backup>  # 默认 dry-run 恢复
-npm run ops:post-upgrade    # 升级后 guard/core/probe 验证
-npm run shadow:report -- --out tmp/shadow-report.md
-```
-
-TypeScript 运行入口统一使用 `node --import tsx`。这避免在受限环境里直接调用 `tsx` CLI 时创建 IPC pipe 失败，同时保留同样的 TS/ESM 加载能力。核心入口包括 app dev/build、core flywheel、真实 LLM E2E 和长程自主进化 E2E。
-
-## 运行模式与安全模型
-
-Alaya 现在有明确的运行模式。模式由 `ALAYA_MODE` 控制；如果未设置，`NODE_ENV=test` 映射到 `test`，`NODE_ENV=production` 映射到 `production`，其他情况默认为 `development`。
-
-| 模式 | 典型用途 | 默认安全策略 |
-| --- | --- | --- |
-| `development` | 本地开发、快速调试 | 允许本地写和 mock LLM；外部真实写仍需显式路径 |
-| `test` | 单元测试、集成测试 | 不需要真实外部 secret；测试 fixture 可以使用安全假值 |
-| `shadow` | 影子运行、只观察不真实写 | 非只读 API 默认 dry-run；写入意图进入 `action_ledger` |
-| `staging` | 受控预发 | 高风险能力默认 deny，需要显式 capability flag |
-| `production` | 生产长期运行 | env fail-fast；demo seed 禁用；高风险能力最小权限 |
-
-### API 鉴权与内置 UI
-
-`/api/*` 在 `shadow`、`staging`、`production` 中默认需要 API key。服务端接受两种等价形式：
-
-```bash
-Authorization: Bearer $ALAYA_API_KEY
-X-Alaya-API-Key: $ALAYA_API_KEY
-```
-
-`development` 和 `test` 只有在设置了 `ALAYA_API_KEY` 或 `ALAYA_REQUIRE_API_AUTH=true` 时才强制鉴权。`/healthz` 与 `/readyz` 不需要 API key；`/metrics` 使用 loopback/CIDR allowlist 单独保护。
-
-内置 React UI 不会把 API key 打进 bundle，也不会从服务端公开读取 key。生产或 shadow 静态 UI 打开后，在左侧 Project 区域的 `API Key` 输入框填入 key 并保存；前端会把 key 保存在当前浏览器 tab 的 `sessionStorage`，并自动为 React Query、`apiRequest()` 和手写 API fetch 加上 `Authorization: Bearer ...`。关闭 tab 后需要重新输入。点击“清除”会移除本 tab 的 key 并刷新查询。
-
-命令行检查：
-
-```bash
-curl -fsS http://127.0.0.1:5000/healthz
-curl -fsS -H "Authorization: Bearer $ALAYA_API_KEY" http://127.0.0.1:5000/api/projects
-```
-
-`shadow`、`staging`、`production` 缺少 `ALAYA_API_KEY` 会在 env validation 阶段 fail fast。这样不会出现 `/readyz` 看起来正常、但所有 `/api/*` 请求返回 `503 api authentication is not configured` 的半可用状态。
-
-Capability gate 覆盖高风险动作。所有 flag 都通过环境变量开启，默认不要在长期运行里打开。
-
-| Capability | Env | 默认 long-run 行为 | 当前接入点 |
-| --- | --- | --- | --- |
-| filesystem write | `ALAYA_CAP_FILESYSTEM_WRITE` | deny | 预留给本地写 adapter；shadow API 兜底 dry-run |
-| shell execution | `ALAYA_CAP_SHELL_EXECUTION` | deny | 当前业务未接 shell adapter；若新增必须先 gate |
-| GitHub write | `ALAYA_CAP_GITHUB_WRITE` | deny | 当前 GitHub 路径只读 issue sensor；写 adapter 必须先 gate |
-| database migration | `ALAYA_CAP_DATABASE_MIGRATION` | deny | 只用于显式 `ops:migrate` / `dist/migrate.cjs` |
-| unknown network | `ALAYA_CAP_NETWORK_UNKNOWN` | deny | LLM/OpenAI-compatible fetch 与 GitHub fetch 之前检查 |
-| LLM call | `ALAYA_CAP_LLM_CALL` | deny in production unless enabled | `callLlm()` 的真实 provider 路径 |
-| knowledge write | `ALAYA_CAP_KNOWLEDGE_WRITE` | shadow dry-run, staging/prod deny | 非只读 API、知识/项目/cycle/反馈写路径 |
-| scheduler loop | `ALAYA_CAP_SCHEDULER_LOOP` | deny | `startCycleScheduler()` 启动前检查 |
-| external notification | `ALAYA_CAP_EXTERNAL_NOTIFICATION` | deny | Telegram `sendMessage`、`editMessageText`、`answerCallbackQuery`、`getUpdates` 等出站通知路径 |
-
-Shadow 模式下，`POST /api/knowledge` 这类 mutating API 会返回：
-
-```json
-{
-  "status": "dry_run",
-  "mode": "shadow",
-  "capability": "knowledge_write",
-  "target": "POST /knowledge"
-}
-```
-
-同时 `action_ledger` 会写入 `capability.knowledge_write`，`status=dry_run`，包含 actor、mode、capability、target、input hash、结果和时间戳。handler 不会执行真实写入。
-
-生产模式下，相同的默认行为是 `403`，除非显式设置对应 capability。这个设计避免“只在测试里测 gate，但真实路由没接入”的假通过。
-
-高成本端点限速：
-
-```text
-ALAYA_COST_RATE_LIMIT_WINDOW_MS=60000
-ALAYA_COST_RATE_LIMIT_MAX=10
-```
-
-如果这两个变量被误写成非数字，运行时会回退到默认值而不是关闭 limiter。`POST /api/cycles/:id/run-full` 和 `POST /api/scheduler/tick` 都走这个保护；`/healthz`、`/readyz`、`/metrics` 不受高成本限速影响。
-
-## 数据库迁移、备份与恢复
-
-开发和测试模式可以在启动时自动创建/补齐 SQLite schema。`shadow`、`staging`、`production` 的稳态启动不会静默执行 DDL；如果 schema 缺表或缺关键列，启动会 fail fast，提示运行显式迁移。
-
-本地迁移流程：
-
-```bash
-npm run ops:pre-upgrade
-npm run ops:backup
-ALAYA_CAP_DATABASE_MIGRATION=true npm run ops:migrate
-npm run ops:post-upgrade
-```
-
-`ops:migrate` 会运行 `alaya-app/server/migrate.ts`。生产构建后对应入口是 `dist/migrate.cjs`，Docker shadow 初始化使用这个入口。
-
-备份：
-
-```bash
-npm run ops:backup
-```
-
-默认输出到：
-
-```text
-tmp/alaya-backups/backup-<timestamp>/
-```
-
-备份内容包括 SQLite DB 和 WAL/SHM sidecar。脚本会写 `manifest.json`，只记录出现过的 env 变量名，不记录 env 值；`.env` 和 secret 文件不会被备份。
-
-恢复默认是 dry-run：
-
-```bash
-npm run ops:restore -- --backup tmp/alaya-backups/<backup-dir>
-```
-
-确认恢复前必须停止服务，然后显式加 `--confirm`：
-
-```bash
-npm run ops:restore -- --backup tmp/alaya-backups/<backup-dir> --confirm
-```
-
-SQLite 备份一致性在服务停止或 WAL checkpoint 后最强。生产/长期 shadow 运行前应先停服务或确认没有活跃写入，再做关键备份。
-
-## Docker Shadow 部署与 smoke 验证
-
-本节是短 smoke，不是 7 天 shadow run。7 天 shadow run 文档在 [docs/ops/05-shadow-run-7d.md](./docs/ops/05-shadow-run-7d.md)，本次不自动执行。
-
-构建镜像：
-
-```bash
-docker build -t alaya:local .
-docker tag alaya:local alaya:shadow
-```
-
-渲染 compose：
-
-```bash
-docker compose -f deploy/docker-compose.shadow.yml config
-```
-
-第一次使用新的 shadow volume，或升级后需要 schema 变更时，先运行一次显式迁移：
-
-```bash
-ALAYA_SHADOW_PORT=5055 docker compose -f deploy/docker-compose.shadow.yml run --rm \
-  -e ALAYA_CAP_DATABASE_MIGRATION=true \
-  alaya node dist/migrate.cjs
-```
-
-正常启动保持 `ALAYA_CAP_DATABASE_MIGRATION=false`：
-
-```bash
-ALAYA_SHADOW_PORT=5055 docker compose -f deploy/docker-compose.shadow.yml up -d --no-build
-curl -fsS http://localhost:5055/healthz
-curl -fsS http://localhost:5055/readyz
-curl -fsS http://localhost:5055/metrics
-```
-
-证明 shadow 写操作不会真实执行：
-
-```bash
-curl -fsS -X POST http://localhost:5055/api/knowledge \
-  -H 'Content-Type: application/json' \
-  --data '{"id":"kb_shadow_probe","projectId":"proj_shadow","title":"probe","content":"dry run only"}'
-
-curl -fsS 'http://localhost:5055/api/action-ledger?limit=5'
-```
-
-预期：第一个请求返回 `202 dry_run`；第二个请求能看到 `capability.knowledge_write` 且 `status=dry_run`。
-
-停止：
-
-```bash
-ALAYA_SHADOW_PORT=5055 docker compose -f deploy/docker-compose.shadow.yml down
-```
-
-容器安全属性：
-
-- Dockerfile 使用 `node:20-bookworm-slim`，没有 `latest`。
-- build/runtime 分阶段，runtime 运行用户是 `alaya`，不是 root。
-- `.dockerignore` 排除 `.env`、数据库、日志、缓存、tmp、coverage、node_modules 和 `.git`。
-- compose 使用 read-only root filesystem。
-- 可写位置限制在 named volumes：`/var/lib/alaya`、`/var/log/alaya`、`/var/cache/alaya`。
-- shadow compose 不挂载宿主根目录，不使用 privileged。
-
-## 可观测性与审计账本
-
-运行端点：
-
-```text
-GET /healthz   # 进程活着，尽量不因依赖失败而 500
-GET /readyz    # 配置、数据库、关键目录可写性、schema readiness
-GET /metrics   # Prometheus text
-```
-
-`/metrics` 包含：
-
-```text
-alaya_uptime_seconds
-alaya_mode_info
-alaya_scheduler_cycles_total
-alaya_scheduler_cycle_duration_ms
-alaya_actions_total
-alaya_actions_denied_total
-alaya_capability_denials_total
-alaya_llm_requests_total
-alaya_llm_tokens_input_total
-alaya_llm_tokens_output_total
-alaya_llm_estimated_cost_usd_total
-alaya_external_feedback_items_total
-alaya_knowledge_injections_total
-alaya_stall_events_total
-alaya_errors_total
-alaya_last_successful_cycle_timestamp
-alaya_llm_agent_latency_p50_ms{agent=...}
-alaya_llm_agent_latency_p95_ms{agent=...}
-alaya_llm_agent_error_rate{agent=...}
-```
-
-LLM 调用现在同时保存：
-
-- `input_token_count`
-- `output_token_count`
-- `token_count`
-- `estimated_cost`
-- `llm_failure_type`：`timeout`、`rate_limit`、`auth`、`schema_error`、`invalid_json`、`safety_refusal`、`network`、`provider_error`、`unknown`
-
-前端 Ledger、`/api/llm-calls/summary`、`/api/llm-calls/latency` 和 `/metrics?format=json` 都能用于核对 input/output split、失败类型和分 Agent latency。聚合值可以从 `llm_calls` 与 `trace_events` 原始记录交叉核对。
-
-审计持久化：
-
-- `event_log`：storage 写路径的 before/after diagnostics，写入前脱敏。
-- `trace_events`：cycle、agent、LLM、知识注入、风险动作等 OTel-compatible trace，attributes 写入前脱敏。
-- `action_ledger`：高风险动作和 capability decision，包含 status、risk、approval gate、rollback plan、payload 和 idempotency key，payload/audit/rollback 写入前脱敏。
-
-脱敏覆盖 bearer token、Cookie/Set-Cookie、GitHub/OpenAI/Slack token、AWS key id、数据库 URL 密码、private key block、email、明显 phone number，以及对象中 `apiKey/token/secret/password/database_url` 等 secret-like key。Phone redaction 需要至少 10 位数字并带有 `+` 或多个分隔符，因此普通日期如 `2026-06-06`、分组编号如 `1234-5678` 会保留上下文，不会被误替换为 `[redacted-phone]`。
-
-Web 开发：
-
-```bash
-npm run dev
-```
-
-UI 卡顿回归测试需要先启动 Web 服务。默认检测 `http://127.0.0.1:5001`。
-
-终端 A：
-
-```bash
-PORT=5001 npm run dev
-```
-
-终端 B：
-
-```bash
-npm run e2e:ui-freeze
-```
-
-如需指定地址：
-
-```bash
-ALAYA_E2E_BASE_URL=http://127.0.0.1:5000 npm run e2e:ui-freeze
-```
-
-完整 live 验收会调用真实 LLM 和 GitHub，需要本机 secret：
-
-```bash
-npm run e2e:live
-```
-
-`alaya-app` 内也提供同名代理入口，供 CI 和脚本在 app 工作目录中调用：
-
-```bash
-npm --prefix alaya-app run flywheel:live
-```
-
-## 真实 LLM 与 Secret
-
-默认不调用真实模型。启用 OpenAI-compatible provider：
-
-```bash
-ALAYA_LLM_PROVIDER=openai \
-OPENAI_API_KEY=... \
-OPENAI_BASE_URL=https://api.openai.com/v1 \
-OPENAI_MODEL=gpt-4.1-mini \
-npm run dev
-```
-
-MiniMax 等兼容端点可通过 `OPENAI_BASE_URL` 和 `OPENAI_MODEL` 切换。
-
-为了避免把 key 写入 shell history，可以使用本地 key file：
-
-```bash
-npm run setup:secrets
-npm run setup:secrets:check
-```
-
-该工具默认只写用户配置目录，也可用 `OPENAI_API_KEY_FILE` / `GITHUB_TOKEN_FILE`
-显式指定其他本地路径：
-
-```text
-$HOME/.config/alaya/openai-api-key
-$HOME/.config/alaya/github-token
-```
-
-文件权限为 `0600`，不会打印 secret 值。
-
-GitHub Actions 中请添加 `LLM_API_KEY` 和 `GH_PAT` 两个 Secrets。不要自定义名为
-`GITHUB_TOKEN` 的 Secret；这是 GitHub Actions 的保留令牌名。
-
-真实 LLM preflight：
-
-```bash
-OPENAI_API_KEY_FILE=$HOME/.config/alaya/openai-api-key \
-OPENAI_BASE_URL=https://api.minimax.io/openai \
-OPENAI_MODEL=MiniMax-M3 \
-npm run e2e:llm
-```
-
-`ALAYA_E2E_ALLOW_SKIP=true` 只在没有可用 key 时允许跳过真实调用；如果本机存在 key 但 key 无效，E2E 会 fail closed 并显示 provider 返回的错误。
-
-真实 4 轮飞轮：
-
-```bash
-OPENAI_API_KEY_FILE=$HOME/.config/alaya/openai-api-key \
-OPENAI_BASE_URL=https://api.minimax.io/openai \
-OPENAI_MODEL=MiniMax-M3 \
-npm run e2e:llm-flywheel
-```
-
-## CI 与本地长程验证
-
-GitHub Actions 工作流位于 `.github/workflows/ci.yml` 和 `.github/workflows/deploy-readiness.yml`：
-
-- `unit-and-integration`：安装 root/app/core 依赖，运行 guard、app focused regression、app full test、app typecheck、core test、core typecheck、script tests 和 core flywheel simulation。
-- `live-llm-validation`：只在 `main` 分支 push 后尝试运行真实 LLM/GitHub live validation；缺少 secret 时明确跳过。
-- `deploy-readiness`：默认不需要真实 secret，运行 secret scan、env/redaction/capability/health focused tests、pre-upgrade check、Docker build、shadow compose config 和 principles guard。
-
-Actions secrets：
-
-| Secret | 用途 |
-| --- | --- |
-| `LLM_API_KEY` | OpenAI-compatible provider key，可指向 MiniMax |
-| `GH_PAT` | GitHub live sensor / issue E2E token |
-| `OPENAI_BASE_URL` | 可选，默认 `https://api.minimax.io/openai` |
-| `OPENAI_MODEL` | 可选，默认 `MiniMax-M3` |
-
-24h fail-closed 本地验证脚本：
-
-```bash
-./scripts/24h_validation.sh
-```
-
-常用参数：
-
-```bash
-ALAYA_VALIDATION_DURATION_SECONDS=86400 \
-ALAYA_VALIDATION_SLEEP_SECONDS=600 \
-ALAYA_HEALTH_URL=http://127.0.0.1:5000/api/flywheel/health?projectId=... \
-./scripts/24h_validation.sh
-```
-
-24h 脚本每轮运行 principles guard 和 mock flywheel simulation，每 3 轮尝试 live validation。缺少 secret 时标记 `SKIP`，有 secret 但 API 网络不可达时标记 `SKIP_NET`。如果 guard、simulation 或 live 步骤出现 `FAIL`，最终退出码为非零；连续 3 次 live failure 会提前停止。
-
-12h 长程观测脚本：
-
-```bash
-./scripts/12h_validation.sh
-```
-
-常用参数：
-
-```bash
-ALAYA_VALIDATION_DURATION_SECONDS=43200 \
-ALAYA_VALIDATION_SLEEP_SECONDS=600 \
-ALAYA_VALIDATION_MAX_ROUNDS=72 \
-./scripts/12h_validation.sh
-```
-
-12h 脚本用于长时间稳定性观察：principles guard 失败仍然立即停止；simulation、live、live connectivity `SKIP_NET` 和 flywheel health 属于非关键检查，同一检查项连续 3 次失败会写入 `alerts.log`，但不会中断 runner。连续计数按检查项独立维护，避免 health failure 被 unrelated live/sim success 清零。
-
-12h/24h 验证脚本会先检查 `ALAYA_READY_URL`，默认 `http://localhost:5000/readyz`。如果没有现成服务且 `ALAYA_VALIDATION_START_APP=true`，脚本会启动 `npm run dev`，等待 `/readyz` 就绪后再进入 runner，确保 `/api/flywheel/health` 可读，`compoundingProof.round1vs4KnowledgeDelta` 不再因为健康 API 未启动而只能显示 `NA`。
-
-### 匿名健康信号 36h 真实 LLM 验证
-
-`npm run validation:health-signal` 用匿名穿戴健康硬件选型场景验证知识积累、冲突隔离、Human Gate 收敛和 Stall Guard。该流程不包含真实组织名或品牌名；默认项目名为 `wearable-health-signal-decision`，证据来源为 `health-signal-contradiction-runner`。
-
-场景要求系统在 PPG、ECG、混合方案之间持续做传感器选型判断，并在相互矛盾的证据进入知识库前触发人工复核。默认配置为 36 小时、每 5 分钟采样一次、每个样本最多推进 6 个 scheduler tick，理论上最多 432 个样本。
-
-启动真实 provider 长测：
-
-```bash
-ALAYA_SCHEDULER=false \
-ALAYA_AUTO_SEED_DEMO=false \
-ALAYA_LLM_PROVIDER=openai \
-OPENAI_API_KEY_FILE=$HOME/.config/alaya/openai-api-key \
-OPENAI_BASE_URL=https://api.minimax.io/openai \
-OPENAI_MODEL=MiniMax-M3 \
-PORT=5300 \
-ALAYA_DB_PATH=$PWD/validation-logs/health-signal-36h/health-signal.db \
-ALAYA_CAP_EXTERNAL_NOTIFICATION=true \
-ALAYA_NOTIFICATION_PROVIDER=telegram \
-ALAYA_TELEGRAM_BOT_TOKEN=<bot-token> \
-ALAYA_TELEGRAM_CHAT_ID=<chat-id> \
-npm run validation:health-signal
-```
-
-常用短窗口 smoke：
-
-```bash
-ALAYA_SCHEDULER=false \
-ALAYA_AUTO_SEED_DEMO=false \
-ALAYA_LLM_PROVIDER=openai \
-OPENAI_API_KEY_FILE=$HOME/.config/alaya/openai-api-key \
-OPENAI_BASE_URL=https://api.minimax.io/openai \
-OPENAI_MODEL=MiniMax-M3 \
-PORT=5300 \
-ALAYA_DB_PATH=$PWD/validation-logs/health-signal-smoke/health-signal.db \
-npm run validation:health-signal -- --duration-minutes=20 --sample-minutes=1 --max-samples=20
-```
-
-10h clean retest 需要先冻结代码基线：Goal 1-4 修复必须已经 commit，`git status --short` 必须为空，再用全新 DB 和明确端口启动。不要复用旧 `validation-logs/wonz-*` DB，也不要在已有 5300 旧 app/watchers 上直接续跑。
-
-推荐启动方式是让 runner 按 Goal 4 guard 自己启动 app：
-
-```bash
-RUN_DIR=$PWD/validation-logs/health-signal-10h_$(date -u +%Y%m%d_%H%M%S)
-mkdir -p "$RUN_DIR"
-
-ALAYA_SCHEDULER=false \
-ALAYA_AUTO_SEED_DEMO=false \
-ALAYA_LLM_PROVIDER=openai \
-OPENAI_API_KEY_FILE=$HOME/.config/alaya/openai-api-key \
-OPENAI_BASE_URL=https://api.minimax.io/openai \
-OPENAI_MODEL=MiniMax-M3 \
-PORT=5300 \
-ALAYA_DB_PATH="$RUN_DIR/health-signal.db" \
-npm run validation:health-signal -- \
-  --duration-hours=10 \
-  --sample-minutes=5 \
-  --progress-ticks-per-sample=6 \
-  --max-samples=120 \
-  --resolve-conflict-reviews=0 \
-  --log-dir="$RUN_DIR"
-```
-
-如果 app 已由独立固化脚本启动，则 runner 必须显式接入该 clean app，并且同样传入 guard env：
-
-```bash
-ALAYA_SCHEDULER=false \
-ALAYA_AUTO_SEED_DEMO=false \
-ALAYA_LLM_PROVIDER=openai \
-OPENAI_API_KEY_FILE=$HOME/.config/alaya/openai-api-key \
-OPENAI_BASE_URL=https://api.minimax.io/openai \
-OPENAI_MODEL=MiniMax-M3 \
-PORT=5300 \
-ALAYA_DB_PATH="$RUN_DIR/health-signal.db" \
-npm run validation:health-signal -- \
-  --duration-hours=10 \
-  --sample-minutes=5 \
-  --progress-ticks-per-sample=6 \
-  --max-samples=120 \
-  --resolve-conflict-reviews=0 \
-  --start-app=false \
-  --base-url=http://127.0.0.1:5300 \
-  --log-dir="$RUN_DIR"
-```
-
-`--resolve-conflict-reviews=0` 是 clean retest 的关键参数：runner 不再用占位 human proxy 自动 `quarantine` / `merge_supersede` 清空冲突复核，冲突会保持为 pending，交给真实人工或独立判断代理处理。这样才能验证 active 知识不会归零，以及语义矛盾不会被 repeated-meaning 自动批准旁路吞掉。
-
-启动 guard 会在创建日志和启动 app 前拒绝脏环境：`ALAYA_SCHEDULER`、`ALAYA_AUTO_SEED_DEMO`、MiniMax provider 配置、`PORT` 和 `ALAYA_DB_PATH` 都必须显式传入；`OPENAI_API_KEY` 或非空 `OPENAI_API_KEY_FILE` 至少存在一个。可先用 dry-run 预检：
-
-```bash
-ALAYA_SCHEDULER=false \
-ALAYA_AUTO_SEED_DEMO=false \
-ALAYA_LLM_PROVIDER=openai \
-OPENAI_API_KEY_FILE=$HOME/.config/alaya/openai-api-key \
-OPENAI_BASE_URL=https://api.minimax.io/openai \
-OPENAI_MODEL=MiniMax-M3 \
-PORT=5300 \
-ALAYA_DB_PATH=$PWD/validation-logs/health-signal-smoke/health-signal.db \
-npm run validation:health-signal -- --check-only
-```
-
-app ready 后 runner 会调用 provider canary；只有返回 `ok=true`、`provider=openai` 且 `model=MiniMax-M3` 才会继续长测，返回 mock、错误模型或 canary 失败都会终止。清理端口时不要使用 `lsof -ti tcp:<port>` 批量 kill，这可能误杀 runner client；应先确认监听 PID，再只停止该监听进程。
-
-runner 会写入：
-
-| 文件 | 用途 |
-| --- | --- |
-| `monitor_log.csv` | 每个 sample 的 delta、active knowledge、gate、conflict review、`newGatesThisHour`、`llmTokenSource`、LLM 成本、RSS、cycle 和 Stall Guard 时序 |
-| `events.jsonl` | provider canary、矛盾注入、scheduler tick、人审、冲突扫描、失败与重试事件 |
-| `issues.md` | 长测中发现的具体工程问题和证据 |
-| `summary.json` | 结束时的要求逐项判定和最终 drain 状态 |
-| `timeseries_summary.json` | 时序窗口、Human Gate backlog、Stall Guard 触发率和事件计数 |
-| `conflict_lifecycle_summary.json` | 矛盾注入、冲突扫描、复核解决和失败生命周期 |
-
-长测结束或中途审计时刷新两个 summary：
-
-```bash
-npm run validation:health-signal:timeseries -- --log-dir validation-logs/<health-signal-run>
-npm run validation:health-signal:conflicts -- --log-dir validation-logs/<health-signal-run>
-```
-
-最终判定口径：
-
-| 指标 | 通过条件 | 说明 |
-| --- | --- | --- |
-| active 不归零 | 全程 `activeCount >= 1` 且终值 `>= 1` | `activeCount` 来自 `/api/flywheel/health.totals.activeKnowledgeCount`，不是临时脚本私算 |
-| 语义矛盾隔离 | 对立证据被 `auto_approved_repeated_meaning` 旁路的比例为 0 | 带 `sampleReviewReason` 的 semantic/explicit contradiction gate 会被 runner 保留为 pending，不会被本地 proxy 批掉 |
-| token 来源真实 | `token_source=provider` 占比 `>= 95%` | `monitor_log.csv` 的 `llmTokenSource` 和 `metrics_sample.llmTokenSourceStats` 用于抽查 MiniMax usage 是否真实落库 |
-| 知识熵变 | `round1vs4KnowledgeDelta >= 8` | 该字段现在表示 round1 到当前知识量的增长；静态 round1-vs-round4 另存为 `round1vs4StaticKnowledgeDelta` |
-| 冲突生命周期 | 累计冲突证据 `>= 5` 且已解决冲突复核 `>= 3` | 判定使用累计 review/event 证据，不再只看瞬时 `conflictCount`，避免快速解决后 CSV 点位显示 0 |
-| Human Gate 收敛 | 后半段 pending gate 均值较前段下降 `>= 30%` | 早期全 0 backlog 时该指标会标记为不可判定 |
-| Stall Guard | 触发数低于已关闭 cycle 的 5% | summary 会同时保留 raw 计数和基于明确事件/gate id 的 true trigger 计数 |
-| 工程稳定性 | 无 `sample_failed`、`runner_crashed`、OOM、DB lock 或持续 request retry | 具体证据来自 `events.jsonl`、`app.log`、`runner.log` 和 `issues.md` |
-
-Telegram 人审优先走真实本地 Telegram 卡片；如果桌面自动点击不可用，辅助脚本会先保留 Telegram 可见证据，再使用本地 API human proxy 处理 gate，并在 status JSON / API 队列中验证结果。知识冲突 risk gate 使用专门的 `quarantine` / `merge_supersede` 路径，不用普通 approve/reject 直接覆盖知识状态。
-
-已知问题修复记录：
-
-- 2026-06-09：已修复 P1 `knowledge_review_items.id` 主键冲突。resolved review 占用确定性 `kr_<hash>` 后，同一对知识再次被检测为冲突时会创建带单调后缀的新 review（例如 `kr_<hash>__r2`），保留 open review 复用语义，不再在 `POST /api/human-gates/:id/approve` 的对立证据转知识链路中触发 `UNIQUE constraint failed`。回归测试：`R1 resolved duplicate conflict review id re-detection creates suffixed review`、`R2 approving opposing evidence meaning gate succeeds after resolved duplicate review id exists`、`R3 open duplicate conflict review id re-detection reuses existing review`。
-- 2026-06-09：同步修复 health-signal 复测中暴露的观测噪声：MiniMax/OpenAI-compatible provider 的 schema repair retry 对 orchestrator 仍使用完整 schema，避免 summary-only fallback 提前制造降级 gate；Telegram 知识复核按钮对长 reviewId 使用 compact callback token，避免 `BUTTON_DATA_INVALID`；知识复核 gate 被 `resolveKnowledgeReview()` 处理时会补写 `human_gate_items resolve` 事件，方便区分真实审批状态和 Telegram ack 失败。回归测试：`chat provider parses the last balanced JSON object from wrapped content`、`exact repair schema retry asks for full JSON instead of summary-only degradation`、`callback router resolves compact knowledge review tokens`。
-
-GitHub Issue Sensor E2E 默认优先使用 sandbox 环境变量，避免污染真实项目：
-
-```bash
-ALAYA_E2E_GITHUB_SANDBOX_OWNER=<owner> \
-ALAYA_E2E_GITHUB_SANDBOX_REPO=<repo> \
-GH_PAT=<token> \
-npm run e2e:github
-```
-
-完整链路覆盖：
-
-```text
-GitHub Issue 入库 -> Sensor Agent 提炼 -> Human Meaning Gate 推送 ->
-人工批准 -> active knowledge -> 下轮 Cycle 知识注入
-```
-
-汇总最近一次验证：
-
-```bash
-npm run validation:summary
-```
-
-或指定路径：
-
-```bash
-npm run validation:summary -- validation-logs/<run>/SUMMARY.csv
-```
-
-## 本地数据
-
-默认配置：
-
-```text
-PORT=5000
-HOST=0.0.0.0
-REUSE_PORT=false
-ALAYA_BASE_URL=http://localhost:5000
-ALAYA_CAP_EXTERNAL_NOTIFICATION=false
-ALAYA_NOTIFICATION_PROVIDER=telegram
-ALAYA_TELEGRAM_BOT_TOKEN=
-ALAYA_TELEGRAM_CHAT_ID=
-```
-
-可复制 `alaya-app/.env.example` 后按需修改。
-
-运行后生成：
-
-```text
-alaya-app/data.db
-alaya-app/data.db-shm
-alaya-app/data.db-wal
-```
-
-这些文件不会提交到仓库。需要重置演示数据时，停止服务后删除 `alaya-app/data.db*`，再重新启动。
-
-## API 概览
-
-核心 API：
-
-```text
-GET  /api/projects
-POST /api/projects
-PATCH /api/projects/:id
-GET  /api/projects/:id/dashboard
-GET  /api/flywheel/health?projectId=...
-GET  /api/projects/:id/cycles
-GET  /api/projects/:id/predictions
-POST /api/predictions
-POST /api/projects/:id/scheduler/tick
-POST /api/scheduler/tick
-
-GET  /api/human-gates
-POST /api/human-gates/:id/approve
-POST /api/human-gates/:id/modify
-POST /api/human-gates/:id/reject
-
-GET  /api/knowledge?projectId=...
-GET  /api/knowledge/:id
-POST /api/knowledge/search
-POST /api/knowledge/:id/approve
-POST /api/knowledge/:id/quarantine
-GET  /api/projects/:id/knowledge-reviews
-POST /api/projects/:id/knowledge/conflicts/scan
-POST /api/projects/:id/knowledge/review-reminders
-POST /api/knowledge-reviews/:id/resolve
-
-GET  /api/cycles/:id/review
-GET  /api/cycles/:id/traces
-GET  /api/projects/:id/traces?limit=...
-POST /api/cycles/:id/run-full
-GET  /api/llm-calls/summary?projectId=...
-GET  /api/llm-calls/latency
-GET  /api/projects/:id/ops-metrics
-POST /api/projects/:id/provider-canary
-
-GET  /api/projects/:id/org-modules
-POST /api/projects/:id/org-modules
-GET  /api/org-modules/:id
-PATCH /api/org-modules/:id
-DELETE /api/org-modules/:id
-GET  /api/org-modules/:id/markdown
-POST /api/org-modules/:id/knowledge
-```
-
-外部反馈与集成：
-
-```text
-GET  /api/projects/:id/integrations
-POST /api/projects/:id/integrations/github
-POST /api/projects/:id/integrations/github/issues/sync
-POST /api/projects/:id/feedback/form
-GET  /api/projects/:id/business-signals
-POST /api/projects/:id/business-signals/import
-POST /api/projects/:id/builder/codex/plan
-POST /api/builder/codex/apply
-```
-
-实现入口：
-
-- `alaya-app/server/routes.ts`
-- `alaya-app/server/storage.ts`
-- `alaya-app/server/flywheel.ts`
-- `alaya-app/server/scheduler.ts`
-- `alaya-app/server/externalFeedback.ts`
-- `alaya-app/server/businessSignals.ts`
-- `alaya-app/server/knowledgeReview.ts`
-- `alaya-app/server/builderAdapter.ts`
-- `alaya-app/server/providerCanary.ts`
-- `alaya-app/server/opsMetrics.ts`
-- `alaya-app/server/orgModules.ts`
-- `alaya-app/server/notifications/`
-- `alaya-app/server/humanGateService.ts`
-
-契约要点：
-
-- `POST /api/projects` 使用 onboarding schema，必须提供 `firstClaimMetric`、`firstClaimOperator` 和 `firstClaimTarget`；`firstClaimOperator` 只允许 `>=` / `<=`。
-- `PATCH /api/projects/:id` 的 `redlines` 字段是字符串数组；服务端负责持久化为 JSON 字符串。
-- `POST /api/predictions` 的 `claims` 字段走统一 `claimSchema`，会拒绝缺失 operator、`operator ==`、`scale=0` 和 metric weight 小于 3 的关键指标 claim。
-- `GET /api/cycles/:id/review` 返回 `actionLedger`，前端 Cycle Review 用它展示本轮高风险动作时间线。
-- Business Signal import 会强制使用 URL project id 覆盖 body 内的 `projectId`，敏感信号写入审计前脱敏，并只创建 feedback + Meaning Gate。
-- Builder Codex apply 默认 dry-run；`dryRun:false` 在 long-run mode 下归类为 `shell_execution`，默认拒绝，且即使审批通过也只记录 manual apply path。
-- Provider canary 在 long-run mode 下归类为 `llm_call`，真实 provider 需要显式 capability 与 secret；mock canary 可用于本地和 CI。
-
-## 验证记录
-
-### 2026-06-10 health-signal 10h clean retest
-
-本地正在运行一轮只读式 10 小时 MiniMax 复测，用于验证 2026-06-09 health-signal 修复在真实 provider、全新 SQLite DB 和独立 `PORT=5300` app 下是否成立。本条记录只说明当前验证入口，不代表最终通过结论。
-
-冻结基线：
-
-```text
-870c319 Fix duplicate knowledge review id on re-detection after resolution
-```
-
-运行证据：
-
-| 项目 | 路径或口径 |
-| --- | --- |
-| Run dir | `validation-logs/health-signal-10h_20260609_163552` |
-| Project | `proj_mq6v45vj` |
-| Provider | `ALAYA_LLM_PROVIDER=openai`, `OPENAI_BASE_URL=https://api.minimax.io/openai`, `OPENAI_MODEL=MiniMax-M3` |
-| Runner | `--duration-hours=10 --sample-minutes=5 --progress-ticks-per-sample=6 --max-samples=120 --resolve-conflict-reviews=0 --start-app=false --base-url=http://127.0.0.1:5300` |
-| Interim status | `validation-logs/health-signal-10h_20260609_163552/interim_status.md` |
-| New issues | `validation-logs/health-signal-10h_20260609_163552/issues.md` |
-| Final verdict | 等 `summary.json`、`timeseries_summary.json`、`conflict_lifecycle_summary.json` 和最终审计表生成后再记录 |
-
-验证期间不修改产品代码、runner 脚本或测试；发现的新问题只写入本轮 `issues.md`，待 10 小时窗口收口后再按 8 项判定标准给出最终结论。
-
-### 2026-06-10 P0 safety_mode deadlock repair
-
-`health-signal-10h_20260609_163552` 在约 6 小时处暴露出 P0：`safety_mode` 对注意力/backlog 类状态执行全停，导致 `cyclesTotal` 长期卡在 1。当前修复把这类软安全态改为限速推进，同时保留 LLM 成本硬超预算、Builder 偏航、预测不可测、知识审计失败等硬安全闸的 `safety_mode` 早退。
-
-可配置默认值：
-
-| 配置项 | 默认值 | 用途 |
-| --- | ---: | --- |
-| `ALAYA_SAFETY_THROTTLE_EVERY_TICKS` | `2` | 软安全态下每 2 个 scheduler tick 允许 1 次推进，其余 tick 返回 `safety_throttled` 延迟执行。 |
-| `ALAYA_FLYWHEEL_COMPOUNDING_WARMUP_CYCLES` | `3` | 前 3 个已关闭 cycle 作为复利证据 warmup；从第 4 轮开始才强制检查新方向是否证明前轮知识影响了本轮决策。 |
-
-回归测试覆盖：
-
-| 测试 | 断言 |
-| --- | --- |
-| `S1 safety_mode exits after blocking backlog is resolved and does not recreate human_attention_overload` | backlog 清空后 `gateBudgetForProject().safetyMode === false`，本周已关闭的 `human_attention_overload` 不会被重复创建。 |
-| `S2 attention backlog safety_mode throttles but still advances cycles` | 注意力/backlog 类 safety mode 下 action 为 `safety_throttled`，并能在节流 tick 推进 `currentCycleIdx`。 |
-| `S3 compounding guard warms up early cycles but still blocks multi-round zero compounding` | cycle 1 warmup 不触发飞轮空转闸；多轮零复利证据仍触发 `flywheel_empty_learning` 硬安全闸。 |
-| `S4 hard safety guard still blocks builder misdirection without advancing` | Builder 偏航仍返回 `safety_mode`，不创建方向闸、不推进 cycle。 |
-
-### 2026-06-07 roadmap gap closure
-
-本次闭合路线图剩余 A-F 能力：知识冲突/复核、Builder Codex dry-run adapter、provider canary 与 LLM failure taxonomy、运营 KPI、业务信号导入和组织模块模板。完整证据见 [docs/validation/2026-06-07-roadmap-gap-closure.md](./docs/validation/2026-06-07-roadmap-gap-closure.md)。
-
-已通过：
-
-```bash
-npm run guard
-npm run typecheck
-npm run test:all
-npm run build
-npm run benchmark:smoke
-npm run flywheel
-npm run e2e:long-evolution
-npm run secret:scan
-```
-
-结果摘要：
-
-| 项目 | 结果 |
-| --- | --- |
-| Focused roadmap tests | 42/42 PASS |
-| Core tests | 52/52 PASS |
-| App tests | 156/156 PASS |
-| Script tests | 18/18 PASS |
-| Benchmark smoke | 12/12 PASS |
-| Long evolution E2E | 20 cycles PASS |
-| Secret scan | PASS |
-
-### 2026-06-07 P0/P1/P2 hardening validation
-
-本次本地验证覆盖数学命门修复、GitHub Sensor 入库链路、四类自主停机风险闸、灰区弱累加三条主路径、Onboarding Claim operator 和 Cycle Review action ledger 可视化。
-
-已通过：
-
-```bash
-npm run test:all
-npm run typecheck
-npm run build
-npm run guard
-```
-
-结果摘要：
-
-| 项目 | 结果 |
-| --- | --- |
-| Core tests | 52/52 PASS |
-| App tests | 125/125 PASS |
-| Script tests | 18/18 PASS |
-| Typecheck | PASS |
-| Production build | PASS |
-| Principles guard | 17/17 PASS |
-
-构建仍会输出一个既有 PostCSS `from` option warning，退出码为 0，不影响本次构建产物。
-
-### 2026-06-05/06 12h real LLM validation
-
-本地完成一次完整 12 小时长程验证，真实 LLM 路径接入 MiniMax OpenAI-compatible endpoint，GitHub API 连通性预检通过。
-
-```bash
-ALAYA_VALIDATION_DURATION_SECONDS=43200 \
-ALAYA_VALIDATION_SLEEP_SECONDS=600 \
-ALAYA_VALIDATION_MAX_ROUNDS=72 \
-bash scripts/12h_validation.sh
-```
-
-结果摘要：
-
-| 项目 | 结果 |
-| --- | --- |
-| 时间窗口 | 2026-06-05 17:53:53 - 2026-06-06 05:57:32 CST |
-| 总时长 | 12h 03m 39s |
-| 总轮次 | 69，12 小时时长门限先于 72 轮上限触发 |
-| Principles guard | 69/69 PASS |
-| Mock flywheel simulation | 69/69 PASS |
-| Real LLM flywheel live | 23/23 PASS, rounds 3/6/.../69 |
-| Planned live skips | 46 |
-| Real LLM calls | 460 |
-| Tokens | 280,935 |
-| Estimated cost | 0.057997 USD |
-| Alerts | 0 |
-| Residual runner/process | 0 |
-| Summary | `validation-logs/12h_20260605_175353/SUMMARY.csv` |
-| Detailed report | `docs/validation/2026-06-06-12h-real-llm-validation.md` |
-
-23 个 live 轮次均返回 `ok: true`，每次包含 `llmCalls.count=20`、`eventLogCount=56`、`decisionLogCount=4`。日志扫描未发现 `fetch failed`、`ETIMEDOUT`、`ECONNRESET`、`ENETUNREACH` 或 TCP 443 timeout 类失败。
-
-认知迭代结论：在 `e2e:llm-flywheel` 验收范围内，4-cycle 多 Agent 飞轮可持续运行；后续 cycle 会引用前序知识改变决策，不重复 rejected direction，预测误差会回流到 distiller/world-model 更新，cycle 4 形成 rollback/audit 导向的新原则。这支持“核心设计符合预期、认知可持续迭代、知识库呈现熵减配平特征”的阶段性结论。
-
-边界说明：本次验证不等同于完整 `npm run e2e:live` / GitHub issue sensor 业务链路通过。Health endpoint 未运行，23 次 health probe 均为空响应，`delta=NA`；本次熵减结论来自 live E2E 行为断言，而不是 health API 的 `compoundingProof.round1vs4KnowledgeDelta` 量化指标。
-
-Post-run 修复：审计发现旧版 12h runner 的非关键失败计数是全局计数，health 连续失败会被 unrelated sim/live success 清零，导致三连 health alert 不触发。当前版本已改为按检查项独立计数，并用 9 轮 forced-failure smoke 验证：`live connectivity` 与 `flywheel health` 都在第 9 轮写入 alert，脚本仍正常完成。
-
-### 2026-06-05 3h real LLM validation
-
-本地使用 12h validation runner 压缩为 3 小时窗口完成一次真实 LLM 验证循环：
-
-```bash
-ALAYA_VALIDATION_DURATION_SECONDS=10800 \
-ALAYA_VALIDATION_SLEEP_SECONDS=600 \
-ALAYA_VALIDATION_MAX_ROUNDS=18 \
-bash scripts/12h_validation.sh
-```
-
-结果摘要：
-
-| 项目 | 结果 |
-| --- | --- |
-| 时间窗口 | 2026-06-05 07:45:06 - 10:45:29 CST |
-| 总轮次 | 18 |
-| Principles guard | 18/18 PASS |
-| Mock flywheel simulation | 18/18 PASS |
-| Real LLM flywheel live | 6/6 PASS, rounds 3/6/9/12/15/18 |
-| Non-critical errors | 0 |
-| Alerts | 0 |
-| Summary | `validation-logs/12h_20260605_074506/SUMMARY.csv` |
-
-6 个 live 轮次均返回 `ok: true`，每次包含 `llmCalls.count=20`，合计约 73,327 tokens，未出现 `fetch failed`、`ETIMEDOUT` 或 TCP 443 超时类错误。本机连通性检查中 MiniMax endpoint 可达，GitHub API 返回 HTTP 200。
-
-边界说明：本次验证覆盖的是 `npm run e2e:llm-flywheel` 的真实 LLM 路径，并证明当前机器能访问真实模型端点；它不等同于完整 `npm run e2e:live` / GitHub issue sensor 端到端业务链路通过。GitHub 业务链路仍需单独跑完整 live E2E 验收。
-
-最近本地验证覆盖：
-
-- `npm run test:all`
-- `npm run guard`
-- `npm run typecheck`
-- `npm run build`
-- `npm run benchmark:smoke`
-- `npm run flywheel`
-- `npm run e2e:long-evolution`
-- `npm run secret:scan`
-- `npm run ops:migrate`
-- Docker shadow migration + health/ready/metrics smoke
-- `npm run e2e:ui-freeze`
-- `cd alaya-app && node --import tsx --test tests/schema_migration.test.ts tests/update_confidence.decay.test.ts`
-- `node --test scripts/tests/live-readiness.test.mjs`
-
-知识库详情页稳定性修复已经过压力验证：在大量 Agent 引用记录下，`/api/knowledge/:id` 只返回有限引用，前端只渲染有限列表，并通过浏览器 smoke test 检查页面切换、知识搜索、详情点击和主线程长任务。
-
-本次治理增强额外覆盖：
-
-- 旧库已有 `knowledge_items` 在 FTS5 迁移后可被知识注入检索。
-- Scheduler tick 会自动执行 stale knowledge 时间衰减，并通过 `lastDecayedAt` 避免重复衰减同一时间区间。
-- `/health` 页面按当前项目查询 flywheel health 和 pending gates。
-- 24h 验证脚本在任何 FAIL 后以非零退出码结束。
-- Telegram P0/P1 覆盖单向通知、双向卡片、MarkdownV2 转义、callback 审批审计、gateId 去重、long-polling offset、`/status`/`/gates` 命令和真实 Bot API 发送 smoke。
-
-已知构建提示：
-
-- 当前构建可能出现一个 PostCSS `from` 选项提示，不影响本地构建结果。
-
-## 路线图
-
-| 项目 | 状态 | 入口 |
-| --- | --- | --- |
-| 知识冲突检测、过期提醒和复核任务 | 已完成 | `POST /api/projects/:id/knowledge/conflicts/scan`、`POST /api/projects/:id/knowledge/review-reminders`、`POST /api/knowledge-reviews/:id/resolve` |
-| Builder Codex/Codex CLI 变更包 adapter | 已完成 dry-run MVP | `POST /api/projects/:id/builder/codex/plan`、`POST /api/builder/codex/apply`；非 dry-run apply 需要 shell capability + 匹配 idempotency risk gate |
-| Provider canary、分 Agent latency 和 LLM 失败恢复分类 | 已完成 | `POST /api/projects/:id/provider-canary`、`npm run provider:canary`、`GET /api/llm-calls/latency`、`/metrics?format=json` |
-| 真实使用运营指标 | 已完成 API MVP | `GET /api/projects/:id/ops-metrics`，覆盖 gate resolution、LLM cost、measurable claim ratio、knowledge reuse、blocking backlog、compounding gain proxy |
-| 通用业务信号 Sensor adapter | 已完成 CSV/JSON 本地导入 MVP | `POST /api/projects/:id/business-signals/import`，详见 [docs/business-signals.md](./docs/business-signals.md) |
-| 组织模块知识模板 | 已完成 API MVP | `GET/POST /api/projects/:id/org-modules`、Markdown export、draft knowledge conversion，详见 [docs/org-modules.md](./docs/org-modules.md) |
-
-## 文档索引
+| `npm --prefix alaya-app run check` | TypeScript 0 error |
+| `npm --prefix alaya-app test` | App tests 全绿，当前基线至少 202 tests |
+| `npm run test:scripts` | Script tests 全绿 |
+| `npm run guard` | Principles guard 17 项通过 |
+| `npm run secret:scan` | 无高置信 secret |
+
+## 关键文档
 
 | 文件 | 内容 |
 | --- | --- |
 | [PRINCIPLES.md](./PRINCIPLES.md) | 项目底线和治理约束 |
-| [Alaya_PRD.md](./Alaya_PRD.md) | 原始产品需求文档 |
-| [Alaya_实现方案与架构评审.md](./Alaya_实现方案与架构评审.md) | 实现方案、架构评审和 PRD 漏洞分析 |
-| [alaya-core/README.md](./alaya-core/README.md) | Core 内核说明 |
-| [alaya-app/BUILD_SPEC.md](./alaya-app/BUILD_SPEC.md) | Web MVP 构建规格 |
-| [alaya-app/BUILD_REPORT.md](./alaya-app/BUILD_REPORT.md) | 构建与验证报告 |
-| [docs/business-signals.md](./docs/business-signals.md) | 通用业务信号 adapter、CSV/JSON 导入、脱敏和 Meaning Gate 流程 |
-| [docs/org-modules.md](./docs/org-modules.md) | 组织模块五问模板、Markdown export 和知识转换规则 |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | 本地开发、PR、提交和验证规范 |
+| [docs/configuration.md](./docs/configuration.md) | 运行模式、配置、API、Telegram、Docker、观测、secret 和功能细节 |
+| [docs/validation/validation-history.md](./docs/validation/validation-history.md) | CI、长程验证和历史验证记录 |
+| [docs/PRD.md](./docs/PRD.md) | 原始产品需求文档 |
+| [docs/architecture-review.md](./docs/architecture-review.md) | 实现方案、架构评审和 PRD 漏洞分析 |
+| [docs/ai/CODEX_MISSION.md](./docs/ai/CODEX_MISSION.md) | 历史 AI 工作指令 |
+| [docs/validation/VALIDATION_REPORT.md](./docs/validation/VALIDATION_REPORT.md) | 历史验证报告入口 |
 | [docs/ops/00-baseline-audit.md](./docs/ops/00-baseline-audit.md) | hardening 前仓库基线与入口图 |
-| [docs/ops/01-secrets-and-env.md](./docs/ops/01-secrets-and-env.md) | env、secret、capability 和脱敏说明 |
-| [docs/ops/02-deployment.md](./docs/ops/02-deployment.md) | Docker/systemd 部署与升级流程 |
-| [docs/ops/03-state-backup-rollback.md](./docs/ops/03-state-backup-rollback.md) | 状态盘点、备份、恢复和迁移策略 |
-| [docs/ops/04-validation-matrix.md](./docs/ops/04-validation-matrix.md) | development/test/shadow/staging/production 验证矩阵 |
-| [docs/ops/05-shadow-run-7d.md](./docs/ops/05-shadow-run-7d.md) | 7 天 shadow run 操作手册。本次提交不执行该长跑 |
-| [docs/ops/98-verification-ledger.md](./docs/ops/98-verification-ledger.md) | 交叉验证证据台账 |
-| [docs/ops/99-long-run-readiness-report.md](./docs/ops/99-long-run-readiness-report.md) | long-run readiness 审计报告 |
+| [docs/ops/05-shadow-run-7d.md](./docs/ops/05-shadow-run-7d.md) | 7 天 shadow run 操作手册 |
 
 ## License
 
-MIT
+MIT. See [LICENSE](./LICENSE).

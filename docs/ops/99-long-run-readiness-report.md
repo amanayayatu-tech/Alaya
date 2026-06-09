@@ -39,9 +39,9 @@ Detailed command evidence is in [98-verification-ledger.md](/Users/peachy/Docume
 ## Audited But Not Reworked
 
 - `PRINCIPLES.md`
-- `VALIDATION_REPORT.md`
-- `Alaya_PRD.md`
-- `Alaya_实现方案与架构评审.md`
+- `docs/validation/VALIDATION_REPORT.md`
+- `docs/PRD.md`
+- `docs/architecture-review.md`
 - `Dockerfile`, `.dockerignore`, `deploy/systemd/alaya.service`
 - `alaya-app/server/flywheel.ts`
 - `alaya-app/server/actionLedger.ts`

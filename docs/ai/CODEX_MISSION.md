@@ -2,7 +2,7 @@
 
 > **执行人身份：** 你是一位资深全栈工程师 + AI系统架构师，正在独立完成 Alaya 项目从 Phase 1 MVP 到 Phase 2 "可信可观测飞轮" 的跨越。  
 > **核心原则：** 先读、再理解、再动手。绝不在没有文件依据的情况下推断。每个任务完成后运行对应测试。  
-> **不可逾越的边界：** 严格遵守 `PRINCIPLES.md` 的全部6条底线。违反任何一条立即停止并说明原因。
+> **不可逾越的边界：** 严格遵守 `../../PRINCIPLES.md` 的全部6条底线。违反任何一条立即停止并说明原因。
 
 ---
 
@@ -27,7 +27,7 @@
 
 按顺序完整读取以下文件，不跳过：
 
-1. `PRINCIPLES.md` — 项目宪法，6条底线
+1. `../../PRINCIPLES.md` — 项目宪法，6条底线
 2. `alaya-app/server/flywheel.ts` — 飞轮主逻辑
 3. `alaya-app/server/scheduler.ts` — 调度层
 4. `alaya-app/server/storage.ts` — 数据层（含 FTS5 操作）
@@ -99,7 +99,7 @@
 // 4. 将此字符串拼入每次 LLM 调用的 system message 开头
 // 5. 注入不得超过 800 tokens（做 token 估算截断）
 //
-// 约束（来自 PRINCIPLES.md 底线4）:
+// 约束（来自 ../../PRINCIPLES.md 底线4）:
 // - 严禁注入 quarantined / conflict / stale / expired 状态的知识
 // - 过滤条件只增不减
 ```
@@ -117,9 +117,9 @@
 
 ---
 
-## TASK-03：PRINCIPLES.md 6条底线的机器守卫测试
+## TASK-03：../../PRINCIPLES.md 6条底线的机器守卫测试
 
-**目标：** 把 `PRINCIPLES.md` 的6条底线从文档约束升级为 CI 自动执行的回归测试。
+**目标：** 把 `../../PRINCIPLES.md` 的6条底线从文档约束升级为 CI 自动执行的回归测试。
 
 **新建文件：** `alaya-app/tests/principles.guard.test.ts`
 
@@ -236,7 +236,7 @@ FlywheelHealth/
 
 ## TASK-05：知识遗忘机制（Bjork 双强度衰减）
 
-**背景：** 知识库只增不减会导致长期检索噪声积累，PRINCIPLES.md Part3 定义了熵减规则，但需要工程实现。
+**背景：** 知识库只增不减会导致长期检索噪声积累，../../PRINCIPLES.md Part3 定义了熵减规则，但需要工程实现。
 
 **目标：** 在 `update_confidence.ts`（纯函数）中实现双强度时间衰减，并在 `scheduler.ts` 定时调用。
 
@@ -248,7 +248,7 @@ FlywheelHealth/
 export function applyTimeDecay(
   knowledge: { score: number; lastVerifiedAt: number; storageStrength: number },
   currentTime: number,
-  lambda: number = 0.03  // 衰减系数，默认值可在 PRINCIPLES.md Part2 症状C 调节
+  lambda: number = 0.03  // 衰减系数，默认值可在 ../../PRINCIPLES.md Part2 症状C 调节
 ): { newScore: number; newStorageStrength: number } {
   // Bjork 双强度模型:
   // retrievalStrength 随时间衰减: R(t) = R0 * exp(-lambda * daysSinceLastVerified)
@@ -264,7 +264,7 @@ export function applyTimeDecay(
 // 读取所有非 quarantined/expired 知识 → 调用 applyTimeDecay → 若 newScore < 0.5 → 降为 stale
 // 全程走 event_log 审计，actor = 'time_decay_scheduler'
 
-// 约束（来自 PRINCIPLES.md 底线1）:
+// 约束（来自 ../../PRINCIPLES.md 底线1）:
 // applyTimeDecay 必须是纯函数，时间作为参数传入，不调用 Date.now()
 ```
 
@@ -284,7 +284,7 @@ export function applyTimeDecay(
 
 ## TASK-06：GitHub Actions CI 配置
 
-**目标：** 让每次 push 到 main 分支自动运行所有测试，让 PRINCIPLES.md 的底线成为机器强制约束。
+**目标：** 让每次 push 到 main 分支自动运行所有测试，让 ../../PRINCIPLES.md 的底线成为机器强制约束。
 
 **新建文件：** `.github/workflows/ci.yml`
 
@@ -587,7 +587,7 @@ echo "════════════════════════�
 ```
 □ 对应测试全部通过（无跳过、无 skip）
 □ npm run flywheel（alaya-core）仍然正常运行
-□ PRINCIPLES.md 的6条底线守卫测试全部通过
+□ ../../PRINCIPLES.md 的6条底线守卫测试全部通过
 □ TypeScript 编译无新增错误（tsc --noEmit）
 □ 没有引入新的直接 import openai / import anthropic（违反底线6）
 □ event_log 审计路径未被旁路（所有写操作仍有 actor 记录）
@@ -611,9 +611,9 @@ echo "════════════════════════�
 每完成一个 TASK，输出：
 1. 修改了哪些文件（新增/修改/删除）
 2. 测试命令与输出摘要（通过/失败数）
-3. 若发现 PRINCIPLES.md 底线冲突，**立即停止**并说明冲突位置
+3. 若发现 ../../PRINCIPLES.md 底线冲突，**立即停止**并说明冲突位置
 
-最终输出一份 `VALIDATION_REPORT.md`，包含：
+最终输出一份 `../validation/VALIDATION_REPORT.md`，包含：
 - 8个 TASK 的完成状态
 - 底线守卫测试的通过率
 - 飞轮复利指标（round1vs4KnowledgeDelta, principleNoveltyRate）
