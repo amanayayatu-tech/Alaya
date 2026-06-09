@@ -97,8 +97,8 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): EnvValidation
     }
   }
 
-  if (mode === "production" && env.ALAYA_AUTO_SEED_DEMO !== "false") {
-    errors.push("ALAYA_AUTO_SEED_DEMO=false is required in production");
+  if (isLongRunMode(mode) && env.ALAYA_AUTO_SEED_DEMO !== "false") {
+    errors.push("ALAYA_AUTO_SEED_DEMO=false is required in shadow/staging/production");
   }
 
   if (mode === "production" && env.ALAYA_LLM_PROVIDER !== "mock" && boolEnv(env[capabilityEnvName("llm_call")]) !== true) {

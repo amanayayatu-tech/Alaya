@@ -31,6 +31,38 @@ test("long-run modes require an API key", () => {
   }
 });
 
+test("long-run modes reject demo seed", () => {
+  for (const mode of ["shadow", "staging"] as const) {
+    const result = validateEnv({
+      NODE_ENV: "development",
+      ALAYA_MODE: mode,
+      ALAYA_API_KEY: `unit-api-key-for-${mode}-seed-check`,
+      ...(mode === "shadow" ? {} : { ALAYA_DB_PATH: "/var/lib/alaya/alaya.db" }),
+      ALAYA_AUTO_SEED_DEMO: "true",
+      ALAYA_LLM_PROVIDER: "mock",
+    } as NodeJS.ProcessEnv);
+    assert.ok(
+      result.errors.some((error) => error.includes("ALAYA_AUTO_SEED_DEMO=false")),
+      `${mode} should reject demo seed`,
+    );
+  }
+});
+
+test("local modes allow demo seed for fixtures", () => {
+  for (const mode of ["development", "test"] as const) {
+    const result = validateEnv({
+      NODE_ENV: mode === "test" ? "test" : "development",
+      ALAYA_MODE: mode,
+      ALAYA_AUTO_SEED_DEMO: "true",
+      ALAYA_LLM_PROVIDER: "mock",
+    } as NodeJS.ProcessEnv);
+    assert.ok(
+      !result.errors.some((error) => error.includes("ALAYA_AUTO_SEED_DEMO")),
+      `${mode} should not require ALAYA_AUTO_SEED_DEMO=false`,
+    );
+  }
+});
+
 test("production rejects obvious placeholder secrets", () => {
   const result = validateEnv({
     NODE_ENV: "production",

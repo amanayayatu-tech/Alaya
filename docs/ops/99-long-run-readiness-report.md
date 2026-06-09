@@ -82,8 +82,8 @@ Detailed command evidence is in [98-verification-ledger.md](/Users/peachy/Docume
 
 - `development`: local debug, mock provider by default, API auth optional unless key or `ALAYA_REQUIRE_API_AUTH` is configured.
 - `test`: deterministic tests, no real external services required by default.
-- `shadow`: API auth required; mutating API writes dry-run or deny through capability gates; metrics restricted.
-- `staging`: API auth required; high-risk capabilities denied unless explicitly enabled.
+- `shadow`: API auth required; demo seed disabled; mutating API writes dry-run or deny through capability gates; metrics restricted.
+- `staging`: API auth required; demo seed disabled; high-risk capabilities denied unless explicitly enabled.
 - `production`: fail-fast env validation, no demo seed, API auth required, high-risk capabilities off unless explicitly enabled.
 
 ## API Auth Model

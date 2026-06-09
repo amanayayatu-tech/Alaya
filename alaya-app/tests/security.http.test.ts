@@ -13,6 +13,7 @@ process.env.ALAYA_API_KEY = "unit-api-key-for-http-security";
 process.env.ALAYA_CAP_DATABASE_MIGRATION = "true";
 process.env.ALAYA_CAP_KNOWLEDGE_WRITE = "true";
 process.env.ALAYA_CAP_SCHEDULER_LOOP = "true";
+process.env.ALAYA_AUTO_SEED_DEMO = "false";
 process.env.ALAYA_LLM_PROVIDER = "mock";
 process.env.ALAYA_CORS_ORIGINS = "https://alaya.example.test";
 process.env.ALAYA_TRUST_PROXY = "true";

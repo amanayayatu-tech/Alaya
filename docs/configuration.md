@@ -237,8 +237,8 @@ Alaya 现在有明确的运行模式。模式由 `ALAYA_MODE` 控制；如果未
 | --- | --- | --- |
 | `development` | 本地开发、快速调试 | 允许本地写和 mock LLM；外部真实写仍需显式路径 |
 | `test` | 单元测试、集成测试 | 不需要真实外部 secret；测试 fixture 可以使用安全假值 |
-| `shadow` | 影子运行、只观察不真实写 | 非只读 API 默认 dry-run；写入意图进入 `action_ledger` |
-| `staging` | 受控预发 | 高风险能力默认 deny，需要显式 capability flag |
+| `shadow` | 影子运行、只观察不真实写 | 非只读 API 默认 dry-run；demo seed 禁用；写入意图进入 `action_ledger` |
+| `staging` | 受控预发 | demo seed 禁用；高风险能力默认 deny，需要显式 capability flag |
 | `production` | 生产长期运行 | env fail-fast；demo seed 禁用；高风险能力最小权限 |
 
 ### API 鉴权与内置 UI

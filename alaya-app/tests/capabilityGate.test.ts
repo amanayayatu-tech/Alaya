@@ -8,6 +8,7 @@ process.env.ALAYA_DB_PATH = join(mkdtempSync(join(tmpdir(), "alaya-cap-test-")),
 process.env.ALAYA_MODE = "shadow";
 process.env.ALAYA_API_KEY = "unit-api-key-for-capability-gate";
 process.env.ALAYA_CAP_DATABASE_MIGRATION = "true";
+process.env.ALAYA_AUTO_SEED_DEMO = "false";
 process.env.ALAYA_LLM_PROVIDER = "mock";
 
 const { storage } = await import("../server/storage.ts");

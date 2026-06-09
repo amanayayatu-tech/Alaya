@@ -8,8 +8,8 @@ Alaya must receive real secrets only through environment variables, local secret
 
 - `development`: local debug, mock provider by default.
 - `test`: deterministic tests, no real external services required.
-- `shadow`: reads approved inputs but mutating API calls dry-run by default.
-- `staging`: controlled writes only through explicit capability flags.
+- `shadow`: reads approved inputs but mutating API calls dry-run by default; demo seed must be disabled.
+- `staging`: controlled writes only through explicit capability flags; demo seed must be disabled.
 - `production`: fail-fast env validation, no demo seed, high-risk capabilities off unless explicitly enabled.
 
 If `ALAYA_MODE` is unset, `NODE_ENV=test` maps to `test`, `NODE_ENV=production` maps to `production`, otherwise Alaya uses `development`.
@@ -22,7 +22,7 @@ If `ALAYA_MODE` is unset, `NODE_ENV=test` maps to `test`, `NODE_ENV=production` 
 | `NODE_ENV` | container/prod | Node runtime mode | Build/runtime behavior | `production` |
 | `ALAYA_DB_PATH` | staging/production/shadow | SQLite state path | Local state write only | `/var/lib/alaya/alaya.db` |
 | `ALAYA_API_KEY` | shadow/staging/production | API Bearer key for `/api/*` | Authenticate HTTP API clients | `read-from-secret-manager` |
-| `ALAYA_AUTO_SEED_DEMO` | production | Must be disabled in production | Prevents demo data writes | `false` |
+| `ALAYA_AUTO_SEED_DEMO` | shadow/staging/production | Must be disabled in long-run modes | Prevents demo data writes | `false` |
 
 ## Optional Variables
 
@@ -118,14 +118,14 @@ Runtime logs, error handler output, trace attributes, event-log before/after sna
 - private key blocks.
 - object keys containing token, secret, password, API key, private key, webhook secret or database URL.
 
-## Production Fail-Fast Rules
+## Long-Run Fail-Fast Rules
 
-Production mode fails when:
+Long-run modes fail when:
 
-- `ALAYA_DB_PATH` is missing.
+- `ALAYA_DB_PATH` is missing in staging or production.
 - `ALAYA_API_KEY` is missing in `shadow`, `staging`, or `production`.
-- `ALAYA_AUTO_SEED_DEMO` is not `false`.
-- real LLM provider is configured without `ALAYA_CAP_LLM_CALL=true`.
+- `ALAYA_AUTO_SEED_DEMO` is not `false` in `shadow`, `staging`, or `production`.
+- real LLM provider is configured in production without `ALAYA_CAP_LLM_CALL=true`.
 - obvious placeholder/test secret values such as `changeme`, `test-secret`, `demo-key`, `fake`, or empty strings appear in secret-like env vars.
 
 Run:
