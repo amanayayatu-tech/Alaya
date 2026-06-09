@@ -1011,6 +1011,30 @@ POST /api/builder/codex/apply
 
 ## 验证记录
 
+### 2026-06-10 health-signal 10h clean retest
+
+本地正在运行一轮只读式 10 小时 MiniMax 复测，用于验证 2026-06-09 health-signal 修复在真实 provider、全新 SQLite DB 和独立 `PORT=5300` app 下是否成立。本条记录只说明当前验证入口，不代表最终通过结论。
+
+冻结基线：
+
+```text
+870c319 Fix duplicate knowledge review id on re-detection after resolution
+```
+
+运行证据：
+
+| 项目 | 路径或口径 |
+| --- | --- |
+| Run dir | `validation-logs/health-signal-10h_20260609_163552` |
+| Project | `proj_mq6v45vj` |
+| Provider | `ALAYA_LLM_PROVIDER=openai`, `OPENAI_BASE_URL=https://api.minimax.io/openai`, `OPENAI_MODEL=MiniMax-M3` |
+| Runner | `--duration-hours=10 --sample-minutes=5 --progress-ticks-per-sample=6 --max-samples=120 --resolve-conflict-reviews=0 --start-app=false --base-url=http://127.0.0.1:5300` |
+| Interim status | `validation-logs/health-signal-10h_20260609_163552/interim_status.md` |
+| New issues | `validation-logs/health-signal-10h_20260609_163552/issues.md` |
+| Final verdict | 等 `summary.json`、`timeseries_summary.json`、`conflict_lifecycle_summary.json` 和最终审计表生成后再记录 |
+
+验证期间不修改产品代码、runner 脚本或测试；发现的新问题只写入本轮 `issues.md`，待 10 小时窗口收口后再按 8 项判定标准给出最终结论。
+
 ### 2026-06-07 roadmap gap closure
 
 本次闭合路线图剩余 A-F 能力：知识冲突/复核、Builder Codex dry-run adapter、provider canary 与 LLM failure taxonomy、运营 KPI、业务信号导入和组织模块模板。完整证据见 [docs/validation/2026-06-07-roadmap-gap-closure.md](./docs/validation/2026-06-07-roadmap-gap-closure.md)。
