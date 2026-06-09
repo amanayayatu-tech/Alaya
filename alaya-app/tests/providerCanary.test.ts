@@ -205,6 +205,158 @@ test("responses provider usage is persisted from input and output tokens", async
   assert.equal(call.tokenSource, "provider");
 });
 
+test("chat provider parses the last balanced JSON object from wrapped content", async () => {
+  const previousProvider = process.env.ALAYA_LLM_PROVIDER;
+  const previousApiKey = process.env.OPENAI_API_KEY;
+  const previousBaseUrl = process.env.OPENAI_BASE_URL;
+  const previousMaxRetries = process.env.OPENAI_MAX_RETRIES;
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+
+  globalThis.fetch = (async () => {
+    calls += 1;
+    return new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: 'draft {"summary":"too small"}\nfinal {"summary":"ok","goal":"ship safely"} trailing }',
+        },
+      }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+
+  try {
+    process.env.ALAYA_LLM_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "test-api-key-not-a-real-secret";
+    process.env.OPENAI_BASE_URL = "https://llm.example.test/v1";
+    process.env.OPENAI_MAX_RETRIES = "0";
+    const output = await callLlm({
+      cycleId: "cycle_canary",
+      agent: "orchestrator",
+      promptName: "wrapped_json_parse",
+      inputSummary: "parse wrapped provider output",
+      mockOutput: { summary: "mock", goal: "mock goal" },
+      schema: {
+        type: "object",
+        required: ["summary", "goal"],
+        additionalProperties: true,
+        properties: {
+          summary: { type: "string" },
+          goal: { type: "string" },
+        },
+      },
+    });
+
+    assert.equal(calls, 1);
+    assert.equal(output.goal, "ship safely");
+    assert.equal(storage.listLlmCalls().at(-1)?.schemaValid, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousProvider == null) delete process.env.ALAYA_LLM_PROVIDER;
+    else process.env.ALAYA_LLM_PROVIDER = previousProvider;
+    if (previousApiKey == null) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousApiKey;
+    if (previousBaseUrl == null) delete process.env.OPENAI_BASE_URL;
+    else process.env.OPENAI_BASE_URL = previousBaseUrl;
+    if (previousMaxRetries == null) delete process.env.OPENAI_MAX_RETRIES;
+    else process.env.OPENAI_MAX_RETRIES = previousMaxRetries;
+  }
+});
+
+test("exact repair schema retry asks for full JSON instead of summary-only degradation", async () => {
+  const previousProvider = process.env.ALAYA_LLM_PROVIDER;
+  const previousApiKey = process.env.OPENAI_API_KEY;
+  const previousBaseUrl = process.env.OPENAI_BASE_URL;
+  const previousMaxRetries = process.env.OPENAI_MAX_RETRIES;
+  const originalFetch = globalThis.fetch;
+  const requestBodies: string[] = [];
+
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    requestBodies.push(String(init?.body ?? ""));
+    const content = requestBodies.length < 3
+      ? { summary: "missing full fields" }
+      : {
+        summary: "full repair ok",
+        proposedGoal: "repair exact schema",
+        belief: "all required fields must survive repair",
+        prediction: { statement: "metric >= 0.8", metric: "metric", operator: ">=", target: 0.8 },
+        action: "continue with exact schema output",
+        alternativeGoals: [],
+        referencedKnowledgeIds: ["kb_repair"],
+        reasoningHowKnowledgeChangedDecision: "引用 kb_repair: exact-schema repair keeps the diagnostic gate from summary-only degradation.",
+      };
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify(content) } }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+
+  const exactSchema = {
+    type: "object" as const,
+    required: [
+      "summary",
+      "proposedGoal",
+      "belief",
+      "prediction",
+      "action",
+      "alternativeGoals",
+      "referencedKnowledgeIds",
+      "reasoningHowKnowledgeChangedDecision",
+    ],
+    additionalProperties: true,
+    properties: {
+      summary: { type: "string" },
+      proposedGoal: { type: "string" },
+      belief: { type: "string" },
+      prediction: { type: "object" },
+      action: { type: "string" },
+      alternativeGoals: { type: "array" },
+      referencedKnowledgeIds: { type: "array" },
+      reasoningHowKnowledgeChangedDecision: { type: "string" },
+    },
+  };
+
+  try {
+    process.env.ALAYA_LLM_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "test-api-key-not-a-real-secret";
+    process.env.OPENAI_BASE_URL = "https://llm.example.test/v1";
+    process.env.OPENAI_MAX_RETRIES = "0";
+    const output = await callLlm({
+      cycleId: "cycle_canary",
+      agent: "orchestrator",
+      promptName: "exact_schema_repair",
+      inputSummary: "repair autonomous goal output",
+      mockOutput: {
+        summary: "mock",
+        proposedGoal: "mock goal",
+        belief: "mock belief",
+        prediction: { statement: "metric >= 0.5", metric: "metric", operator: ">=", target: 0.5 },
+        action: "mock action",
+        alternativeGoals: [],
+        referencedKnowledgeIds: ["kb_repair"],
+        reasoningHowKnowledgeChangedDecision: "引用 kb_repair: mock reasoning keeps exact schema valid.",
+      },
+      schema: exactSchema,
+      simplifiedSchema: exactSchema,
+    });
+
+    assert.equal(requestBodies.length, 3);
+    assert.equal(output.proposedGoal, "repair exact schema");
+    assert.match(requestBodies[2], /return JSON matching the supplied output_schema exactly/);
+    assert.doesNotMatch(requestBodies[2], /return simplified JSON summary only/);
+    assert.equal(storage.listLlmCalls().at(-1)?.schemaValid, 1);
+    assert.equal(storage.listGates("proj_canary").some((gate) => gate.title === "LLM 输出降级: orchestrator/exact_schema_repair"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousProvider == null) delete process.env.ALAYA_LLM_PROVIDER;
+    else process.env.ALAYA_LLM_PROVIDER = previousProvider;
+    if (previousApiKey == null) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousApiKey;
+    if (previousBaseUrl == null) delete process.env.OPENAI_BASE_URL;
+    else process.env.OPENAI_BASE_URL = previousBaseUrl;
+    if (previousMaxRetries == null) delete process.env.OPENAI_MAX_RETRIES;
+    else process.env.OPENAI_MAX_RETRIES = previousMaxRetries;
+  }
+});
+
 test("missing provider usage falls back to estimated token counts", async () => {
   const previousProvider = process.env.ALAYA_LLM_PROVIDER;
   const previousApiKey = process.env.OPENAI_API_KEY;

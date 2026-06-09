@@ -861,6 +861,11 @@ npm run validation:health-signal:conflicts -- --log-dir validation-logs/<health-
 
 Telegram 人审优先走真实本地 Telegram 卡片；如果桌面自动点击不可用，辅助脚本会先保留 Telegram 可见证据，再使用本地 API human proxy 处理 gate，并在 status JSON / API 队列中验证结果。知识冲突 risk gate 使用专门的 `quarantine` / `merge_supersede` 路径，不用普通 approve/reject 直接覆盖知识状态。
 
+已知问题修复记录：
+
+- 2026-06-09：已修复 P1 `knowledge_review_items.id` 主键冲突。resolved review 占用确定性 `kr_<hash>` 后，同一对知识再次被检测为冲突时会创建带单调后缀的新 review（例如 `kr_<hash>__r2`），保留 open review 复用语义，不再在 `POST /api/human-gates/:id/approve` 的对立证据转知识链路中触发 `UNIQUE constraint failed`。回归测试：`R1 resolved duplicate conflict review id re-detection creates suffixed review`、`R2 approving opposing evidence meaning gate succeeds after resolved duplicate review id exists`、`R3 open duplicate conflict review id re-detection reuses existing review`。
+- 2026-06-09：同步修复 health-signal 复测中暴露的观测噪声：MiniMax/OpenAI-compatible provider 的 schema repair retry 对 orchestrator 仍使用完整 schema，避免 summary-only fallback 提前制造降级 gate；Telegram 知识复核按钮对长 reviewId 使用 compact callback token，避免 `BUTTON_DATA_INVALID`；知识复核 gate 被 `resolveKnowledgeReview()` 处理时会补写 `human_gate_items resolve` 事件，方便区分真实审批状态和 Telegram ack 失败。回归测试：`chat provider parses the last balanced JSON object from wrapped content`、`exact repair schema retry asks for full JSON instead of summary-only degradation`、`callback router resolves compact knowledge review tokens`。
+
 GitHub Issue Sensor E2E 默认优先使用 sandbox 环境变量，避免污染真实项目：
 
 ```bash

@@ -47,6 +47,12 @@ export function compactGateCallbackTarget(gateId: string, prefix = "perm:allow:"
   return `t:${createHash("sha1").update(gateId).digest("hex").slice(0, 18)}`;
 }
 
+export function compactReviewCallbackTarget(reviewId: string, prefix = "kr:q:"): string {
+  const direct = `${prefix}${reviewId}`;
+  if (Buffer.byteLength(direct, "utf8") <= 64) return reviewId;
+  return `t:${createHash("sha1").update(reviewId).digest("hex").slice(0, 18)}`;
+}
+
 export const btn = {
   primary: (text: string, data: string): CardButton => ({ text, type: "primary", callbackData: assertCallbackData(data) }),
   default: (text: string, data: string): CardButton => ({ text, type: "default", callbackData: assertCallbackData(data) }),
@@ -74,9 +80,11 @@ export function gateCard(event: {
     );
 
   if (event.gateType === "risk" && event.riskKey === "knowledge_conflict_review" && event.reviewId) {
+    const quarantineTarget = compactReviewCallbackTarget(event.reviewId, "kr:q:");
+    const mergeTarget = compactReviewCallbackTarget(event.reviewId, "kr:m:");
     card.buttons(
-      btn.primary("✅ 隔离当前", `kr:q:${event.reviewId}`),
-      btn.default("↔️ 保留既有", `kr:m:${event.reviewId}`),
+      btn.primary("✅ 隔离当前", `kr:q:${quarantineTarget}`),
+      btn.default("↔️ 保留既有", `kr:m:${mergeTarget}`),
     );
     card.buttons(btn.default("在 Web 查看", `nav:gate:${compactGateCallbackTarget(event.gateId, "nav:gate:")}`));
   } else if (["meaning", "direction", "risk"].includes(event.gateType)) {

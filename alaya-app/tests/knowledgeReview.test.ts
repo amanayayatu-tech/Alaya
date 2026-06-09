@@ -326,6 +326,51 @@ test("approve_as_current preserves strong status on review reminders", () => {
   assert.equal(storage.getGate(`gate_${review.id}`)?.status, "approved");
 });
 
+test("R1 resolved duplicate conflict review id re-detection creates suffixed review", () => {
+  const projectId = "proj_review_redetect_resolved";
+  project(projectId);
+  knowledge(projectId, "kb_redetect_strong", { status: "strong", content: "activation_rate >= 0.8", confidenceScore: 0.9 });
+  knowledge(projectId, "kb_redetect_candidate", { status: "active", content: "activation_rate <= 0.2", confidenceScore: 0.7 });
+  detectKnowledgeConflicts(projectId);
+  const first = storage.listKnowledgeReviews(projectId).find((item) => item.primaryKnowledgeId === "kb_redetect_candidate");
+  assert.ok(first);
+
+  resolveKnowledgeReview(first.id, {
+    action: "approve_as_current",
+    actor: "human",
+    rationale: "candidate remains current enough to re-check if evidence conflicts again",
+  });
+
+  assert.doesNotThrow(() => detectKnowledgeConflicts(projectId));
+  const reviews = storage.listKnowledgeReviews(projectId)
+    .filter((item) => item.primaryKnowledgeId === "kb_redetect_candidate" && item.relatedKnowledgeId === "kb_redetect_strong");
+  assert.equal(reviews.length, 2);
+  const second = reviews.find((item) => item.status === "review_required");
+  assert.ok(second);
+  assert.notEqual(second.id, first.id);
+  assert.equal(second.id, `${first.id}__r2`);
+  assert.equal(storage.getGate(`gate_${second.id}`)?.status, "pending");
+});
+
+test("R3 open duplicate conflict review id re-detection reuses existing review", () => {
+  const projectId = "proj_review_redetect_open";
+  project(projectId);
+  knowledge(projectId, "kb_open_strong", { status: "strong", content: "activation_rate >= 0.8", confidenceScore: 0.9 });
+  knowledge(projectId, "kb_open_candidate", { status: "active", content: "activation_rate <= 0.2", confidenceScore: 0.7 });
+  detectKnowledgeConflicts(projectId);
+  const first = storage.listKnowledgeReviews(projectId).find((item) => item.primaryKnowledgeId === "kb_open_candidate");
+  assert.ok(first);
+
+  storage.updateKnowledge("kb_open_candidate", { status: "active", actor: "test" });
+  assert.doesNotThrow(() => detectKnowledgeConflicts(projectId));
+
+  const reviews = storage.listKnowledgeReviews(projectId)
+    .filter((item) => item.primaryKnowledgeId === "kb_open_candidate" && item.relatedKnowledgeId === "kb_open_strong");
+  assert.equal(reviews.length, 1);
+  assert.equal(reviews[0].id, first.id);
+  assert.equal(reviews[0].status, "review_required");
+});
+
 test("stale, quarantined, conflict and superseded knowledge are not injected into prior knowledge", () => {
   const projectId = "proj_injection_regression";
   project(projectId);
@@ -367,4 +412,49 @@ test("conflicting form feedback enters meaning gate and cannot affect next cycle
   assert.ok(storage.listKnowledgeReviews(projectId).some((review) => review.status === "review_required"));
   const context = buildKnowledgeContext("checkout_success_rate", projectId);
   assert.doesNotMatch(context, new RegExp(created?.id ?? "missing"));
+});
+
+test("R2 approving opposing evidence meaning gate succeeds after resolved duplicate review id exists", async () => {
+  const projectId = "proj_meaning_gate_duplicate_review";
+  project(projectId);
+  knowledge(projectId, "kb_gate_dup_strong", {
+    status: "strong",
+    title: "Activation threshold",
+    content: "activation_rate >= 0.8",
+    confidenceScore: 0.9,
+  });
+  knowledge(projectId, "kb_gate_dup_candidate", {
+    status: "active",
+    title: "Activation threshold",
+    content: "activation_rate <= 0.2",
+    confidenceScore: 0.7,
+  });
+  detectKnowledgeConflicts(projectId);
+  const prior = storage.listKnowledgeReviews(projectId).find((item) => item.primaryKnowledgeId === "kb_gate_dup_candidate");
+  assert.ok(prior);
+  resolveKnowledgeReview(prior.id, {
+    action: "approve_as_current",
+    actor: "human",
+    rationale: "leave candidate active so a later approved meaning gate can re-run detection",
+  });
+
+  const imported = await ingestFormFeedback(projectId, {
+    sourceName: "form",
+    externalId: "duplicate-review-meaning-approval",
+    title: "new opposing evidence",
+    text: "operators report explicit conflict with the existing activation threshold",
+  });
+  assert.equal(imported.gate?.status, "pending");
+
+  assert.doesNotThrow(() => {
+    new HumanGateService(storage).approve(imported.gate?.id ?? "", { actor: "human", via: "test" });
+  });
+
+  const created = storage.listKnowledge(projectId).find((item) => item.sourceRef === "duplicate-review-meaning-approval");
+  assert.ok(created);
+  assert.ok(["active", "conflict"].includes(created.status), `unexpected created knowledge status ${created.status}`);
+  const reviews = storage.listKnowledgeReviews(projectId)
+    .filter((item) => item.primaryKnowledgeId === "kb_gate_dup_candidate" && item.relatedKnowledgeId === "kb_gate_dup_strong");
+  assert.equal(reviews.length, 2);
+  assert.ok(reviews.some((item) => item.id === `${prior.id}__r2` && item.status === "review_required"));
 });

@@ -750,6 +750,7 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
       "Do not repeat a previously rejected alternative direction.",
     ],
     schema: PLAN_SCHEMA,
+    simplifiedSchema: PLAN_SCHEMA,
     mockOutput: { summary: `goal: ${goal}`, goal, belief, prediction, action, reasoning, knowledgeRefs: refs },
   });
 

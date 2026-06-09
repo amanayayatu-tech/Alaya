@@ -729,6 +729,18 @@ async function resolvePendingGates(baseUrl, projectId, state) {
       method: "POST",
       body: { rationale },
     });
+    if (!updated || updated.status === "pending") {
+      event("gate_approval_not_applied", {
+        gateId: gate.id,
+        gateType: gate.type,
+        blocking: gate.blocking,
+        title: gate.title,
+        via: decisionVia,
+        status: updated?.status ?? "missing_response",
+        payloadRiskKey: payload.riskKey ?? null,
+      });
+      continue;
+    }
     if (gate.type === "meaning") state.approvedMeaningCount += 1;
     event("gate_approved", {
       gateId: gate.id,

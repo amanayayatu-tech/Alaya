@@ -75,6 +75,10 @@ function stableStringify(value: unknown): string {
   }
 }
 
+function sameSchema(a: JsonSchema, b: JsonSchema): boolean {
+  return stableStringify(a) === stableStringify(b);
+}
+
 function summarize(value: unknown, max = 240): string {
   const s = stableStringify(value);
   return s.length > max ? `${s.slice(0, max - 1)}…` : s;
@@ -421,10 +425,13 @@ export async function callLlm(input: LlmCallInput): Promise<Record<string, unkno
 
   try {
     const simpleSchema = input.simplifiedSchema ?? DEFAULT_SIMPLIFIED_SCHEMA;
+    const repairInstruction = sameSchema(simpleSchema, schema)
+      ? "response failed JSON schema validation; return JSON matching the supplied output_schema exactly. Include every required key; use [] for empty arrays."
+      : "response failed JSON schema validation; return simplified JSON summary only.";
     const simpleResult = await callOpenAIWithRetry(
       safeInput,
       simpleSchema,
-      `response failed JSON schema validation; return simplified JSON summary only. ${redactSensitiveText(lastError)}`,
+      `${repairInstruction} ${redactSensitiveText(lastError)}`,
       apiKey,
       route.model,
     );
@@ -712,19 +719,48 @@ function tryParseJsonObject(text: string): Record<string, unknown> | null {
     // Try extracting a final JSON object from provider-specific wrapper text.
   }
 
-  const end = text.lastIndexOf("}");
-  if (end < 0) return null;
-  const starts: number[] = [];
+  const candidates: Record<string, unknown>[] = [];
   for (let index = text.indexOf("{"); index >= 0; index = text.indexOf("{", index + 1)) {
-    starts.push(index);
-  }
-  for (let i = starts.length - 1; i >= 0; i--) {
+    const end = matchingJsonObjectEnd(text, index);
+    if (end < 0) continue;
     try {
-      const parsed = JSON.parse(text.slice(starts[i], end + 1)) as unknown;
-      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+      const parsed = JSON.parse(text.slice(index, end + 1)) as unknown;
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        candidates.push(parsed as Record<string, unknown>);
+        index = end;
+      }
     } catch {
       // Continue searching for the root object.
     }
   }
-  return null;
+  return candidates.at(-1) ?? null;
+}
+
+function matchingJsonObjectEnd(text: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+    } else if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return index;
+      if (depth < 0) return -1;
+    }
+  }
+  return -1;
 }

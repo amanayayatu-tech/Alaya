@@ -42,6 +42,12 @@ function doesNotCallSchedulerTick(rel, callName) {
     !source.includes(`${callName}('${"/api/scheduler/tick"}`);
 }
 
+function longEvolutionCycleCountAtLeast(minimum) {
+  if (!exists("scripts/e2e-long-evolution.mjs")) return false;
+  const match = read("scripts/e2e-long-evolution.mjs").match(/TOTAL_CYCLES\s*=\s*(\d+)/);
+  return Boolean(match && Number(match[1]) >= minimum);
+}
+
 const packageJson = JSON.parse(read("package.json"));
 const scripts = packageJson.scripts ?? {};
 
@@ -185,7 +191,7 @@ const checks = [
       has("alaya-app/tests/external_feedback_scheduler.test.ts", /cycle4Payload\.auditSummary/) &&
       has("alaya-app/tests/external_feedback_scheduler.test.ts", /createdByCycle === 4 && k\.type === "principle"/) &&
       has("alaya-app/tests/evolution_engine.test.ts", /scheduler creates autonomous cycle 5 instead of scenario_exhausted/) &&
-      has("scripts/e2e-long-evolution.mjs", /TOTAL_CYCLES = 20/),
+      longEvolutionCycleCountAtLeast(20),
     evidence: "Cycle 4 is locked as a rollback-ready change package + audit summary stage, with app/core tests proving it is not a copy of cycle 3",
   },
   {

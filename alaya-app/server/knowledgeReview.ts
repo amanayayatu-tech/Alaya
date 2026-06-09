@@ -88,6 +88,23 @@ function reviewId(input: {
   return `kr_${key.slice(-8)}`;
 }
 
+function nextReviewId(input: {
+  projectId: string;
+  reviewType: string;
+  primaryKnowledgeId: string;
+  relatedKnowledgeId?: string | null;
+}): string {
+  const baseId = reviewId(input);
+  if (!storage.getKnowledgeReview(baseId)) return baseId;
+  // Open reviews are reused before id allocation; a suffix means the prior review
+  // was already resolved, so this detection needs an independently resolvable row.
+  for (let attempt = 2; attempt < 10_000; attempt += 1) {
+    const candidateId = `${baseId}__r${attempt}`;
+    if (!storage.getKnowledgeReview(candidateId)) return candidateId;
+  }
+  throw new Error(`unable to allocate knowledge review id for ${baseId}`);
+}
+
 function ensureReview(input: {
   projectId: string;
   cycleId?: string | null;
@@ -102,7 +119,7 @@ function ensureReview(input: {
   if (existing) return existing;
   const createdAt = now();
   const review = storage.createKnowledgeReview({
-    id: reviewId(input),
+    id: nextReviewId(input),
     projectId: input.projectId,
     cycleId: input.cycleId ?? null,
     reviewType: input.reviewType,
@@ -462,7 +479,17 @@ export function resolveKnowledgeReview(reviewId: string, input: ResolveKnowledge
     });
     const gate = storage.getGate(`gate_${review.id}`);
     if (gate?.status === "pending") {
-      storage.updateGate(gate.id, { status: "approved", decision: `knowledge_review:${input.action}` });
+      const decision = `knowledge_review:${input.action}`;
+      storage.updateGate(gate.id, { status: "approved", decision });
+      storage.recordEvent({
+        cycleIdx: cycle?.idx ?? 0,
+        actor,
+        tableName: "human_gate_items",
+        op: "resolve",
+        before: JSON.stringify({ status: gate.status, gateId: gate.id, decision: gate.decision }),
+        after: JSON.stringify({ status: "approved", gateId: gate.id, decision, via: "knowledge_review" }),
+        ts: timestamp,
+      });
     }
   };
   if (storage.withTransaction) storage.withTransaction(applyResolution);

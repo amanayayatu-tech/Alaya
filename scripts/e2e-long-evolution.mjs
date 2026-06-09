@@ -80,9 +80,9 @@ for (let idx = 1; idx <= TOTAL_CYCLES; idx += 1) {
 }
 
 const cycles = storage.listCycles(projectId);
-assert.equal(cycles.length, TOTAL_CYCLES, "20 cycles should exist");
-assert.equal(cycles.every((cycle) => cycle.status === "closed"), true, "all 20 cycles should be closed");
-assert.equal(tickActions.length, TOTAL_CYCLES - 1, "first 19 ticks should create the next cycle");
+assert.equal(cycles.length, TOTAL_CYCLES, `${TOTAL_CYCLES} cycles should exist`);
+assert.equal(cycles.every((cycle) => cycle.status === "closed"), true, `all ${TOTAL_CYCLES} cycles should be closed`);
+assert.equal(tickActions.length, TOTAL_CYCLES - 1, `first ${TOTAL_CYCLES - 1} ticks should create the next cycle`);
 assert.equal(tickActions.every((action) => action === "created_next_cycle"), true, "all ticks should create next planning cycle");
 
 const knowledge = storage.listKnowledge(projectId);

@@ -11,7 +11,7 @@ process.env.ALAYA_CAP_DATABASE_MIGRATION = "true";
 process.env.ALAYA_LLM_PROVIDER = "mock";
 
 const { storage, now } = await import("../server/storage.ts");
-const { compactGateCallbackTarget, gateCard } = await import("../server/notifications/card.ts");
+const { compactGateCallbackTarget, compactReviewCallbackTarget, gateCard } = await import("../server/notifications/card.ts");
 const { NotificationBus } = await import("../server/notifications/bus.ts");
 const { CallbackRouter } = await import("../server/notifications/router.ts");
 const { HumanGateService } = await import("../server/humanGateService.ts");
@@ -80,7 +80,7 @@ class FailingEditPlatform extends FakePlatform {
 class FailingAnswerCallbackPlatform extends FakePlatform {
   async answerCallback(callbackId: string, text?: string): Promise<void> {
     this.answeredCallbacks.push({ callbackId, text });
-    throw new Error("answer callback failed");
+    throw new Error("BUTTON_DATA_INVALID");
   }
 }
 
@@ -282,6 +282,22 @@ test("gate cards compact long gate ids for Telegram callback_data", () => {
   assert.equal(riskCallbacks.every((item) => Buffer.byteLength(item, "utf8") <= 64), true);
   assert.match(riskCallbacks[0], /^perm:allow:t:[a-f0-9]{18}$/);
   assert.match(riskCallbacks[1], /^perm:deny:t:[a-f0-9]{18}$/);
+
+  const longReviewId = "kr_health_signal_review_extremely_long_sample_0151_ppg_support_vs_hybrid_decision_confidence";
+  const conflict = gateCard({
+    title: "长 ID 知识冲突复核",
+    body: "needs conflict review",
+    gateId: `gate_${longReviewId}`,
+    gateType: "risk",
+    isBlocking: true,
+    actionUrl: `http://localhost:5000/#/human-gates?gate=gate_${longReviewId}`,
+    riskKey: "knowledge_conflict_review",
+    reviewId: longReviewId,
+  });
+  const conflictCallbacks = conflict.buttons?.[0].map((button) => button.callbackData) ?? [];
+  assert.equal(conflictCallbacks.every((item) => Buffer.byteLength(item, "utf8") <= 64), true);
+  assert.match(conflictCallbacks[0], /^kr:q:t:[a-f0-9]{18}$/);
+  assert.match(conflictCallbacks[1], /^kr:m:t:[a-f0-9]{18}$/);
 });
 
 test("callback router approves meaning gates through service and records action ledger", async () => {
@@ -361,6 +377,67 @@ test("callback router resolves knowledge conflict reviews from Telegram", async 
   assert.equal(storage.getKnowledgeReview(review.id)?.status, "resolved");
   assert.equal(storage.getKnowledge("kb_conflict_candidate")?.status, "quarantined");
   assert.equal(storage.getGate(`gate_${review.id}`)?.status, "approved");
+  assert.equal(storage.listEvents().some((event) =>
+    event.tableName === "human_gate_items" &&
+    event.op === "resolve" &&
+    event.actor === "human_telegram" &&
+    event.after.includes(`gate_${review.id}`) &&
+    event.after.includes("knowledge_review:quarantine")), true);
+  assert.match(platform.editedCards.at(-1)?.card.body ?? "", /知识冲突复核已处理：quarantine/);
+});
+
+test("callback router resolves compact knowledge review tokens", async () => {
+  createProjectAndCycle("proj_tg_compact_review", "cycle_tg_compact_review_1");
+  createKnowledge("proj_tg_compact_review", "kb_compact_review_survivor", {
+    status: "strong",
+    content: "hybrid_decision_confidence >= 0.8",
+    confidenceScore: 0.9,
+  });
+  createKnowledge("proj_tg_compact_review", "kb_compact_review_candidate", {
+    status: "active",
+    content: "hybrid_decision_confidence <= 0.3",
+    confidenceScore: 0.7,
+  });
+  const reviewId = "kr_health_signal_review_extremely_long_sample_0151_ppg_support_vs_hybrid_decision_confidence";
+  storage.createKnowledgeReview({
+    id: reviewId,
+    projectId: "proj_tg_compact_review",
+    cycleId: "cycle_tg_compact_review_1",
+    reviewType: "conflict",
+    status: "review_required",
+    primaryKnowledgeId: "kb_compact_review_candidate",
+    relatedKnowledgeId: "kb_compact_review_survivor",
+    reason: "long review id should be addressable from Telegram",
+    evidence: "{}",
+    recommendedAction: "quarantine weaker evidence",
+    createdAt: now(),
+    resolvedAt: null,
+    resolvedBy: null,
+    resolution: null,
+    version: 1,
+  });
+  storage.createGate({
+    id: `gate_${reviewId}`,
+    cycleId: "cycle_tg_compact_review_1",
+    type: "risk",
+    blocking: 1,
+    title: "Long knowledge conflict review",
+    payload: JSON.stringify({ riskKey: "knowledge_conflict_review", reviewId }),
+    status: "pending",
+    estimatedMinutes: 12,
+    decision: null,
+    version: 1,
+  });
+
+  const platform = new FakePlatform();
+  const router = new CallbackRouter(platform, storage, new HumanGateService(storage));
+  const target = compactReviewCallbackTarget(reviewId, "kr:q:");
+  assert.match(target, /^t:[a-f0-9]{18}$/);
+  await router.route("cb_compact_review", `kr:q:${target}`, { chatId: "42", messageId: 17 });
+
+  assert.equal(storage.getKnowledgeReview(reviewId)?.status, "resolved");
+  assert.equal(storage.getKnowledge("kb_compact_review_candidate")?.status, "quarantined");
+  assert.equal(storage.getGate(`gate_${reviewId}`)?.status, "approved");
   assert.match(platform.editedCards.at(-1)?.card.body ?? "", /知识冲突复核已处理：quarantine/);
 });
 
@@ -421,6 +498,13 @@ test("callback router still resolves meaning gates when Telegram callback acknow
   assert.equal(storage.listActionLedger("proj_tg_callback_fail").some((row) =>
     row.actionType === "human_gate.approve" && row.target === "gate_meaning_callback_fail"), true);
   assert.match(platform.editedCards.at(-1)?.card.body ?? "", /已批准/);
+  assert.match(platform.editedCards.at(-1)?.card.body ?? "", /BUTTON\\_DATA\\_INVALID/);
+  const feedbackFailure = storage.listEvents().find((event) => {
+    if (event.tableName !== "notifications" || event.op !== "callback_feedback_failed") return false;
+    const payload = JSON.parse(event.after ?? "{}");
+    return payload.gateId === "gate_meaning_callback_fail" && payload.operation === "answerCallback";
+  });
+  assert.ok(feedbackFailure);
 });
 
 test("callback router edits stale Telegram cards for already resolved meaning gates", async () => {

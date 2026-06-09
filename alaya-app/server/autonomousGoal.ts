@@ -397,6 +397,7 @@ export async function generateNextGoal(input: NextGoalInput, llm: LlmCaller = ca
       "Return JSON matching the schema.",
     ],
     schema: NEXT_GOAL_SCHEMA,
+    simplifiedSchema: NEXT_GOAL_SCHEMA,
     mockOutput: { ...fallback },
   });
 

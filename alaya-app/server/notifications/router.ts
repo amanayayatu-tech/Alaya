@@ -2,9 +2,10 @@ import type { HumanGateItem } from "@shared/schema";
 import { HumanGateService } from "../humanGateService";
 import { resolveKnowledgeReview } from "../knowledgeReview";
 import type { IStorage } from "../storage";
-import { storage } from "../storage";
+import { now, storage } from "../storage";
+import { redactSensitiveText } from "../security/redact";
 import { escapeMarkdownV2 } from "./telegram-simple";
-import { compactGateCallbackTarget, gateCard, statusCard } from "./card";
+import { compactGateCallbackTarget, compactReviewCallbackTarget, gateCard, statusCard } from "./card";
 import {
   formatGateDecisionReceiptText,
   formatGateDecisionRequestText,
@@ -36,6 +37,15 @@ function resolveGateCallbackTarget(store: IStorage, target: string): string {
   return gate?.id ?? target;
 }
 
+function resolveReviewCallbackTarget(store: IStorage, target: string): string {
+  if (!target.startsWith("t:")) return target;
+  const review = store.listKnowledgeReviews().find((item) =>
+    compactReviewCallbackTarget(item.id, "kr:q:") === target ||
+    compactReviewCallbackTarget(item.id, "kr:m:") === target
+  );
+  return review?.id ?? target;
+}
+
 function parseGatePayload(value: unknown): Record<string, any> {
   if (!value) return {};
   if (typeof value === "object" && !Array.isArray(value)) return value as Record<string, any>;
@@ -48,6 +58,16 @@ function parseGatePayload(value: unknown): Record<string, any> {
   }
 }
 
+interface CallbackFailureContext {
+  projectId: string;
+  cycleId?: string | null;
+  cycleIdx?: number | null;
+  gateId?: string | null;
+  reviewId?: string | null;
+  chatId?: string;
+  messageId?: number;
+}
+
 export class CallbackRouter {
   constructor(
     private platform: MessagingPlatform,
@@ -57,18 +77,19 @@ export class CallbackRouter {
   ) {}
 
   async route(callbackId: string, data: string, ref: MessageRef): Promise<void> {
-    if (callbackId) {
-      await this.bestEffortTelegramFeedback("answerCallback", () => this.platform.answerCallback(callbackId));
-    }
+    const callbackContext = this.callbackFailureContextForData(data, ref);
+    const callbackWarning = callbackId
+      ? await this.bestEffortTelegramFeedback("answerCallback", () => this.platform.answerCallback(callbackId), callbackContext)
+      : null;
 
     if (data.startsWith("perm:allow:")) {
-      await this.handlePerm(resolveGateCallbackTarget(this.store, data.replace("perm:allow:", "")), "approve", ref);
+      await this.handlePerm(resolveGateCallbackTarget(this.store, data.replace("perm:allow:", "")), "approve", ref, callbackWarning);
     } else if (data.startsWith("perm:deny:")) {
-      await this.handlePerm(resolveGateCallbackTarget(this.store, data.replace("perm:deny:", "")), "reject", ref);
+      await this.handlePerm(resolveGateCallbackTarget(this.store, data.replace("perm:deny:", "")), "reject", ref, callbackWarning);
     } else if (data.startsWith("kr:q:")) {
-      await this.handleKnowledgeReview(data.replace("kr:q:", ""), "quarantine", ref);
+      await this.handleKnowledgeReview(resolveReviewCallbackTarget(this.store, data.replace("kr:q:", "")), "quarantine", ref, callbackWarning);
     } else if (data.startsWith("kr:m:")) {
-      await this.handleKnowledgeReview(data.replace("kr:m:", ""), "merge_supersede", ref);
+      await this.handleKnowledgeReview(resolveReviewCallbackTarget(this.store, data.replace("kr:m:", "")), "merge_supersede", ref, callbackWarning);
     } else if (data.startsWith("nav:gate:")) {
       await this.handleNavGate(resolveGateCallbackTarget(this.store, data.replace("nav:gate:", "")), ref.chatId);
     } else if (data.startsWith("cmd:/status")) {
@@ -78,7 +99,7 @@ export class CallbackRouter {
     }
   }
 
-  private async handlePerm(gateId: string, action: "approve" | "reject", ref: MessageRef): Promise<void> {
+  private async handlePerm(gateId: string, action: "approve" | "reject", ref: MessageRef, callbackWarning?: string | null): Promise<void> {
     const gate = this.store.getGate(gateId);
     if (!gate) {
       await this.platform.editCard(ref, { body: escapeMarkdownV2(`未找到闸门：${gateId}`) });
@@ -103,6 +124,7 @@ export class CallbackRouter {
             knowledgeId: gate.status === "approved" && gate.type === "meaning" ? knowledgeIdForMeaningGate(gate.id) : null,
             projectId,
             rationale: "该 Telegram 卡片已过期；系统按当前闸门状态回填结果，未重复执行决策。",
+            callbackWarning: callbackWarning ?? undefined,
           })),
         }));
       return;
@@ -113,9 +135,10 @@ export class CallbackRouter {
       return;
     }
 
-    await this.bestEffortTelegramFeedback("sendTyping", () => this.platform.sendTyping?.(ref.chatId));
+    const failureContext = this.callbackFailureContextForGate(gate, ref);
+    await this.bestEffortTelegramFeedback("sendTyping", () => this.platform.sendTyping?.(ref.chatId), failureContext);
     await this.bestEffortTelegramFeedback("editCard(processing)", () =>
-      this.platform.editCard(ref, { body: escapeMarkdownV2(formatGateProcessingText(gate)) }));
+      this.platform.editCard(ref, { body: escapeMarkdownV2(formatGateProcessingText(gate)) }), failureContext);
 
     try {
       const result = action === "approve"
@@ -137,17 +160,18 @@ export class CallbackRouter {
             openConflictReviewsAfter,
             knowledgeId: action === "approve" && gate.type === "meaning" ? knowledgeIdForMeaningGate(gate.id) : null,
             projectId,
+            callbackWarning: callbackWarning ?? undefined,
           })),
-        }));
+        }), failureContext);
     } catch (error) {
       await this.bestEffortTelegramFeedback("editCard(error)", () =>
         this.platform.editCard(ref, {
           body: escapeMarkdownV2(`处理失败：${error instanceof Error ? error.message : String(error)}`),
-        }));
+        }), failureContext);
     }
   }
 
-  private async handleKnowledgeReview(reviewId: string, action: "quarantine" | "merge_supersede", ref: MessageRef): Promise<void> {
+  private async handleKnowledgeReview(reviewId: string, action: "quarantine" | "merge_supersede", ref: MessageRef, callbackWarning?: string | null): Promise<void> {
     const review = this.store.getKnowledgeReview(reviewId);
     if (!review) {
       await this.platform.editCard(ref, { body: escapeMarkdownV2(`未找到知识复核：${reviewId}`) });
@@ -181,14 +205,16 @@ export class CallbackRouter {
             openConflictReviewsAfter,
             projectId,
             rationale: "该知识复核已处理；Telegram 回填当前状态，未重复执行决策。",
+            callbackWarning: callbackWarning ?? undefined,
           })),
         }));
       return;
     }
 
-    await this.bestEffortTelegramFeedback("sendTyping", () => this.platform.sendTyping?.(ref.chatId));
+    const failureContext = this.callbackFailureContextForKnowledgeReview(reviewId, ref);
+    await this.bestEffortTelegramFeedback("sendTyping", () => this.platform.sendTyping?.(ref.chatId), failureContext);
     await this.bestEffortTelegramFeedback("editCard(processing knowledge review)", () =>
-      this.platform.editCard(ref, { body: escapeMarkdownV2(formatGateProcessingText(receiptGate)) }));
+      this.platform.editCard(ref, { body: escapeMarkdownV2(formatGateProcessingText(receiptGate)) }), failureContext);
 
     try {
       const rationale = action === "quarantine"
@@ -216,23 +242,91 @@ export class CallbackRouter {
             openConflictReviewsAfter,
             projectId,
             rationale: `知识冲突复核已处理：${action}。${rationale}`,
+            callbackWarning: callbackWarning ?? undefined,
           })),
-        }));
+        }), failureContext);
     } catch (error) {
       await this.bestEffortTelegramFeedback("editCard(knowledge review error)", () =>
         this.platform.editCard(ref, {
           body: escapeMarkdownV2(`处理失败：${error instanceof Error ? error.message : String(error)}`),
-        }));
+        }), failureContext);
     }
   }
 
-  private async bestEffortTelegramFeedback(operation: string, task: () => Promise<void> | void): Promise<void> {
+  private async bestEffortTelegramFeedback(
+    operation: string,
+    task: () => Promise<void> | void,
+    context?: CallbackFailureContext,
+  ): Promise<string | null> {
     try {
       await task();
+      return null;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = redactSensitiveText(error instanceof Error ? error.message : String(error));
       console.warn(`[CallbackRouter] Telegram ${operation} failed; continuing gate decision: ${message}`);
+      this.recordTelegramFeedbackFailure(operation, message, context);
+      return `Telegram ${operation} failed after the backend decision path continued: ${message}`;
     }
+  }
+
+  private callbackFailureContextForData(data: string, ref: MessageRef): CallbackFailureContext | undefined {
+    if (data.startsWith("perm:allow:") || data.startsWith("perm:deny:") || data.startsWith("nav:gate:")) {
+      const target = data.replace(/^(perm:allow:|perm:deny:|nav:gate:)/, "");
+      const gate = this.store.getGate(resolveGateCallbackTarget(this.store, target));
+      return gate ? this.callbackFailureContextForGate(gate, ref) : { projectId: "system", chatId: ref.chatId, messageId: ref.messageId };
+    }
+    if (data.startsWith("kr:q:") || data.startsWith("kr:m:")) {
+      return this.callbackFailureContextForKnowledgeReview(data.replace(/^kr:[qm]:/, ""), ref);
+    }
+    return { projectId: "system", chatId: ref.chatId, messageId: ref.messageId };
+  }
+
+  private callbackFailureContextForGate(gate: HumanGateItem, ref: MessageRef): CallbackFailureContext {
+    const cycle = this.store.getCycle(gate.cycleId);
+    return {
+      projectId: cycle?.projectId ?? "system",
+      cycleId: gate.cycleId,
+      cycleIdx: cycle?.idx ?? null,
+      gateId: gate.id,
+      chatId: ref.chatId,
+      messageId: ref.messageId,
+    };
+  }
+
+  private callbackFailureContextForKnowledgeReview(reviewId: string, ref: MessageRef): CallbackFailureContext {
+    const review = this.store.getKnowledgeReview(reviewId);
+    const cycle = review?.cycleId ? this.store.getCycle(review.cycleId) : undefined;
+    return {
+      projectId: review?.projectId ?? cycle?.projectId ?? "system",
+      cycleId: review?.cycleId ?? null,
+      cycleIdx: cycle?.idx ?? null,
+      gateId: `gate_${reviewId}`,
+      reviewId,
+      chatId: ref.chatId,
+      messageId: ref.messageId,
+    };
+  }
+
+  private recordTelegramFeedbackFailure(operation: string, message: string, context?: CallbackFailureContext): void {
+    const payload = {
+      projectId: context?.projectId ?? "system",
+      cycleId: context?.cycleId ?? null,
+      gateId: context?.gateId ?? null,
+      reviewId: context?.reviewId ?? null,
+      operation,
+      error: message,
+      hasMessageRef: Boolean(context?.chatId && context?.messageId),
+      ts: now(),
+    };
+    this.store.recordEvent({
+      cycleIdx: context?.cycleIdx ?? 0,
+      actor: "telegram_callback_router",
+      tableName: "notifications",
+      op: "callback_feedback_failed",
+      before: null,
+      after: JSON.stringify(payload),
+      ts: payload.ts,
+    });
   }
 
   private async handleNavGate(gateId: string, chatId: string): Promise<void> {
