@@ -665,16 +665,9 @@ function shouldHoldMeaningGate(gate, approvedMeaningCount) {
   if (!approveMeaning) return true;
   const payload = parsePayload(gate);
   if (payload.riskKey === "knowledge_review_reminder") return true;
-  if (meaningGateRequiresHumanReview(gate) && !isRunnerInjectedContradictionGate(gate)) return true;
+  if (meaningGateRequiresHumanReview(gate)) return true;
   if (holdEveryMeaning > 0 && (approvedMeaningCount + 1) % holdEveryMeaning === 0) return true;
   return false;
-}
-
-function isRunnerInjectedContradictionGate(gate) {
-  const payload = parsePayload(gate);
-  return payload.sourceName === "health-signal-contradiction-runner" ||
-    String(payload.sourceId ?? "").includes("health_signal_contradiction_runner") ||
-    /^sample_\d{4}_(ppg|ecg|hybrid)_/i.test(String(payload.externalId ?? ""));
 }
 
 function meaningGateRequiresHumanReview(gate) {
@@ -719,12 +712,7 @@ async function resolvePendingGates(baseUrl, projectId, state) {
     const rationale = [
       `Health Signal ${durationLabel} validation human proxy via ${decisionVia}.`,
       gate.type === "direction" ? "Approve the proposed direction so the flywheel can continue and expose compounding/conflict behavior." : "",
-      gate.type === "meaning" && isRunnerInjectedContradictionGate(gate)
-        ? "Approve runner-injected contradiction evidence so the product conflict detector must materialize a knowledge review."
-        : "",
-      gate.type === "meaning" && !isRunnerInjectedContradictionGate(gate)
-        ? "Approve injected/ambiguous evidence to materialize knowledge and test conflict isolation."
-        : "",
+      gate.type === "meaning" ? "Approve injected/ambiguous evidence to materialize knowledge and test conflict isolation." : "",
       gate.type === "risk" ? "Risk gate recorded for validation; approve to continue after logging the risk." : "",
     ].filter(Boolean).join(" ");
     const updated = await requestJson(baseUrl, `/api/human-gates/${gate.id}/approve`, {

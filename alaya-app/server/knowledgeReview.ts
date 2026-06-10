@@ -64,6 +64,17 @@ function knowledgeKey(item: KnowledgeItem): string {
   return normalizeKey(item.semanticKey || item.title);
 }
 
+function knowledgeText(item: KnowledgeItem): string {
+  return [
+    item.title,
+    item.content,
+    item.notes,
+    item.semanticKey,
+    item.sourceRef,
+    parseTags(item.tags).join(" "),
+  ].join("\n");
+}
+
 function latestCycle(projectId: string) {
   return storage.listCycles(projectId).at(-1);
 }
@@ -198,6 +209,18 @@ function ensureReviewGate(review: KnowledgeReviewItem, blocking: boolean): void 
 }
 
 type MetricClaim = { metric: string; operator: ">=" | "<="; threshold: number; raw: string };
+type TopicPolarity = "prefer" | "avoid";
+type TopicSignal = { topic: string; polarity: TopicPolarity; source: "metric" | "text"; raw: string };
+
+const SIGNAL_TOPIC_PATTERNS = [
+  { topic: "ppg", pattern: /\bppg\b|光电容积|photoplethysmography/i },
+  { topic: "ecg", pattern: /\becg\b|心电|electrocardiogram/i },
+  { topic: "hybrid", pattern: /\bhybrid\b|混合|融合|双模/i },
+] as const;
+
+const INTERNAL_DRAFT_CREATORS = new Set(["distiller", "builder", "librarian", "scheduler", "agent", "test"]);
+const EXTERNAL_EVIDENCE_SOURCE_TYPES = new Set(["feedback", "form_feedback", "business_signal", "external_feedback"]);
+const EXTERNAL_EVIDENCE_TAGS = new Set(["meaning_gate", "human_approved", "form_feedback", "business_signal", "health_signal"]);
 
 function extractMetricClaims(item: KnowledgeItem): MetricClaim[] {
   const text = `${item.title}\n${item.content}\n${item.notes}`;
@@ -215,6 +238,106 @@ function extractMetricClaims(item: KnowledgeItem): MetricClaim[] {
     match = regex.exec(text);
   }
   return claims;
+}
+
+function isSpeculativeOrInternalDraft(item: KnowledgeItem): boolean {
+  const tags = parseTags(item.tags).map((tag) => tag.toLowerCase());
+  const createdBy = item.createdBy.toLowerCase();
+  return tags.includes("speculative") ||
+    item.sourceRef.toLowerCase().includes("cycle_spec_") ||
+    INTERNAL_DRAFT_CREATORS.has(createdBy);
+}
+
+function isExternalEvidenceDraft(item: KnowledgeItem): boolean {
+  if (item.status !== "draft" || item.supersededBy || isOnboardingSeedKnowledge(item) || isSpeculativeOrInternalDraft(item)) return false;
+  const tags = parseTags(item.tags).map((tag) => tag.toLowerCase());
+  const sourceType = item.sourceType.toLowerCase();
+  const createdBy = item.createdBy.toLowerCase();
+  return createdBy === "human_gate" ||
+    EXTERNAL_EVIDENCE_SOURCE_TYPES.has(sourceType) ||
+    tags.some((tag) => EXTERNAL_EVIDENCE_TAGS.has(tag));
+}
+
+function isConflictScannableKnowledge(item: KnowledgeItem): boolean {
+  if (item.supersededBy) return false;
+  if (["active", "strong"].includes(item.status)) return true;
+  return isExternalEvidenceDraft(item);
+}
+
+function topicFromMetric(metric: string): string | null {
+  for (const candidate of SIGNAL_TOPIC_PATTERNS) {
+    if (candidate.pattern.test(metric)) return candidate.topic;
+  }
+  return null;
+}
+
+function addSignal(signals: TopicSignal[], signal: TopicSignal): void {
+  if (signals.some((item) => item.topic === signal.topic && item.polarity === signal.polarity && item.raw === signal.raw)) return;
+  signals.push(signal);
+}
+
+function extractTopicSignals(item: KnowledgeItem): TopicSignal[] {
+  const text = knowledgeText(item);
+  const compact = text.replace(/\s+/g, " ");
+  const signals: TopicSignal[] = [];
+
+  for (const claim of extractMetricClaims(item)) {
+    const topic = topicFromMetric(claim.metric);
+    if (!topic) continue;
+    if (/\bpriority\b|优先|score|得分|suitability|fit|置信/i.test(claim.metric)) {
+      addSignal(signals, {
+        topic,
+        polarity: claim.operator === ">=" ? "prefer" : "avoid",
+        source: "metric",
+        raw: claim.raw,
+      });
+    }
+  }
+
+  for (const { topic, pattern } of SIGNAL_TOPIC_PATTERNS) {
+    const directPrefer = new RegExp(`(?:优先|首选|推荐|偏向|prefer|prioriti[sz]e|preferred|priority)[^\\n。；;,.]{0,24}(?:${pattern.source})`, "i");
+    const reversePrefer = new RegExp(`(?:${pattern.source})[^\\n。；;,.]{0,24}(?:优先|首选|推荐|更适合|prefer|prioriti[sz]e|preferred|priority)`, "i");
+    const directAvoid = new RegExp(`(?:不应|不能|不适合|避免|规避|拒绝|avoid|reject|not)[^\\n。；;,.]{0,24}(?:${pattern.source})`, "i");
+    const reverseAvoid = new RegExp(`(?:${pattern.source})[^\\n。；;,.]{0,24}(?:不应|不能|不适合|避免|规避|拒绝|avoid|reject|not)`, "i");
+    if (directPrefer.test(compact) || reversePrefer.test(compact)) {
+      addSignal(signals, { topic, polarity: "prefer", source: "text", raw: topic });
+    }
+    if (directAvoid.test(compact) || reverseAvoid.test(compact)) {
+      addSignal(signals, { topic, polarity: "avoid", source: "text", raw: topic });
+    }
+  }
+
+  return signals;
+}
+
+function sameDecisionTopic(a: KnowledgeItem, b: KnowledgeItem): boolean {
+  const leftKey = knowledgeKey(a);
+  const rightKey = knowledgeKey(b);
+  if (leftKey && rightKey && leftKey === rightKey) return true;
+  const leftTags = parseTags(a.tags).map((tag) => tag.toLowerCase());
+  const rightTags = parseTags(b.tags).map((tag) => tag.toLowerCase());
+  if (leftTags.includes("health_signal") && rightTags.includes("health_signal")) return true;
+  const leftText = knowledgeText(a);
+  const rightText = knowledgeText(b);
+  return /health_signal|健康信号|wearable|穿戴/i.test(leftText) && /health_signal|健康信号|wearable|穿戴/i.test(rightText);
+}
+
+function topicPolarityConflict(a: KnowledgeItem, b: KnowledgeItem): Record<string, unknown> | null {
+  if (isOnboardingSeedKnowledge(a) || isOnboardingSeedKnowledge(b)) return null;
+  if (!sameDecisionTopic(a, b)) return null;
+  const left = extractTopicSignals(a);
+  const right = extractTopicSignals(b);
+  for (const l of left) {
+    for (const r of right) {
+      if (l.topic === r.topic && l.polarity !== r.polarity) {
+        return { reason: "same signal topic has opposite priority polarity", left: l, right: r };
+      }
+      if (l.polarity === "prefer" && r.polarity === "prefer" && l.topic !== r.topic) {
+        return { reason: "same decision topic prefers mutually exclusive signal choices", left: l, right: r };
+      }
+    }
+  }
+  return null;
 }
 
 function conclusionTags(item: KnowledgeItem): string[] {
@@ -290,6 +413,16 @@ function conflictBetween(a: KnowledgeItem, b: KnowledgeItem): ConflictCandidate 
       recommendedAction: "review conclusion tags and quarantine, stale, or supersede the weaker item",
     };
   }
+  const topicPolarity = topicPolarityConflict(a, b);
+  if (topicPolarity) {
+    return {
+      primaryKnowledgeId: a.id,
+      relatedKnowledgeId: b.id,
+      reason: "topic-level conclusion or metric polarity conflicts with related evidence",
+      evidence: topicPolarity,
+      recommendedAction: "review topic-level priority evidence and approve one current knowledge item",
+    };
+  }
   const marker = explicitContradictionMarkers(a, b);
   if (marker) {
     return {
@@ -360,9 +493,7 @@ export function assertResolvedConflictActiveSurvivors(projectId: string): void {
 }
 
 export function detectKnowledgeConflicts(projectId: string): ConflictCandidate[] {
-  const active = storage.listKnowledge(projectId).filter((item) => (
-    !item.supersededBy && ["active", "strong"].includes(item.status)
-  ));
+  const active = storage.listKnowledge(projectId).filter(isConflictScannableKnowledge);
   const cycle = latestCycle(projectId);
   const candidates: ConflictCandidate[] = [];
   for (let i = 0; i < active.length; i += 1) {

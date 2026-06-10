@@ -71,7 +71,7 @@ function knowledge(projectId: string, id: string, patch: Record<string, any>) {
     validUntil: patch.validUntil ?? null,
     lastValidatedCycle: 1,
     createdByCycle: 1,
-    createdBy: "test",
+    createdBy: patch.createdBy ?? "test",
     approvedBy: null,
     usageCount: 0,
     lastInjectedAt: null,
@@ -158,6 +158,97 @@ test("generic contradiction wording in onboarding seed knowledge does not create
   assert.equal(storage.listKnowledgeReviews(projectId).filter((item) => item.reviewType === "conflict").length, 0);
   assert.equal(storage.getKnowledge("kb_seed_identity_marker")?.status, "active");
   assert.equal(storage.getKnowledge("kb_seed_world_marker")?.status, "active");
+});
+
+test("non-speculative external draft evidence creates a topic conflict without runner markers", () => {
+  const projectId = "proj_external_draft_topic_conflict";
+  project(projectId);
+  knowledge(projectId, "kb_ppg_current_priority", {
+    status: "strong",
+    title: "PPG priority decision",
+    semanticKey: "health_signal_priority",
+    tags: ["health_signal", "ppg", "conclusion:ppg_priority"],
+    content: "当前方案应优先 PPG；ppg_priority_score >= 0.7，PPG 对低功耗连续监测更适合。",
+    confidenceScore: 0.91,
+  });
+  knowledge(projectId, "kb_ecg_external_counter", {
+    status: "draft",
+    title: "External ECG counter evidence",
+    semanticKey: "health_signal_priority",
+    sourceType: "feedback",
+    sourceRef: "health_signal_contradiction_runner:sample_0001_ppg_risk",
+    tags: ["meaning_gate", "human_approved", "form_feedback", "health_signal", "ppg"],
+    content: "外部实证反馈：ppg_priority_score <= 0.35。该人群应优先 ECG，置信度 0.66。",
+    confidenceScore: 0.56,
+    createdBy: "human_gate",
+  });
+
+  const conflicts = detectKnowledgeConflicts(projectId);
+
+  assert.ok(conflicts.length >= 1);
+  assert.ok(conflicts.some((item) => item.primaryKnowledgeId === "kb_ecg_external_counter"));
+  assert.equal(storage.getKnowledge("kb_ecg_external_counter")?.status, "conflict");
+  const review = storage.listKnowledgeReviews(projectId).find((item) => item.primaryKnowledgeId === "kb_ecg_external_counter");
+  assert.ok(review);
+  assert.equal(review.relatedKnowledgeId, "kb_ppg_current_priority");
+});
+
+test("topic conclusion polarity detects PPG versus ECG priority conflicts", () => {
+  const projectId = "proj_topic_polarity_conflict";
+  project(projectId);
+  knowledge(projectId, "kb_topic_ppg", {
+    status: "active",
+    title: "Health signal priority",
+    semanticKey: "health_signal_priority",
+    tags: ["health_signal"],
+    content: "当前健康信号决策应优先 PPG，因为 PPG 连续监测成本更低。",
+    confidenceScore: 0.82,
+  });
+  knowledge(projectId, "kb_topic_ecg", {
+    status: "active",
+    title: "Health signal priority",
+    semanticKey: "health_signal_priority",
+    tags: ["health_signal"],
+    content: "当前健康信号决策应优先 ECG，PPG 不应作为优先方案。",
+    confidenceScore: 0.61,
+  });
+
+  const conflicts = detectKnowledgeConflicts(projectId);
+
+  assert.equal(conflicts.length, 1);
+  assert.equal(storage.getKnowledge("kb_topic_ecg")?.status, "conflict");
+  assert.match(conflicts[0].reason, /topic-level/i);
+});
+
+test("speculative draft knowledge remains isolated from conflict detection and injection", () => {
+  const projectId = "proj_speculative_draft_isolated";
+  project(projectId);
+  knowledge(projectId, "kb_ppg_active_isolation", {
+    status: "active",
+    title: "Health signal priority",
+    semanticKey: "health_signal_priority",
+    tags: ["health_signal", "ppg"],
+    content: "当前健康信号决策应优先 PPG；ppg_priority_score >= 0.7。",
+    confidenceScore: 0.82,
+  });
+  knowledge(projectId, "kb_speculative_ecg_draft", {
+    status: "draft",
+    title: "Speculative ECG draft",
+    semanticKey: "health_signal_priority",
+    sourceType: "feedback",
+    sourceRef: "cycle_spec_2_proj_cycle_1",
+    tags: ["health_signal", "ecg", "speculative"],
+    content: "推测草稿：ppg_priority_score <= 0.35，因此优先 ECG。",
+    confidenceScore: 0.55,
+    createdBy: "distiller",
+  });
+
+  const conflicts = detectKnowledgeConflicts(projectId);
+  const context = buildKnowledgeContext("health_signal ppg ecg priority", projectId);
+
+  assert.equal(conflicts.length, 0);
+  assert.equal(storage.getKnowledge("kb_speculative_ecg_draft")?.status, "draft");
+  assert.doesNotMatch(context, /kb_speculative_ecg_draft/);
 });
 
 test("creates stale and expiry review reminders without changing active facts", () => {
