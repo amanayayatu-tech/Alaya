@@ -121,6 +121,67 @@ test("scheduler creates speculative draft instead of waiting on pending blocking
   assert.deepEqual(JSON.parse(observing?.coAppliedSet ?? "[]"), [draft.id]);
 });
 
+test("scheduler uses unique builder task ids for successive speculative children of the same parent", async () => {
+  const projectId = "proj_speculative_task_collision";
+  createProject(projectId);
+
+  const first = await schedulerTickProject(projectId);
+  assert.equal(first.action, "created_speculative_draft");
+  assert.ok(first.nextCycleId);
+  const firstTask = storage.listTasks(first.nextCycleId).find((item) => item.kind === "speculative_change_package");
+  assert.ok(firstTask);
+  const firstGate = storage.listGates(projectId).find((item) => item.cycleId === first.nextCycleId && item.type === "risk");
+  assert.ok(firstGate);
+
+  gateService.approve(firstGate.id, { actor: "human", via: "test" });
+  const queued = storage.getCycle(first.nextCycleId);
+  assert.equal(queued?.draftStatus, "apply_queued");
+  await runApplyExecutor(projectId, new Date(Date.parse(queued?.applyScheduledAt ?? now()) + 1));
+  assert.equal(storage.getCycle(first.nextCycleId)?.draftStatus, "applied_observing");
+
+  const second = await schedulerTickProject(projectId);
+  assert.equal(second.action, "created_speculative_draft");
+  assert.ok(second.nextCycleId);
+  assert.notEqual(second.nextCycleId, first.nextCycleId);
+  const secondTask = storage.listTasks(second.nextCycleId).find((item) => item.kind === "speculative_change_package");
+  assert.ok(secondTask);
+  assert.notEqual(secondTask.id, firstTask.id);
+});
+
+test("scheduler completes a pre-existing drafting speculative child instead of returning a half-created draft", async () => {
+  const projectId = "proj_speculative_recover_drafting";
+  createProject(projectId);
+  const childId = `cycle_spec_2_${projectId}_cycle_1_${projectId}`;
+  storage.createCycle({
+    id: childId,
+    projectId,
+    idx: 2,
+    goal: "interrupted speculative draft",
+    status: "planning",
+    eCycle: null,
+    worstClaimError: null,
+    reasoning: "created before task/gate artifacts",
+    speculative: 1,
+    parentCycleId: `cycle_1_${projectId}`,
+    dependsOn: JSON.stringify([`cycle_1_${projectId}`]),
+    assumedOutcomes: JSON.stringify([{ cycle: `cycle_1_${projectId}`, claim: "blocking_gate_approval", assumed: "approved" }]),
+    draftStatus: "drafting",
+    applyScheduledAt: null,
+    appliedAt: null,
+    coAppliedSet: null,
+    version: 1,
+  });
+
+  const result = await schedulerTickProject(projectId);
+
+  assert.equal(result.action, "created_speculative_draft");
+  assert.equal(result.nextCycleId, childId);
+  assert.equal(storage.getCycle(childId)?.draftStatus, "ready_awaiting_approval");
+  assert.equal(storage.listPredictions(childId).length, 1);
+  assert.equal(storage.listTasks(childId).some((item) => item.kind === "speculative_change_package"), true);
+  assert.ok(storage.listGates(projectId).find((item) => item.cycleId === childId && item.type === "risk"));
+});
+
 test("speculative apply can be revoked before apply and not after apply", async () => {
   const projectId = "proj_speculative_revoke";
   createProject(projectId);

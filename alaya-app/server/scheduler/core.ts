@@ -1516,6 +1516,7 @@ function activeSpeculativeChild(projectId: string, parentCycleId: string): Cycle
   return storage.listCycles(projectId).find((cycle) => (
     cycle.speculative === 1 &&
     cycle.parentCycleId === parentCycleId &&
+    cycle.status !== "closed" &&
     !["invalidated", "applied_observing"].includes(cycle.draftStatus ?? "")
   ));
 }
@@ -1559,6 +1560,24 @@ function speculativeClaimForDraft(cycleIdx: number, draft: NextGoalDraft) {
     failureThreshold: `${draft.prediction.metric} ${draft.prediction.operator === ">=" ? "<" : ">"} ${draft.prediction.target}`,
     uncertainty: 0.4,
   };
+}
+
+function safeIdPart(value: string, maxLength = 96): string {
+  return value.replace(/[^a-zA-Z0-9_]+/g, "_").slice(0, maxLength);
+}
+
+function speculativeBuilderTaskId(childId: string): string {
+  return `task_speculative_builder_${safeIdPart(childId)}`;
+}
+
+function speculativeApplyGateId(childId: string): string {
+  return `gate_spec_apply_${childId.slice(-32)}`;
+}
+
+function speculativeDraftArtifactsComplete(childId: string): boolean {
+  return storage.listPredictions(childId).length > 0 &&
+    storage.listTasks(childId).some((task) => task.agent === "builder" && task.kind === "speculative_change_package") &&
+    Boolean(storage.getGate(speculativeApplyGateId(childId)));
 }
 
 async function generateSpeculativeGoalDraft(projectId: string, cycleIdx: number, cycleId: string, current: Cycle): Promise<NextGoalDraft> {
@@ -1650,7 +1669,7 @@ async function createSpeculativeDraft(projectId: string, current: Cycle): Promis
   }
 
   const existing = activeSpeculativeChild(projectId, current.id);
-  if (existing) {
+  if (existing && existing.draftStatus !== "drafting" && speculativeDraftArtifactsComplete(existing.id)) {
     return {
       projectId,
       action: "created_speculative_draft",
@@ -1662,9 +1681,9 @@ async function createSpeculativeDraft(projectId: string, current: Cycle): Promis
     };
   }
 
-  const nextIdx = Math.max(...storage.listCycles(projectId).map((cycle) => cycle.idx), current.idx) + 1;
+  const nextIdx = existing?.idx ?? Math.max(...storage.listCycles(projectId).map((cycle) => cycle.idx), current.idx) + 1;
   const safeProject = projectId.replace(/[^a-zA-Z0-9_]+/g, "_").slice(-32);
-  const childId = `cycle_spec_${nextIdx}_${safeProject}_${current.id.replace(/[^a-zA-Z0-9_]+/g, "_").slice(-16)}`;
+  const childId = existing?.id ?? `cycle_spec_${nextIdx}_${safeProject}_${current.id.replace(/[^a-zA-Z0-9_]+/g, "_").slice(-16)}`;
   const draft = await generateSpeculativeGoalDraft(projectId, nextIdx, childId, current);
   const dependsOn = speculativeDependencyIds(projectId, current);
   const assumedOutcomes = dependsOn.map((cycleId) => ({
@@ -1672,46 +1691,8 @@ async function createSpeculativeDraft(projectId: string, current: Cycle): Promis
     claim: "blocking_gate_approval",
     assumed: "approved",
   }));
-  const cycle = storage.createCycle({
-    id: childId,
-    projectId,
-    idx: nextIdx,
-    goal: draft.proposedGoal,
-    status: "planning",
-    eCycle: null,
-    worstClaimError: null,
-    reasoning: draft.reasoningHowKnowledgeChangedDecision,
-    speculative: 1,
-    parentCycleId: current.id,
-    dependsOn: JSON.stringify(dependsOn),
-    assumedOutcomes: JSON.stringify(assumedOutcomes),
-    draftStatus: "drafting",
-    applyScheduledAt: null,
-    appliedAt: null,
-    coAppliedSet: null,
-    version: 1,
-  });
-
   const claim = speculativeClaimForDraft(nextIdx, draft);
   const predictionId = `pred_spec_${nextIdx}_${childId.slice(-12)}`;
-  if (!storage.getPrediction(predictionId)) {
-    storage.createPrediction({
-      id: predictionId,
-      cycleId: childId,
-      belief: draft.belief,
-      prediction: draft.prediction.statement,
-      action: draft.action,
-      claims: JSON.stringify([claim]),
-      observation: null,
-      predictionError: null,
-      worstClaimError: null,
-      errorType: null,
-      updateTarget: null,
-      status: "open",
-      knowledgeRefs: JSON.stringify(draft.referencedKnowledgeIds),
-    });
-  }
-
   const adapter = new CodexCliBuilderAdapter();
   const pkg = await adapter.generateChangePackage({
     projectId,
@@ -1723,74 +1704,128 @@ async function createSpeculativeDraft(projectId: string, current: Cycle): Promis
       "prepare rollback plan and audit summary",
     ],
   });
-  const taskId = `task_speculative_builder_${childId.slice(-24)}`;
-  if (!storage.listTasks(childId).some((task) => task.id === taskId)) {
-    storage.createTask({
-      id: taskId,
+  const taskId = speculativeBuilderTaskId(childId);
+  const gateId = speculativeApplyGateId(childId);
+  const createdAt = now();
+  const writeArtifacts = () => {
+    const cycle = existing
+      ? storage.updateCycle(existing.id, {
+          goal: draft.proposedGoal,
+          status: existing.status === "closed" ? "planning" : existing.status,
+          reasoning: draft.reasoningHowKnowledgeChangedDecision,
+          parentCycleId: current.id,
+          dependsOn: JSON.stringify(dependsOn),
+          assumedOutcomes: JSON.stringify(assumedOutcomes),
+          draftStatus: "drafting",
+        }) ?? existing
+      : storage.createCycle({
+          id: childId,
+          projectId,
+          idx: nextIdx,
+          goal: draft.proposedGoal,
+          status: "planning",
+          eCycle: null,
+          worstClaimError: null,
+          reasoning: draft.reasoningHowKnowledgeChangedDecision,
+          speculative: 1,
+          parentCycleId: current.id,
+          dependsOn: JSON.stringify(dependsOn),
+          assumedOutcomes: JSON.stringify(assumedOutcomes),
+          draftStatus: "drafting",
+          applyScheduledAt: null,
+          appliedAt: null,
+          coAppliedSet: null,
+          version: 1,
+        });
+
+    if (!storage.getPrediction(predictionId)) {
+      storage.createPrediction({
+        id: predictionId,
+        cycleId: childId,
+        belief: draft.belief,
+        prediction: draft.prediction.statement,
+        action: draft.action,
+        claims: JSON.stringify([claim]),
+        observation: null,
+        predictionError: null,
+        worstClaimError: null,
+        errorType: null,
+        updateTarget: null,
+        status: "open",
+        knowledgeRefs: JSON.stringify(draft.referencedKnowledgeIds),
+      });
+    }
+
+    if (!storage.listTasks(childId).some((task) => task.id === taskId)) {
+      storage.createTask({
+        id: taskId,
+        cycleId: childId,
+        agent: "builder",
+        kind: "speculative_change_package",
+        status: "done",
+        spec: JSON.stringify({
+          createdAt,
+          draftStatus: "ready_awaiting_approval",
+          action: draft.action,
+          changePackage: pkg,
+          rollbackPlan: pkg.rollbackPlan,
+          auditSummary: pkg.auditSummary,
+          predictionId,
+        }),
+      });
+    }
+
+    if (!storage.getGate(gateId)) {
+      storage.createGate({
+        id: gateId,
+        cycleId: childId,
+        type: "risk",
+        blocking: 1,
+        title: "推测草稿 apply 审批",
+        payload: withDecisionBriefPayload({
+          riskKey: "speculative_apply_draft",
+          draftCycleId: childId,
+          parentCycleId: current.id,
+          idempotencyKey: pkg.idempotencyKey,
+          riskLevel: pkg.riskLevel,
+          goal: draft.proposedGoal,
+          action: draft.action,
+          affectedFiles: pkg.affectedFiles,
+          rollbackPlan: pkg.rollbackPlan,
+          auditSummary: pkg.auditSummary,
+          assumedOutcomes,
+          createdAt,
+        }, createDecisionBrief({
+          claim: `Apply speculative draft: ${draft.proposedGoal}`,
+          citedKnowledgeIds: draft.referencedKnowledgeIds,
+          metric: draft.prediction.metric,
+          operator: draft.prediction.operator,
+          target: draft.prediction.target,
+          timeWindow: "after apply observation window",
+          ifApproved: "Queue the speculative draft for grace-period apply and observation.",
+          ifRejected: "Invalidate or keep the speculative draft from applying; no observation or knowledge promotion occurs.",
+          rollbackRef: "payload.rollbackPlan",
+        })),
+        status: "pending",
+        estimatedMinutes: 12,
+        decision: null,
+        version: 1,
+      });
+    }
+
+    const ready = storage.updateCycle(cycle.id, { draftStatus: "ready_awaiting_approval" }) ?? cycle;
+    storage.recordAgentRun({
       cycleId: childId,
+      cycleIdx: nextIdx,
       agent: "builder",
-      kind: "speculative_change_package",
-      status: "done",
-      spec: JSON.stringify({
-        draftStatus: "ready_awaiting_approval",
-        action: draft.action,
-        changePackage: pkg,
-        rollbackPlan: pkg.rollbackPlan,
-        auditSummary: pkg.auditSummary,
-        predictionId,
-      }),
+      action: "speculative_draft_change_package",
+      outputSummary: `draft ready awaiting approval: ${pkg.diffSummary}`,
+      knowledgeRefsUsed: JSON.stringify(draft.referencedKnowledgeIds),
+      ts: createdAt,
     });
-  }
-
-  const gateId = `gate_spec_apply_${childId.slice(-32)}`;
-  if (!storage.getGate(gateId)) {
-    storage.createGate({
-      id: gateId,
-      cycleId: childId,
-      type: "risk",
-      blocking: 1,
-      title: "推测草稿 apply 审批",
-      payload: withDecisionBriefPayload({
-        riskKey: "speculative_apply_draft",
-        draftCycleId: childId,
-        parentCycleId: current.id,
-        idempotencyKey: pkg.idempotencyKey,
-        riskLevel: pkg.riskLevel,
-        goal: draft.proposedGoal,
-        action: draft.action,
-        affectedFiles: pkg.affectedFiles,
-        rollbackPlan: pkg.rollbackPlan,
-        auditSummary: pkg.auditSummary,
-        assumedOutcomes,
-        createdAt: now(),
-      }, createDecisionBrief({
-        claim: `Apply speculative draft: ${draft.proposedGoal}`,
-        citedKnowledgeIds: draft.referencedKnowledgeIds,
-        metric: draft.prediction.metric,
-        operator: draft.prediction.operator,
-        target: draft.prediction.target,
-        timeWindow: "after apply observation window",
-        ifApproved: "Queue the speculative draft for grace-period apply and observation.",
-        ifRejected: "Invalidate or keep the speculative draft from applying; no observation or knowledge promotion occurs.",
-        rollbackRef: "payload.rollbackPlan",
-      })),
-      status: "pending",
-      estimatedMinutes: 12,
-      decision: null,
-      version: 1,
-    });
-  }
-
-  const ready = storage.updateCycle(cycle.id, { draftStatus: "ready_awaiting_approval" }) ?? cycle;
-  storage.recordAgentRun({
-    cycleId: childId,
-    cycleIdx: nextIdx,
-    agent: "builder",
-    action: "speculative_draft_change_package",
-    outputSummary: `draft ready awaiting approval: ${pkg.diffSummary}`,
-    knowledgeRefsUsed: JSON.stringify(draft.referencedKnowledgeIds),
-    ts: now(),
-  });
+    return ready;
+  };
+  const ready = storage.withTransaction ? storage.withTransaction(writeArtifacts) : writeArtifacts();
   recordTrace({
     projectId,
     cycleId: childId,
