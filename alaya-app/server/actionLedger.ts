@@ -2,6 +2,7 @@ import { actionRiskSummary, makeIdempotencyKey } from "@shared/core/action_risk.
 import { storage, now } from "./storage";
 import { recordTrace } from "./trace";
 import { redactSensitiveData } from "./security/redact";
+import { createDecisionBrief, withDecisionBriefPayload } from "./decisionBrief";
 import type { ActionLedgerRow, HumanGateItem } from "@shared/schema";
 import type { RiskLevel } from "@shared/core/types.js";
 
@@ -58,7 +59,7 @@ function ensureRiskGate(input: RecordActionProposalInput, riskLevel: RiskLevel, 
     type: "risk",
     blocking: 1,
     title: `高风险动作审批: ${input.actionType}`,
-    payload: JSON.stringify({
+    payload: withDecisionBriefPayload({
       riskKey: "action_requires_approval",
       idempotencyKey,
       actionType: input.actionType,
@@ -67,7 +68,14 @@ function ensureRiskGate(input: RecordActionProposalInput, riskLevel: RiskLevel, 
       rollbackPlan: input.rollbackPlan ?? null,
       auditSummary: input.auditSummary ?? null,
       createdAt: now(),
-    }),
+    }, createDecisionBrief({
+      claim: `Approve high-risk action ${input.actionType}`,
+      metric: "action_approval",
+      timeWindow: "before action execution",
+      ifApproved: "The matching action proposal can be marked approved and continue through its existing capability path.",
+      ifRejected: "The action proposal remains blocked and no side effect should execute.",
+      rollbackRef: input.rollbackPlan ? "payload.rollbackPlan" : "action_ledger",
+    })),
     status: "pending",
     estimatedMinutes: 10,
     decision: null,

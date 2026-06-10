@@ -32,6 +32,9 @@ export type SchedulerTickAction =
   | "waiting_feedback_window"
   | "ran_operational_stages"
   | "created_next_cycle"
+  | "created_speculative_draft"
+  | "speculative_budget_exhausted"
+  | "apply_executor_ran"
   | "safety_mode"
   | "safety_throttled"
   | "skipped";

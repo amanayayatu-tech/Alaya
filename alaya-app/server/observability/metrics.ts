@@ -65,12 +65,42 @@ function perAgentLatency(llmCalls = storage.listLlmCalls()) {
   }));
 }
 
+function reviewWindowAdherence(): number {
+  const total = count("SELECT COUNT(*) AS count FROM review_sessions");
+  if (total === 0) return 1;
+  const closed = count("SELECT COUNT(*) AS count FROM review_sessions WHERE closed_at IS NOT NULL");
+  return +(closed / total).toFixed(6);
+}
+
+function decisionDwellMs() {
+  const rows = rawDb.prepare(`
+    SELECT review_dwell_ms FROM human_gate_items
+    WHERE review_dwell_ms IS NOT NULL
+  `).all() as Array<{ review_dwell_ms: number | null }>;
+  const values = rows.map((row) => Number(row.review_dwell_ms)).filter(Number.isFinite);
+  return {
+    p50: percentile(values, 50),
+    p95: percentile(values, 95),
+  };
+}
+
+function speculativeTokensTotal(): number {
+  const row = rawDb.prepare(`
+    SELECT COALESCE(SUM(l.token_count), 0) AS count
+    FROM llm_calls l
+    JOIN cycles c ON c.id = l.cycle_id
+    WHERE c.speculative = 1
+  `).get() as { count?: number } | undefined;
+  return Number(row?.count ?? 0);
+}
+
 export function buildMetricsSnapshot() {
   const actions = storage.listActionLedger();
   const llmCalls = storage.listLlmCalls();
   const estimatedCost = llmCalls.reduce((sum, call) => sum + call.estimatedCost, 0);
   const inputTokenCount = llmCalls.reduce((sum, call) => sum + call.inputTokenCount, 0);
   const outputTokenCount = llmCalls.reduce((sum, call) => sum + call.outputTokenCount, 0);
+  const dwell = decisionDwellMs();
   const durationAvg = schedulerRuntime.cyclesTotal
     ? schedulerRuntime.totalDurationMs / schedulerRuntime.cyclesTotal
     : 0;
@@ -93,6 +123,15 @@ export function buildMetricsSnapshot() {
     errorsTotal: count("SELECT COUNT(*) AS count FROM event_log WHERE op='error' OR op='sync_error'"),
     schedulerFailuresTotal: schedulerRuntime.failuresTotal,
     perAgentLatency: perAgentLatency(llmCalls),
+    reviewWindowAdherence: reviewWindowAdherence(),
+    decisionDwellMsP50: dwell.p50,
+    decisionDwellMsP95: dwell.p95,
+    gatesDeferredTotal: count("SELECT COUNT(*) AS count FROM human_gate_items WHERE status='deferred' OR decision='defer'"),
+    speculativeCyclesTotal: count("SELECT COUNT(*) AS count FROM cycles WHERE speculative=1"),
+    speculativeInvalidatedTotal: count("SELECT COUNT(*) AS count FROM cycles WHERE speculative=1 AND draft_status='invalidated'"),
+    speculativeTokensTotal: speculativeTokensTotal(),
+    applyQueueDepth: count("SELECT COUNT(*) AS count FROM cycles WHERE speculative=1 AND draft_status='apply_queued'"),
+    applyRevokedTotal: count("SELECT COUNT(*) AS count FROM decision_log WHERE decision='revoked'"),
     lastSuccessfulCycleTimestamp: Math.max(
       Math.floor(schedulerRuntime.lastSuccessfulCycleTimestamp / 1000),
       latestClosedCycleTimestamp(),
@@ -130,6 +169,15 @@ export function renderPrometheusMetrics(): string {
     line("alaya_stall_events_total", m.stallEventsTotal),
     line("alaya_errors_total", m.errorsTotal + m.schedulerFailuresTotal),
     line("alaya_last_successful_cycle_timestamp", m.lastSuccessfulCycleTimestamp),
+    line("alaya_review_window_adherence", m.reviewWindowAdherence),
+    line("alaya_decision_dwell_ms_p50", m.decisionDwellMsP50),
+    line("alaya_decision_dwell_ms_p95", m.decisionDwellMsP95),
+    line("alaya_gates_deferred_total", m.gatesDeferredTotal),
+    line("alaya_speculative_cycles_total", m.speculativeCyclesTotal),
+    line("alaya_speculative_invalidated_total", m.speculativeInvalidatedTotal),
+    line("alaya_speculative_tokens_total", m.speculativeTokensTotal),
+    line("alaya_apply_queue_depth", m.applyQueueDepth),
+    line("alaya_apply_revoked_total", m.applyRevokedTotal),
   ];
   for (const [agent, stats] of Object.entries(m.perAgentLatency)) {
     lines.push(line("alaya_llm_agent_latency_p50_ms", stats.p50Ms, { agent }));

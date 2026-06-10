@@ -3,6 +3,9 @@ import type { KnowledgeItem, KnowledgeReviewItem } from "@shared/schema";
 import { recordActionProposal } from "./actionLedger";
 import { storage, now } from "./storage";
 import { recordTrace } from "./trace";
+import { setKnowledgeConflictDetector } from "./knowledgeConflictHooks";
+import { HumanGateService } from "./humanGateService";
+import { createDecisionBrief, withDecisionBriefPayload } from "./decisionBrief";
 
 type ReviewAction = "approve_as_current" | "quarantine" | "merge_supersede" | "downgrade_to_stale" | "reject_conflict";
 
@@ -164,7 +167,7 @@ function ensureReviewGate(review: KnowledgeReviewItem, blocking: boolean): void 
     type: blocking ? "risk" : "meaning",
     blocking: blocking ? 1 : 0,
     title: blocking ? "知识冲突复核" : "知识复核提醒",
-    payload: JSON.stringify({
+    payload: withDecisionBriefPayload({
       riskKey: review.reviewType === "conflict" ? "knowledge_conflict_review" : "knowledge_review_reminder",
       reviewId: review.id,
       reviewType: review.reviewType,
@@ -173,7 +176,15 @@ function ensureReviewGate(review: KnowledgeReviewItem, blocking: boolean): void 
       reason: review.reason,
       recommendedAction: review.recommendedAction,
       createdAt: review.createdAt,
-    }),
+    }, createDecisionBrief({
+      claim: `${review.reviewType} review for ${review.primaryKnowledgeId}`,
+      citedKnowledgeIds: [review.primaryKnowledgeId, review.relatedKnowledgeId].filter((id): id is string => Boolean(id)),
+      metric: "knowledge_review_resolution",
+      timeWindow: "before reviewed knowledge is reused",
+      ifApproved: "The selected knowledge review action will update knowledge status and close this gate.",
+      ifRejected: "The review remains unresolved and the disputed knowledge should not gain new authority.",
+      rollbackRef: `knowledge_review_items:${review.id}`,
+    })),
     status: "pending",
     estimatedMinutes: blocking ? 12 : 6,
     decision: null,
@@ -373,6 +384,10 @@ export function detectKnowledgeConflicts(projectId: string): ConflictCandidate[]
   return candidates;
 }
 
+setKnowledgeConflictDetector((projectId) => {
+  detectKnowledgeConflicts(projectId);
+});
+
 function lastVerifiedMs(item: KnowledgeItem): number {
   if (typeof item.lastVerifiedAt === "number" && Number.isFinite(item.lastVerifiedAt)) return item.lastVerifiedAt;
   const validFrom = Date.parse(item.validFrom);
@@ -480,15 +495,11 @@ export function resolveKnowledgeReview(reviewId: string, input: ResolveKnowledge
     const gate = storage.getGate(`gate_${review.id}`);
     if (gate?.status === "pending") {
       const decision = `knowledge_review:${input.action}`;
-      storage.updateGate(gate.id, { status: "approved", decision });
-      storage.recordEvent({
-        cycleIdx: cycle?.idx ?? 0,
+      new HumanGateService(storage).systemResolve(gate.id, decision, {
         actor,
-        tableName: "human_gate_items",
-        op: "resolve",
-        before: JSON.stringify({ status: gate.status, gateId: gate.id, decision: gate.decision }),
-        after: JSON.stringify({ status: "approved", gateId: gate.id, decision, via: "knowledge_review" }),
-        ts: timestamp,
+        status: "approved",
+        via: "knowledge_review",
+        reason: input.rationale ?? "",
       });
     }
   };

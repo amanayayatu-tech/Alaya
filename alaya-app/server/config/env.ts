@@ -6,9 +6,20 @@ export interface EnvValidationResult {
   warnings: string[];
 }
 
+export interface ReviewWindowConfig {
+  start: string;
+  end: string;
+  label: string;
+  startMinutes: number;
+  endMinutes: number;
+}
+
 const RUN_MODES = new Set<RunMode>(["development", "test", "shadow", "staging", "production"]);
 const TEST_VALUE_RE = /^(|test|test-secret|changeme|change-me|demo|demo-key|example|placeholder|dummy|fake|none|null)$/i;
 const SECRET_KEY_RE = /(api[_-]?key|token|secret|password|private[_-]?key|webhook[_-]?secret|database_url)$/i;
+const DEFAULT_REVIEW_WINDOWS = "15:30-16:00";
+const DEFAULT_IMMEDIATE_RISK_LEVELS = "destructive,financial,compliance_sensitive";
+const REVIEW_WINDOW_RE = /^([01]\d|2[0-3]):([0-5]\d)-([01]\d|2[0-3]):([0-5]\d)$/;
 
 export function isRunMode(value: string): value is RunMode {
   return RUN_MODES.has(value as RunMode);
@@ -40,6 +51,91 @@ export function boolEnv(value: string | undefined): boolean | undefined {
 
 export function capabilityEnvName(capability: string): string {
   return `ALAYA_CAP_${capability.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`;
+}
+
+function minutesFor(hour: string, minute: string): number {
+  return Number(hour) * 60 + Number(minute);
+}
+
+export function parseReviewWindows(value: string | undefined): ReviewWindowConfig[] {
+  const raw = value?.trim() || DEFAULT_REVIEW_WINDOWS;
+  return raw.split(",").map((item) => item.trim()).filter(Boolean).map((item) => {
+    const match = REVIEW_WINDOW_RE.exec(item);
+    if (!match) throw new Error(`ALAYA_REVIEW_WINDOWS entry must be HH:MM-HH:MM; received ${item}`);
+    const startMinutes = minutesFor(match[1], match[2]);
+    const endMinutes = minutesFor(match[3], match[4]);
+    if (endMinutes <= startMinutes) {
+      throw new Error(`ALAYA_REVIEW_WINDOWS entry end must be after start; received ${item}`);
+    }
+    return {
+      start: `${match[1]}:${match[2]}`,
+      end: `${match[3]}:${match[4]}`,
+      label: item,
+      startMinutes,
+      endMinutes,
+    };
+  });
+}
+
+export function reviewWindowsFromEnv(env: NodeJS.ProcessEnv = process.env): ReviewWindowConfig[] {
+  return parseReviewWindows(env.ALAYA_REVIEW_WINDOWS);
+}
+
+export function isValidIanaTimezone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function reviewTimezoneFromEnv(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env.ALAYA_REVIEW_TIMEZONE?.trim();
+  return configured || "Asia/Shanghai";
+}
+
+function parseNonNegativeIntegerEnv(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
+  const raw = env[key]?.trim();
+  if (!raw) return fallback;
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= 0 ? value : fallback;
+}
+
+export function applyGraceSecondsFromEnv(env: NodeJS.ProcessEnv = process.env): number {
+  return parseNonNegativeIntegerEnv(env, "ALAYA_APPLY_GRACE_SECONDS", 60);
+}
+
+export function applyStaggerSecondsFromEnv(env: NodeJS.ProcessEnv = process.env): number {
+  return parseNonNegativeIntegerEnv(env, "ALAYA_APPLY_STAGGER_SECONDS", 120);
+}
+
+export function gateEscalationMissedWindowsFromEnv(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.ALAYA_GATE_ESCALATION_MISSED_WINDOWS?.trim();
+  if (!raw) return 2;
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= 1 ? value : 2;
+}
+
+export function speculativeDraftingFromEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+  return boolEnv(env.ALAYA_SPECULATIVE_DRAFTING) ?? true;
+}
+
+export function speculativeBudgetRatioFromEnv(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.ALAYA_SPECULATIVE_BUDGET_RATIO?.trim();
+  if (!raw) return 0.5;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 && value <= 1 ? value : 0.5;
+}
+
+export function immediateRiskLevelsFromEnv(env: NodeJS.ProcessEnv = process.env): Set<string> {
+  const raw = env.ALAYA_IMMEDIATE_RISK_LEVELS?.trim() || DEFAULT_IMMEDIATE_RISK_LEVELS;
+  return new Set(raw.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean));
+}
+
+function externalNotificationRequested(env: NodeJS.ProcessEnv): boolean {
+  const raw = env.ALAYA_CAP_EXTERNAL_NOTIFICATION?.trim().toLowerCase();
+  return raw === "true" || raw === "1" || raw === "yes" || raw === "dry_run" || raw === "dry-run" || raw === "audit";
 }
 
 function envHasUsableSecret(env: NodeJS.ProcessEnv, name: string): boolean {
@@ -78,6 +174,62 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): EnvValidation
 
   const port = Number(env.PORT ?? 5000);
   if (!Number.isInteger(port) || port <= 0 || port > 65535) errors.push("PORT must be an integer between 1 and 65535");
+
+  try {
+    const windows = parseReviewWindows(env.ALAYA_REVIEW_WINDOWS);
+    if (windows.length === 0) errors.push("ALAYA_REVIEW_WINDOWS must contain at least one HH:MM-HH:MM entry");
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
+  }
+
+  const reviewTimezone = env.ALAYA_REVIEW_TIMEZONE?.trim();
+  if (isLongRunMode(mode) && !reviewTimezone) {
+    errors.push("ALAYA_REVIEW_TIMEZONE is required in shadow/staging/production");
+  }
+  if (reviewTimezone && !isValidIanaTimezone(reviewTimezone)) {
+    errors.push(`ALAYA_REVIEW_TIMEZONE must be a valid IANA time zone; received ${reviewTimezone}`);
+  }
+
+  for (const [key, fallback] of [
+    ["ALAYA_APPLY_GRACE_SECONDS", 60],
+    ["ALAYA_APPLY_STAGGER_SECONDS", 120],
+  ] as const) {
+    const raw = env[key]?.trim();
+    if (raw) {
+      const value = Number(raw);
+      if (!Number.isInteger(value) || value < 0) errors.push(`${key} must be an integer >= 0`);
+    }
+    parseNonNegativeIntegerEnv(env, key, fallback);
+  }
+
+  const missedWindowsRaw = env.ALAYA_GATE_ESCALATION_MISSED_WINDOWS?.trim();
+  if (missedWindowsRaw) {
+    const value = Number(missedWindowsRaw);
+    if (!Number.isInteger(value) || value < 1) errors.push("ALAYA_GATE_ESCALATION_MISSED_WINDOWS must be an integer >= 1");
+  }
+
+  if (env.ALAYA_SPECULATIVE_DRAFTING?.trim() && boolEnv(env.ALAYA_SPECULATIVE_DRAFTING) == null) {
+    errors.push("ALAYA_SPECULATIVE_DRAFTING must be boolean");
+  }
+
+  const speculativeBudgetRaw = env.ALAYA_SPECULATIVE_BUDGET_RATIO?.trim();
+  if (speculativeBudgetRaw) {
+    const value = Number(speculativeBudgetRaw);
+    if (!Number.isFinite(value) || value <= 0 || value > 1) {
+      errors.push("ALAYA_SPECULATIVE_BUDGET_RATIO must be a number in (0,1]");
+    }
+  }
+
+  if (env.ALAYA_IMMEDIATE_RISK_LEVELS?.trim() === "") {
+    errors.push("ALAYA_IMMEDIATE_RISK_LEVELS must not be empty when provided");
+  }
+
+  if (externalNotificationRequested(env)) {
+    const telegramUserId = env.ALAYA_TELEGRAM_USER_ID?.trim();
+    if (!telegramUserId || !/^\d+$/.test(telegramUserId)) {
+      errors.push("ALAYA_TELEGRAM_USER_ID must be a numeric user id when external notification is enabled");
+    }
+  }
 
   if (isLongRunMode(mode) && !env.ALAYA_API_KEY?.trim()) {
     errors.push("ALAYA_API_KEY is required in shadow/staging/production");

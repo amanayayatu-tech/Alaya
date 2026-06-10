@@ -209,7 +209,8 @@ test("gate cards render Telegram decision buttons for meaning, direction, and or
   });
   assert.deepEqual(meaning.buttons?.[0].map((button) => button.callbackData), [
     "perm:allow:gate_meaning_1",
-    "perm:deny:gate_meaning_1",
+    "perm:reject:gate_meaning_1",
+    "perm:defer:gate_meaning_1",
   ]);
 
   const direction = gateCard({
@@ -222,8 +223,10 @@ test("gate cards render Telegram decision buttons for meaning, direction, and or
   });
   assert.deepEqual(direction.buttons?.[0].map((button) => button.callbackData), [
     "perm:allow:gate_direction_1",
-    "perm:deny:gate_direction_1",
+    "perm:reject:gate_direction_1",
+    "perm:defer:gate_direction_1",
   ]);
+  assert.deepEqual(direction.buttons?.[1].map((button) => button.callbackData), ["nav:gate:gate_direction_1"]);
 
   const risk = gateCard({
     title: "风险闸",
@@ -235,8 +238,10 @@ test("gate cards render Telegram decision buttons for meaning, direction, and or
   });
   assert.deepEqual(risk.buttons?.[0].map((button) => button.callbackData), [
     "perm:allow:gate_risk_1",
-    "perm:deny:gate_risk_1",
+    "perm:reject:gate_risk_1",
+    "perm:defer:gate_risk_1",
   ]);
+  assert.deepEqual(risk.buttons?.[1].map((button) => button.callbackData), ["nav:gate:gate_risk_1"]);
 
   const conflict = gateCard({
     title: "知识冲突复核",
@@ -266,7 +271,8 @@ test("gate cards compact long gate ids for Telegram callback_data", () => {
   assert.equal(callbacks.every((item) => Buffer.byteLength(item, "utf8") <= 64), true);
   assert.deepEqual(callbacks, [
     `perm:allow:${compactGateCallbackTarget(longGateId, "perm:allow:")}`,
-    `perm:deny:${compactGateCallbackTarget(longGateId, "perm:deny:")}`,
+    `perm:reject:${compactGateCallbackTarget(longGateId, "perm:reject:")}`,
+    `perm:defer:${compactGateCallbackTarget(longGateId, "perm:defer:")}`,
   ]);
   assert.match(callbacks[0], /^perm:allow:t:[a-f0-9]{18}$/);
 
@@ -281,7 +287,8 @@ test("gate cards compact long gate ids for Telegram callback_data", () => {
   const riskCallbacks = risk.buttons?.[0].map((button) => button.callbackData) ?? [];
   assert.equal(riskCallbacks.every((item) => Buffer.byteLength(item, "utf8") <= 64), true);
   assert.match(riskCallbacks[0], /^perm:allow:t:[a-f0-9]{18}$/);
-  assert.match(riskCallbacks[1], /^perm:deny:t:[a-f0-9]{18}$/);
+  assert.match(riskCallbacks[1], /^perm:reject:t:[a-f0-9]{18}$/);
+  assert.match(riskCallbacks[2], /^perm:defer:t:[a-f0-9]{18}$/);
 
   const longReviewId = "kr_health_signal_review_extremely_long_sample_0151_ppg_support_vs_hybrid_decision_confidence";
   const conflict = gateCard({
@@ -349,6 +356,293 @@ test("callback router approves direction gates from Telegram", async () => {
   assert.equal(storage.listActionLedger("proj_tg_direction").some((row) =>
     row.actionType === "human_gate.approve" && row.target === "gate_direction_telegram"), true);
   assert.match(platform.editedCards.at(-1)?.card.body ?? "", /已批准/);
+});
+
+test("callback router requires reject reason codes and records dwell", async () => {
+  createProjectAndCycle("proj_tg_reject_reason", "cycle_tg_reject_reason_1");
+  storage.createGate({
+    id: "gate_direction_reject_reason",
+    cycleId: "cycle_tg_reject_reason_1",
+    type: "direction",
+    blocking: 1,
+    title: "Direction reject reason",
+    payload: JSON.stringify({
+      createdAt: now(),
+      summary: "direction needs rejection reason",
+      telegramReviewOpenedAt: new Date(Date.now() - 1_000).toISOString(),
+    }),
+    status: "pending",
+    estimatedMinutes: 8,
+    decision: null,
+    version: 1,
+  });
+
+  const platform = new FakePlatform();
+  const router = new CallbackRouter(platform, storage, new HumanGateService(storage));
+  await router.route("cb_reject_menu", "perm:reject:gate_direction_reject_reason", { chatId: "42", messageId: 18 });
+  assert.equal(storage.getGate("gate_direction_reject_reason")?.status, "pending");
+  assert.match(platform.editedCards.at(-1)?.card.body ?? "", /否决/);
+  assert.equal(platform.editedCards.at(-1)?.card.buttons?.flat().some((button) => button.callbackData.includes("wrong_direction")), true);
+
+  await router.route("cb_reject_reason", "perm:reason:wrong_direction:gate_direction_reject_reason", { chatId: "42", messageId: 18 });
+
+  const gate = storage.getGate("gate_direction_reject_reason");
+  assert.equal(gate?.status, "rejected");
+  assert.equal(gate?.decision, "reject");
+  assert.equal(gate?.rejectReasonCode, "wrong_direction");
+  assert.equal((gate?.reviewDwellMs ?? 0) >= 0, true);
+  assert.equal(storage.listActionLedger("proj_tg_reject_reason").some((row) =>
+    row.actionType === "human_gate.reject" && row.target === "gate_direction_reject_reason"), true);
+  assert.match(platform.editedCards.at(-1)?.card.body ?? "", /reason\\_code\\=wrong\\_direction/);
+});
+
+test("callback router defers gates through HumanGateService", async () => {
+  createProjectAndCycle("proj_tg_defer", "cycle_tg_defer_1");
+  storage.createGate({
+    id: "gate_direction_defer",
+    cycleId: "cycle_tg_defer_1",
+    type: "direction",
+    blocking: 1,
+    title: "Direction defer",
+    payload: JSON.stringify({ createdAt: now(), summary: "defer this gate" }),
+    status: "pending",
+    estimatedMinutes: 8,
+    decision: null,
+    version: 1,
+  });
+
+  const platform = new FakePlatform();
+  const router = new CallbackRouter(platform, storage, new HumanGateService(storage));
+  await router.route("cb_defer", "perm:defer:gate_direction_defer", { chatId: "42", messageId: 19 });
+
+  const gate = storage.getGate("gate_direction_defer");
+  assert.equal(gate?.status, "deferred");
+  assert.equal(gate?.decision, "defer");
+  assert.ok(gate?.deferUntil);
+  assert.equal(storage.listEvents().some((event) =>
+    event.tableName === "human_gate_items" && event.op === "defer" && event.after.includes("gate_direction_defer")), true);
+  assert.match(platform.editedCards.at(-1)?.card.body ?? "", /已顺延/);
+});
+
+test("callback router rejects unauthorized Telegram callback users", async () => {
+  createProjectAndCycle("proj_tg_auth", "cycle_tg_auth_1");
+  storage.createGate({
+    id: "gate_auth_guard",
+    cycleId: "cycle_tg_auth_1",
+    type: "meaning",
+    blocking: 0,
+    title: "Auth guarded gate",
+    payload: JSON.stringify({ createdAt: now(), summary: "auth guarded" }),
+    status: "pending",
+    estimatedMinutes: 5,
+    decision: null,
+    version: 1,
+  });
+
+  const previous = process.env.ALAYA_TELEGRAM_USER_ID;
+  process.env.ALAYA_TELEGRAM_USER_ID = "12345";
+  try {
+    const platform = new FakePlatform();
+    const router = new CallbackRouter(platform, storage, new HumanGateService(storage));
+    await router.route("cb_auth", "perm:allow:gate_auth_guard", { chatId: "42", messageId: 20, userId: "999" });
+
+    assert.equal(storage.getGate("gate_auth_guard")?.status, "pending");
+    assert.equal(platform.answeredCallbacks[0].callbackId, "cb_auth");
+    assert.match(platform.answeredCallbacks[0].text ?? "", /未授权/);
+    assert.equal(storage.listEvents().some((event) =>
+      event.tableName === "notifications" && event.op === "telegram_unauthorized_callback" && event.after.includes("gate_auth_guard")), true);
+  } finally {
+    if (previous == null) delete process.env.ALAYA_TELEGRAM_USER_ID;
+    else process.env.ALAYA_TELEGRAM_USER_ID = previous;
+  }
+});
+
+test("review command opens a manual session and advances to completion", async () => {
+  createProjectAndCycle("proj_tg_review_session", "cycle_tg_review_session_1");
+  storage.createGate({
+    id: "gate_review_session_1",
+    cycleId: "cycle_tg_review_session_1",
+    type: "meaning",
+    blocking: 0,
+    title: "Review session gate",
+    payload: JSON.stringify({ createdAt: now(), summary: "review session" }),
+    status: "pending",
+    estimatedMinutes: 5,
+    decision: null,
+    version: 1,
+  });
+
+  const platform = new FakePlatform();
+  const router = new CallbackRouter(platform, storage, new HumanGateService(storage));
+  await router.route("", "cmd:/review", { chatId: "42", messageId: 0 });
+
+  const session = storage.getOpenReviewSession("proj_tg_review_session");
+  assert.equal(session?.source, "manual");
+  assert.equal(platform.sentCards.length, 1);
+  assert.match(platform.sentCards[0].card.title?.text ?? "", /1\/1/);
+  assert.ok(JSON.parse(storage.getGate("gate_review_session_1")?.payload ?? "{}").telegramReviewOpenedAt);
+
+  await router.route("cb_review_approve", "perm:allow:gate_review_session_1", { chatId: "42", messageId: 21 });
+  assert.equal(storage.getGate("gate_review_session_1")?.status, "approved");
+  assert.equal(storage.getOpenReviewSession("proj_tg_review_session"), undefined);
+  assert.match(platform.editedCards.at(-1)?.card.title?.text ?? "", /审批会话完成/);
+});
+
+test("review digest command opens the project that emitted the digest", async () => {
+  createProjectAndCycle("proj_tg_digest_a", "cycle_tg_digest_a_1");
+  createProjectAndCycle("proj_tg_digest_z", "cycle_tg_digest_z_1");
+  storage.createGate({
+    id: "gate_tg_digest_a",
+    cycleId: "cycle_tg_digest_a_1",
+    type: "meaning",
+    blocking: 0,
+    title: "Digest A gate",
+    payload: JSON.stringify({ createdAt: now(), summary: "target digest gate" }),
+    status: "pending",
+    estimatedMinutes: 5,
+    decision: null,
+    version: 1,
+  });
+  storage.createGate({
+    id: "gate_tg_digest_z",
+    cycleId: "cycle_tg_digest_z_1",
+    type: "meaning",
+    blocking: 0,
+    title: "Digest Z gate",
+    payload: JSON.stringify({ createdAt: now(), summary: "other project gate" }),
+    status: "pending",
+    estimatedMinutes: 5,
+    decision: null,
+    version: 1,
+  });
+
+  const platform = new FakePlatform();
+  const bus = new NotificationBus().addAdapter(platform, ["42"]);
+  await bus.emit({
+    type: "review_digest",
+    projectId: "proj_tg_digest_a",
+    title: "Review digest A",
+    body: "Project A needs approval",
+  });
+  const callbackData = platform.sentCards[0].card.buttons?.[0]?.[0]?.callbackData ?? "";
+  assert.equal(callbackData, "cmd:/review:proj_tg_digest_a");
+
+  const router = new CallbackRouter(platform, storage, new HumanGateService(storage));
+  await router.route("", callbackData, { chatId: "42", messageId: 0 });
+
+  assert.equal(storage.getOpenReviewSession("proj_tg_digest_a")?.source, "manual");
+  assert.equal(storage.getOpenReviewSession("proj_tg_digest_z"), undefined);
+  assert.equal(
+    JSON.parse(storage.getGate("gate_tg_digest_a")?.payload ?? "{}").reviewSessionId,
+    storage.getOpenReviewSession("proj_tg_digest_a")?.id,
+  );
+});
+
+test("review session completion counts only gates assigned to that session", async () => {
+  createProjectAndCycle("proj_tg_review_scope", "cycle_tg_review_scope_1");
+  storage.createGate({
+    id: "gate_tg_review_scope_outside",
+    cycleId: "cycle_tg_review_scope_1",
+    type: "meaning",
+    blocking: 0,
+    title: "Outside deferred gate",
+    payload: JSON.stringify({ createdAt: now(), summary: "outside session" }),
+    status: "deferred",
+    estimatedMinutes: 5,
+    decision: "defer",
+    deferUntil: "2026-06-12T00:00:00.000Z",
+    version: 1,
+  });
+  storage.createGate({
+    id: "gate_tg_review_scope_pending",
+    cycleId: "cycle_tg_review_scope_1",
+    type: "meaning",
+    blocking: 0,
+    title: "Session gate",
+    payload: JSON.stringify({ createdAt: now(), summary: "inside session" }),
+    status: "pending",
+    estimatedMinutes: 5,
+    decision: null,
+    version: 1,
+  });
+
+  const platform = new FakePlatform();
+  const router = new CallbackRouter(platform, storage, new HumanGateService(storage));
+  await router.route("", "cmd:/review:proj_tg_review_scope", { chatId: "42", messageId: 0 });
+  await router.route("cb_defer_scoped", "perm:defer:gate_tg_review_scope_pending", { chatId: "42", messageId: 21 });
+
+  const session = storage.listReviewSessions("proj_tg_review_scope").at(-1);
+  assert.equal(session?.closedAt != null, true);
+  assert.equal(session?.gatesDeferred, 1);
+  assert.equal(session?.gatesResolved, 0);
+});
+
+test("pause, window, and resume commands update review pause state", async () => {
+  createProjectAndCycle("proj_tg_window", "cycle_tg_window_1");
+  const previous = process.env.ALAYA_REVIEW_PAUSED;
+  try {
+    const platform = new FakePlatform();
+    const router = new CallbackRouter(platform, storage, new HumanGateService(storage));
+    await router.route("", "cmd:/pause", { chatId: "42", messageId: 0 });
+    assert.equal(process.env.ALAYA_REVIEW_PAUSED, "true");
+    assert.equal(storage.getReviewPauseState(), true);
+    process.env.ALAYA_REVIEW_PAUSED = "false";
+    await router.route("", "cmd:/window", { chatId: "42", messageId: 0 });
+    assert.match(platform.sentTexts.at(-1)?.text ?? "", /暂停状态：已暂停/);
+    await router.route("", "cmd:/resume", { chatId: "42", messageId: 0 });
+    assert.equal(process.env.ALAYA_REVIEW_PAUSED, "false");
+    assert.equal(storage.getReviewPauseState(), false);
+  } finally {
+    if (previous == null) delete process.env.ALAYA_REVIEW_PAUSED;
+    else process.env.ALAYA_REVIEW_PAUSED = previous;
+  }
+});
+
+test("unauthorized Telegram text commands cannot pause review windows", async () => {
+  createProjectAndCycle("proj_tg_pause_auth", "cycle_tg_pause_auth_1");
+  const previousUser = process.env.ALAYA_TELEGRAM_USER_ID;
+  const previousPaused = process.env.ALAYA_REVIEW_PAUSED;
+  process.env.ALAYA_TELEGRAM_USER_ID = "12345";
+  process.env.ALAYA_REVIEW_PAUSED = "false";
+  storage.setReviewPauseState(false, "test");
+  try {
+    const platform = new FakePlatform();
+    const router = new CallbackRouter(platform, storage, new HumanGateService(storage));
+    await router.route("", "cmd:/pause", { chatId: "42", messageId: 0, userId: "999" });
+
+    assert.equal(process.env.ALAYA_REVIEW_PAUSED, "false");
+    assert.equal(storage.getReviewPauseState(), false);
+    assert.match(platform.sentTexts.at(-1)?.text ?? "", /未授权/);
+    assert.equal(storage.listEvents().some((event) =>
+      event.tableName === "notifications" && event.op === "telegram_unauthorized_command" && event.after.includes("cmd:/pause")), true);
+  } finally {
+    if (previousUser == null) delete process.env.ALAYA_TELEGRAM_USER_ID;
+    else process.env.ALAYA_TELEGRAM_USER_ID = previousUser;
+    if (previousPaused == null) delete process.env.ALAYA_REVIEW_PAUSED;
+    else process.env.ALAYA_REVIEW_PAUSED = previousPaused;
+  }
+});
+
+test("authorized Telegram text commands can pause review windows", async () => {
+  createProjectAndCycle("proj_tg_pause_authorized", "cycle_tg_pause_authorized_1");
+  const previousUser = process.env.ALAYA_TELEGRAM_USER_ID;
+  const previousPaused = process.env.ALAYA_REVIEW_PAUSED;
+  process.env.ALAYA_TELEGRAM_USER_ID = "12345";
+  process.env.ALAYA_REVIEW_PAUSED = "false";
+  storage.setReviewPauseState(false, "test");
+  try {
+    const platform = new FakePlatform();
+    const router = new CallbackRouter(platform, storage, new HumanGateService(storage));
+    await router.route("", "cmd:/pause", { chatId: "42", messageId: 0, userId: "12345" });
+
+    assert.equal(process.env.ALAYA_REVIEW_PAUSED, "true");
+    assert.equal(storage.getReviewPauseState(), true);
+  } finally {
+    if (previousUser == null) delete process.env.ALAYA_TELEGRAM_USER_ID;
+    else process.env.ALAYA_TELEGRAM_USER_ID = previousUser;
+    if (previousPaused == null) delete process.env.ALAYA_REVIEW_PAUSED;
+    else process.env.ALAYA_REVIEW_PAUSED = previousPaused;
+  }
 });
 
 test("callback router resolves knowledge conflict reviews from Telegram", async () => {

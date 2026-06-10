@@ -93,6 +93,31 @@ test("storage.ts 删除一处 auditWrite 触发底线3失败并精确定位方�
   }
 });
 
+test("HumanGateService 外直接 updateGate 触发 gate 状态入口失败", () => {
+  const dir = mkdtempSync(join(tmpdir(), "alaya-guard-"));
+  try {
+    cpSync(repoRoot, dir, {
+      recursive: true,
+      filter: (src) => !src.includes("node_modules") && !src.includes(join(repoRoot, ".git")),
+    });
+    const target = join(dir, "alaya-app", "server", "rogueGate.ts");
+    writeFileSync(
+      target,
+      [
+        'import { storage } from "./storage";',
+        'export function bypassGate(gateId){',
+        `  return storage.${"update" + "Gate"}(gateId, { status: "approved", decision: "approve" });`,
+        "}",
+      ].join("\n"),
+    );
+    const res = runGuard([join(dir, "alaya-app")], dir);
+    assert.equal(res.status, 1, "HumanGateService 外 updateGate 后应失败");
+    assert.match(res.stdout + res.stderr, /底线3-gate状态入口.*rogueGate\.ts/s);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("方法体内 .run({...}) 对象字面量花括号不影响审计检测", () => {
   const dir = mkdtempSync(join(tmpdir(), "alaya-guard-min-"));
   try {

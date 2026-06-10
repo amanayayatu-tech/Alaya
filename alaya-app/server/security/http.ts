@@ -73,9 +73,24 @@ function clientKey(req: Request, bucket: string): string {
   return `${bucket}:${req.ip || req.socket.remoteAddress || "unknown"}`;
 }
 
+function pruneExpiredRateBuckets(now: number): void {
+  for (const [key, state] of Array.from(rateBuckets)) {
+    if (state.resetAt <= now) rateBuckets.delete(key);
+  }
+}
+
+export function resetRateLimitBucketsForTest(): void {
+  rateBuckets.clear();
+}
+
+export function rateLimitBucketCountForTest(): number {
+  return rateBuckets.size;
+}
+
 export function createRateLimitMiddleware(options: RateLimitOptions) {
   return (req: Request, res: Response, next: NextFunction) => {
     const now = Date.now();
+    pruneExpiredRateBuckets(now);
     const key = clientKey(req, options.bucket);
     const current = rateBuckets.get(key);
     const state = current && current.resetAt > now ? current : { resetAt: now + options.windowMs, count: 0 };

@@ -15,11 +15,13 @@ interface TelegramChat {
 interface TelegramMessage {
   message_id: number;
   chat: TelegramChat;
+  from?: { id: number | string };
   text?: string;
 }
 
 interface TelegramCallbackQuery {
   id: string;
+  from?: { id: number | string };
   data?: string;
   message?: TelegramMessage;
 }
@@ -154,6 +156,10 @@ export class TelegramAdapter implements MessagingPlatform {
     this.polling = false;
   }
 
+  private isAllowedChat(chatId: string | number): boolean {
+    return String(chatId) === String(this.defaultChatId);
+  }
+
   private notificationDryRun(method: string): boolean {
     const endpoint = telegramHostCheckUrl(method);
     const decision = checkCapability({
@@ -239,10 +245,12 @@ export class TelegramAdapter implements MessagingPlatform {
     if (update.callback_query) {
       const query = update.callback_query;
       if (!query.data || !query.message) return;
+      if (!this.isAllowedChat(query.message.chat.id)) return;
       for (const handler of this.callbackHandlers) {
         await handler(query.id, query.data, {
           chatId: String(query.message.chat.id),
           messageId: query.message.message_id,
+          userId: query.from?.id == null ? undefined : String(query.from.id),
         });
       }
       return;
@@ -251,18 +259,28 @@ export class TelegramAdapter implements MessagingPlatform {
     const text = update.message?.text?.trim();
     const chatId = update.message?.chat.id;
     if (!text || chatId == null) return;
+    if (!this.isAllowedChat(chatId)) return;
+    const userId = update.message?.from?.id == null ? undefined : String(update.message.from.id);
     if (text.startsWith("/status")) {
-      await this.dispatchCommand("cmd:/status", String(chatId), update.message?.message_id ?? 0);
+      await this.dispatchCommand("cmd:/status", String(chatId), update.message?.message_id ?? 0, userId);
     } else if (text.startsWith("/gates")) {
-      await this.dispatchCommand("cmd:/gates", String(chatId), update.message?.message_id ?? 0);
+      await this.dispatchCommand("cmd:/gates", String(chatId), update.message?.message_id ?? 0, userId);
+    } else if (text.startsWith("/review")) {
+      await this.dispatchCommand("cmd:/review", String(chatId), update.message?.message_id ?? 0, userId);
+    } else if (text.startsWith("/window")) {
+      await this.dispatchCommand("cmd:/window", String(chatId), update.message?.message_id ?? 0, userId);
+    } else if (text.startsWith("/pause")) {
+      await this.dispatchCommand("cmd:/pause", String(chatId), update.message?.message_id ?? 0, userId);
+    } else if (text.startsWith("/resume")) {
+      await this.dispatchCommand("cmd:/resume", String(chatId), update.message?.message_id ?? 0, userId);
     } else if (text.startsWith("/help")) {
-      await this.sendText(String(chatId), "可用命令：\\/status 查看飞轮状态，\\/gates 列出待处理闸门。");
+      await this.sendText(String(chatId), "可用命令：\\/status 查看飞轮状态，\\/gates 列出待处理闸门，\\/review 开始审批，\\/window 查看窗口，\\/pause 暂停催审，\\/resume 恢复。");
     }
   }
 
-  private async dispatchCommand(data: string, chatId: string, messageId: number): Promise<void> {
+  private async dispatchCommand(data: string, chatId: string, messageId: number, userId?: string): Promise<void> {
     for (const handler of this.callbackHandlers) {
-      await handler("", data, { chatId, messageId });
+      await handler("", data, { chatId, messageId, userId });
     }
   }
 

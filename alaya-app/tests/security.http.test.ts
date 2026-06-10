@@ -15,13 +15,21 @@ process.env.ALAYA_CAP_KNOWLEDGE_WRITE = "true";
 process.env.ALAYA_CAP_SCHEDULER_LOOP = "true";
 process.env.ALAYA_AUTO_SEED_DEMO = "false";
 process.env.ALAYA_LLM_PROVIDER = "mock";
+process.env.ALAYA_REVIEW_TIMEZONE = "Asia/Shanghai";
 process.env.ALAYA_CORS_ORIGINS = "https://alaya.example.test";
 process.env.ALAYA_TRUST_PROXY = "true";
 process.env.ALAYA_COST_RATE_LIMIT_MAX = "1";
 process.env.ALAYA_COST_RATE_LIMIT_WINDOW_MS = "60000";
 
 const { registerRoutes } = await import("../server/routes.ts");
-const { corsMiddleware, securityHeadersMiddleware, costEndpointRateLimit } = await import("../server/security/http.ts");
+const {
+  corsMiddleware,
+  securityHeadersMiddleware,
+  costEndpointRateLimit,
+  createRateLimitMiddleware,
+  rateLimitBucketCountForTest,
+  resetRateLimitBucketsForTest,
+} = await import("../server/security/http.ts");
 
 const app = express();
 app.use(securityHeadersMiddleware);
@@ -135,6 +143,29 @@ test("invalid rate-limit env values fall back instead of disabling the limiter",
     else process.env.ALAYA_COST_RATE_LIMIT_MAX = oldMax;
     if (oldWindow == null) delete process.env.ALAYA_COST_RATE_LIMIT_WINDOW_MS;
     else process.env.ALAYA_COST_RATE_LIMIT_WINDOW_MS = oldWindow;
+    await new Promise<void>((resolve, reject) => limitedServer.close((err) => (err ? reject(err) : resolve())));
+  }
+});
+
+test("rate limiter prunes expired buckets during long-running processes", async () => {
+  resetRateLimitBucketsForTest();
+  const limitedApp = express();
+  const limitedServer = createServer(limitedApp);
+  limitedApp.post("/a", createRateLimitMiddleware({ bucket: "cleanup-a", windowMs: 50, max: 10 }), (_req, res) => res.json({ ok: true }));
+  limitedApp.post("/b", createRateLimitMiddleware({ bucket: "cleanup-b", windowMs: 50, max: 10 }), (_req, res) => res.json({ ok: true }));
+  limitedApp.post("/c", createRateLimitMiddleware({ bucket: "cleanup-c", windowMs: 50, max: 10 }), (_req, res) => res.json({ ok: true }));
+  await new Promise<void>((resolve) => limitedServer.listen(0, "127.0.0.1", resolve));
+  const address = limitedServer.address() as AddressInfo;
+  const limitedUrl = (path: string) => `http://127.0.0.1:${address.port}${path}`;
+  try {
+    assert.equal((await fetch(limitedUrl("/a"), { method: "POST" })).status, 200);
+    assert.equal((await fetch(limitedUrl("/b"), { method: "POST" })).status, 200);
+    assert.equal(rateLimitBucketCountForTest(), 2);
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    assert.equal((await fetch(limitedUrl("/c"), { method: "POST" })).status, 200);
+    assert.equal(rateLimitBucketCountForTest(), 1);
+  } finally {
+    resetRateLimitBucketsForTest();
     await new Promise<void>((resolve, reject) => limitedServer.close((err) => (err ? reject(err) : resolve())));
   }
 });

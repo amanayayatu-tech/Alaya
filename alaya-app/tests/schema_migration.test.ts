@@ -36,11 +36,44 @@ test("knowledge_items migration adds maturity and injection fields without break
     assert.equal(llmColumns.has(name), true, `llm_calls.${name} should exist`);
   }
 
+  const cycleColumns = new Set(
+    (rawDb.prepare("PRAGMA table_info(cycles)").all() as Array<{ name: string }>).map((row) => row.name),
+  );
+  for (const name of [
+    "speculative",
+    "parent_cycle_id",
+    "depends_on",
+    "assumed_outcomes",
+    "draft_status",
+    "apply_scheduled_at",
+    "applied_at",
+    "co_applied_set",
+  ]) {
+    assert.equal(cycleColumns.has(name), true, `cycles.${name} should exist`);
+  }
+
+  const gateColumns = new Set(
+    (rawDb.prepare("PRAGMA table_info(human_gate_items)").all() as Array<{ name: string }>).map((row) => row.name),
+  );
+  for (const name of [
+    "notify_policy",
+    "defer_until",
+    "reject_reason_code",
+    "review_dwell_ms",
+    "evidence_revalidated_at",
+    "evidence_changed",
+    "missed_windows",
+  ]) {
+    assert.equal(gateColumns.has(name), true, `human_gate_items.${name} should exist`);
+  }
+
   const tables = new Set(
     (rawDb.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name),
   );
   assert.equal(tables.has("trace_events"), true, "trace_events table should exist");
   assert.equal(tables.has("action_ledger"), true, "action_ledger table should exist");
+  assert.equal(tables.has("review_sessions"), true, "review_sessions table should exist");
+  assert.equal(tables.has("notification_digests"), true, "notification_digests table should exist");
 
   storage.createKnowledge({
     id: "kb_schema_1",

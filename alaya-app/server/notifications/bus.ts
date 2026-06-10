@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { escapeMarkdownV2 } from "./telegram-simple";
-import { gateCard, resolvedGateCard } from "./card";
+import { btn, compactProjectCallbackTarget, gateCard, resolvedGateCard } from "./card";
 import type { AlayaEvent, MessageRef, MessagingPlatform } from "./types";
 
 export interface NotificationEmitFailure {
@@ -151,6 +151,17 @@ export class NotificationBus {
       return;
     }
 
+    if (event.type === "review_digest") {
+      const reviewTarget = compactProjectCallbackTarget(event.projectId, "cmd:/review:");
+      await adapter.sendCard(chatId, {
+        title: { text: escapeMarkdownV2(event.title), color: "blue" },
+        body: escapeMarkdownV2(event.body),
+        buttons: [[btn.primary("开始审批", `cmd:/review:${reviewTarget}`)]],
+        footer: event.actionUrl ? escapeMarkdownV2(event.actionUrl) : undefined,
+      });
+      return;
+    }
+
     await adapter.sendText(chatId, this.renderText(event));
   }
 
@@ -287,6 +298,8 @@ export class NotificationBus {
       knowledge_promoted: "📚",
       gate_opened: "🔔",
       gate_resolved: "✅",
+      review_digest: "🗂️",
+      review_summary: "📋",
     }[event.type] ?? "📢";
     const lines = [
       `${emoji} *${escapeMarkdownV2(event.title)}*`,

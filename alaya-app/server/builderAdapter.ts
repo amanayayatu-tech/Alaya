@@ -6,6 +6,7 @@ import { auditCapabilityDecision, evaluateCapability } from "./security/capabili
 import { redactSensitiveData } from "./security/redact";
 import { storage, now } from "./storage";
 import { recordTrace } from "./trace";
+import { createDecisionBrief, withDecisionBriefPayload } from "./decisionBrief";
 
 export interface BuilderPlanInput {
   projectId: string;
@@ -125,7 +126,7 @@ function ensureApplyRiskGate(input: { cycleId?: string | null; idempotencyKey: s
     type: "risk",
     blocking: 1,
     title: "Builder 变更包 apply 审批",
-    payload: JSON.stringify({
+    payload: withDecisionBriefPayload({
       riskKey: "builder_apply_change_package",
       idempotencyKey: input.idempotencyKey,
       goal: input.pkg.goal,
@@ -134,7 +135,14 @@ function ensureApplyRiskGate(input: { cycleId?: string | null; idempotencyKey: s
       rollbackPlan: input.pkg.rollbackPlan,
       auditSummary: input.pkg.auditSummary,
       createdAt: now(),
-    }),
+    }, createDecisionBrief({
+      claim: `Apply builder change package for ${input.pkg.goal}`,
+      metric: "builder_apply_approval",
+      timeWindow: "before non-dry-run apply",
+      ifApproved: "The non-dry-run builder apply path may proceed if shell capability also allows it.",
+      ifRejected: "The change package stays blocked and no patch is applied.",
+      rollbackRef: "payload.rollbackPlan",
+    })),
     status: "pending",
     estimatedMinutes: 15,
     decision: null,

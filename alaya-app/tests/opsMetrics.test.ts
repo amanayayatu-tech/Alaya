@@ -71,6 +71,7 @@ test("ops metrics aggregate seeded SQLite rows and cross-check raw counts", () =
     status: "approved",
     estimatedMinutes: 10,
     decision: "approve",
+    reviewDwellMs: 12_000,
     version: 1,
   });
   storage.createGate({
@@ -83,6 +84,7 @@ test("ops metrics aggregate seeded SQLite rows and cross-check raw counts", () =
     status: "pending",
     estimatedMinutes: 12,
     decision: null,
+    reviewDwellMs: 8_000,
     version: 1,
   });
   storage.createPrediction({
@@ -165,6 +167,9 @@ test("ops metrics aggregate seeded SQLite rows and cross-check raw counts", () =
 
   assert.equal(metrics.humanGateResolution.sampleSize, 1);
   assert.equal(metrics.humanGateResolution.medianMinutes, 10);
+  assert.equal(metrics.decisionDwell.sampleSize, 2);
+  assert.equal(metrics.decisionDwell.p50Ms, 10_000);
+  assert.equal(metrics.decisionDwell.lowBlockingDwellWarning, false);
   assert.equal(metrics.llmCostPerCycle.totalCostUsd, 0.02);
   assert.equal(measurableClaimRatio(projectId).ratio, 0.5);
   assert.equal(knowledgeReuseRate(projectId).rate, 1);
@@ -187,6 +192,8 @@ test("ops metrics API returns safe nulls and zeros for empty datasets", async ()
     const body = await response.json() as any;
     assert.equal(response.status, 200);
     assert.equal(body.humanGateResolution.medianMs, null);
+    assert.equal(body.decisionDwell.p50Ms, null);
+    assert.equal(body.decisionDwell.lowBlockingDwellWarning, false);
     assert.equal(body.measurableClaimRatio.ratio, null);
     assert.equal(body.blockingGateBacklog.count, 0);
   } finally {

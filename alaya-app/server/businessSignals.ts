@@ -4,6 +4,7 @@ import { recordActionProposal } from "./actionLedger";
 import { redactSensitiveData } from "./security/redact";
 import { storage, now } from "./storage";
 import { recordTrace } from "./trace";
+import { createDecisionBrief, withDecisionBriefPayload } from "./decisionBrief";
 import type { ExternalBusinessSignal } from "@shared/schema";
 import type { RiskLevel } from "@shared/core/types.js";
 
@@ -240,7 +241,7 @@ export function importBusinessSignals(rows: Array<Record<string, unknown>>): Bus
           type: "meaning",
           blocking: 0,
           title: `业务信号意义闸: ${input.signalType}`,
-          payload: JSON.stringify({
+          payload: withDecisionBriefPayload({
             source: "business_signal",
             sourceId: signal.id,
             externalId: `${input.source}:${input.sourceId}`,
@@ -250,10 +251,17 @@ export function importBusinessSignals(rows: Array<Record<string, unknown>>): Bus
             topicKey: feedback.topicKey,
             summary: feedback.summary,
             sensitivityLevel: input.sensitivityLevel,
-	            riskLevel: normalizedRiskLevel,
+            riskLevel: normalizedRiskLevel,
             payload: redactedPayload,
             createdAt: now(),
-          }),
+          }, createDecisionBrief({
+            claim: `Business signal ${input.source}/${input.sourceId} should enter the learning loop`,
+            metric: "business_signal_review",
+            timeWindow: "before next knowledge injection",
+            ifApproved: "The signal can be converted into approved meaning knowledge and included in conflict checks.",
+            ifRejected: "The signal remains stored as feedback but does not enter active knowledge.",
+            rollbackRef: "external_business_signals.dedupe_key",
+          })),
           status: "pending",
           estimatedMinutes: isSensitive(input.sensitivityLevel) ? 12 : 8,
           decision: null,

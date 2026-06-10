@@ -148,6 +148,9 @@ const knowledgePatchSchema = z.object({
 
 const gateDecisionSchema = z.object({
   rationale: longTextSchema.default(""),
+  reasonCode: z.enum(["wrong_direction", "weak_evidence", "not_now", "too_risky", "risk_too_high"]).optional(),
+  reviewOpenedAt: z.union([z.string().trim().max(64), z.number().finite()]).nullable().optional(),
+  deferUntil: z.string().trim().max(64).nullable().optional(),
 }).passthrough();
 
 const feedbackSyncSchema = z.object({
@@ -685,6 +688,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   function resolveGate(req: Request, res: Response, action: GateDecisionAction) {
     const parsed = gateDecisionSchema.safeParse(req.body ?? {});
     if (!parsed.success) return validationError(res, parsed.error);
+    if (action === "reject" && !parsed.data.reasonCode) {
+      return res.status(400).json({ message: "reasonCode is required for reject" });
+    }
     try {
       const gateBefore = storage.getGate(String(req.params.id));
       const wasPending = gateBefore?.status === "pending";
@@ -692,6 +698,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         rationale: parsed.data.rationale,
         via: "web",
         actor: "human",
+        reasonCode: parsed.data.reasonCode === "risk_too_high" ? "too_risky" : parsed.data.reasonCode,
+        reviewOpenedAt: parsed.data.reviewOpenedAt,
       });
       if (wasPending) {
         emitGateResolutionReceipt(result.gate, action, {
@@ -712,12 +720,50 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (error instanceof Error && error.message.startsWith("human gate not found:")) {
         return res.status(404).json({ message: "not found" });
       }
+      if (error instanceof Error && error.message.includes("requires reason_code")) {
+        return res.status(400).json({ message: error.message });
+      }
       throw error;
     }
   }
   app.post("/api/human-gates/:id/approve", (req, res) => resolveGate(req, res, "approve"));
   app.post("/api/human-gates/:id/reject", (req, res) => resolveGate(req, res, "reject"));
   app.post("/api/human-gates/:id/modify", (req, res) => resolveGate(req, res, "modify"));
+  app.post("/api/human-gates/:id/defer", (req, res) => {
+    const parsed = gateDecisionSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return validationError(res, parsed.error);
+    try {
+      const result = humanGateService.defer(String(req.params.id), parsed.data.deferUntil ?? null, {
+        rationale: parsed.data.rationale,
+        via: "web",
+        actor: "human",
+        reviewOpenedAt: parsed.data.reviewOpenedAt,
+      });
+      return res.json(parseJsonFields(result.gate as any, ["payload"]));
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("human gate not found:")) {
+        return res.status(404).json({ message: "not found" });
+      }
+      return res.status(400).json({ message: error instanceof Error ? error.message : String(error) });
+    }
+  });
+  app.post("/api/human-gates/:id/revoke", (req, res) => {
+    const parsed = gateDecisionSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return validationError(res, parsed.error);
+    try {
+      const result = humanGateService.revoke(String(req.params.id), {
+        rationale: parsed.data.rationale,
+        via: "web",
+        actor: "human",
+      });
+      return res.json(parseJsonFields(result.gate as any, ["payload"]));
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("human gate not found:")) {
+        return res.status(404).json({ message: "not found" });
+      }
+      return res.status(400).json({ message: error instanceof Error ? error.message : String(error) });
+    }
+  });
 
   // ---------------- predictions ----------------
   app.get("/api/cycles/:id/predictions", (req, res) => {

@@ -6,6 +6,9 @@ import { join } from "node:path";
 
 process.env.ALAYA_DB_PATH = join(mkdtempSync(join(tmpdir(), "alaya-app-test-")), "test.db");
 process.env.ALAYA_LLM_PROVIDER = "mock";
+process.env.ALAYA_REVIEW_TIMEZONE = "Asia/Shanghai";
+process.env.ALAYA_REVIEW_WINDOWS = "00:00-00:01";
+process.env.ALAYA_GATE_ESCALATION_MISSED_WINDOWS = "2";
 
 const { storage, now } = await import("../server/storage.ts");
 const {
@@ -28,6 +31,18 @@ const {
 const { callLlm } = await import("../server/llm.ts");
 const { createProjectFromOnboarding } = await import("../server/onboarding.ts");
 const { updateProjectConfig } = await import("../server/projectConfig.ts");
+
+const gateService = new HumanGateService(storage);
+
+function approveGate(gateId: string, decision = "approve", patch: Record<string, any> = {}) {
+  gateService.systemResolve(gateId, decision, {
+    actor: "test",
+    status: "approved",
+    via: "test",
+    reason: "test fixture approval",
+    patch,
+  });
+}
 
 function createProject(projectId: string) {
   const cycleIdSuffix = projectId.replace(/[^a-zA-Z0-9_]+/g, "_").slice(-80);
@@ -719,7 +734,7 @@ test("GitHub Issues sync can read token from a local token file", async () => {
   }
 });
 
-test("scheduler pauses instead of treating GitHub sync failure as no feedback", async () => {
+test("scheduler keeps GitHub sync failure blocking while speculative drafting stays at dry-run boundary", async () => {
   const projectId = "proj_ext_fail_902";
   createProject(projectId);
   upsertGithubSource(projectId, "acme", "alaya");
@@ -729,7 +744,7 @@ test("scheduler pauses instead of treating GitHub sync failure as no feedback", 
   const cycle = storage.listCycles(projectId)[0];
   const directionGate = storage.listGates(projectId).find((gate) => gate.cycleId === cycle.id && gate.type === "direction");
   assert.ok(directionGate);
-  storage.updateGate(directionGate.id, { status: "approved", decision: "approve_recommended" });
+  approveGate(directionGate.id, "approve_recommended");
 
   const echoedSecret = "ghp_scheduler_failure_secret_that_must_not_leak_123456";
   const fake = installFailingGithubFetch(503, `temporary outage token=${echoedSecret}`);
@@ -764,7 +779,12 @@ test("scheduler pauses instead of treating GitHub sync failure as no feedback", 
   assert.equal(persistedProjectCorpus(projectId).includes(echoedSecret), false);
 
   const third = await schedulerTickProject(projectId);
-  assert.equal(third.action, "waiting_blocking_gate");
+  assert.equal(third.action, "created_speculative_draft");
+  const speculative = storage.getCycle(third.nextCycleId ?? "");
+  assert.equal(speculative?.speculative, 1);
+  assert.equal(speculative?.draftStatus, "ready_awaiting_approval");
+  assert.equal(storage.listPredictions(cycle.id).length, 0);
+  assert.equal(storage.listObservations(cycle.id).length, 0);
   assert.equal(storage.listGates(projectId).filter((gate) => gate.type === "risk" && JSON.parse(gate.payload).riskKey === "external_feedback_sync_error").length, 1);
 });
 
@@ -1287,7 +1307,7 @@ test("gate budget only counts gates resolved in the current week", () => {
     version: 1,
   });
 
-  storage.updateGate(`gate_current_budget_${projectId}`, { status: "approved", decision: "approve" });
+  approveGate(`gate_current_budget_${projectId}`, "approve");
   const budget = gateBudgetForProject(projectId);
   assert.equal(budget.used, 10);
   assert.equal(budget.remaining, 110);
@@ -1389,7 +1409,7 @@ test("scheduler does not reopen human overload gate when weekly human time is hi
   assert.equal(riskGate, undefined);
 });
 
-test("scheduler throttles when pending blocking gates exceed three", async () => {
+test("scheduler does not throttle solely because pending blocking gates exceed three", async () => {
   const projectId = "proj_blocking_count_335";
   createProject(projectId);
   const cycle = storage.listCycles(projectId)[0];
@@ -1414,18 +1434,15 @@ test("scheduler throttles when pending blocking gates exceed three", async () =>
 
   const beforeTickBudget = gateBudgetForProject(projectId);
   assert.equal(beforeTickBudget.pendingBlocking, 4);
-  assert.equal(beforeTickBudget.safetyMode, true);
+  assert.equal(beforeTickBudget.safetyMode, false);
   assert.equal(beforeTickBudget.pendingOverBudget2x, false);
 
   const first = await schedulerTickProject(projectId);
-  assert.equal(first.action, "safety_throttled");
-  assert.match(first.note, /blocking gate backlog exceeds safety threshold/);
-  assert.equal(first.budget.pendingBlocking, 4);
-  assert.equal(first.budget.safetyMode, true);
-  assert.equal(storage.listCycles(projectId).filter((item) => item.idx > 1).length, 0);
+  assert.notEqual(first.action, "safety_throttled");
+  assert.equal(first.budget.safetyMode, false);
 });
 
-test("scheduler throttles when a blocking human gate has been pending for more than five days", async () => {
+test("scheduler does not throttle solely because a blocking human gate is older than five days", async () => {
   const projectId = "proj_blocking_age_336";
   createProject(projectId);
   const cycle = storage.listCycles(projectId)[0];
@@ -1450,14 +1467,46 @@ test("scheduler throttles when a blocking human gate has been pending for more t
   const beforeTickBudget = gateBudgetForProject(projectId);
   assert.equal(beforeTickBudget.pendingBlocking, 1);
   assert.ok(beforeTickBudget.oldestBlockingAgeDays > 5);
+  assert.equal(beforeTickBudget.safetyMode, false);
+  assert.equal(beforeTickBudget.pendingOverBudget2x, false);
+
+  const first = await schedulerTickProject(projectId);
+  assert.notEqual(first.action, "safety_throttled");
+  assert.ok(first.budget.oldestBlockingAgeDays > 5);
+  assert.equal(first.budget.safetyMode, false);
+});
+
+test("scheduler throttles when a blocking gate reaches the missed-window threshold", async () => {
+  const projectId = "proj_blocking_missed_windows_336";
+  createProject(projectId);
+  const cycle = storage.listCycles(projectId)[0];
+
+  storage.createGate({
+    id: `gate_blocking_missed_${projectId}`,
+    cycleId: cycle.id,
+    type: "direction",
+    blocking: 1,
+    title: "错过窗口方向闸",
+    payload: JSON.stringify({
+      createdAt: now(),
+      reason: "人工方向闸已连续错过审批窗口",
+    }),
+    status: "pending",
+    estimatedMinutes: 5,
+    decision: null,
+    missedWindows: 2,
+    version: 1,
+  });
+
+  const beforeTickBudget = gateBudgetForProject(projectId);
+  assert.equal(beforeTickBudget.pendingBlocking, 1);
   assert.equal(beforeTickBudget.safetyMode, true);
   assert.equal(beforeTickBudget.pendingOverBudget2x, false);
 
   const first = await schedulerTickProject(projectId);
   assert.equal(first.action, "safety_throttled");
-  assert.match(first.note, /blocking gate backlog exceeds safety threshold/);
+  assert.match(first.note, /missed review window threshold/);
   assert.equal(first.budget.pendingBlocking, 1);
-  assert.ok(first.budget.oldestBlockingAgeDays > 5);
   assert.equal(first.budget.safetyMode, true);
   assert.equal(storage.listCycles(projectId).filter((item) => item.idx > 1).length, 0);
 });
@@ -1521,7 +1570,7 @@ test("repeated high-approval meaning gates auto-approve without spending human b
       decision: null,
       version: 1,
     });
-    storage.updateGate(`gate_auto_human_${projectId}_${i}`, { status: "approved", decision: "approve" });
+    approveGate(`gate_auto_human_${projectId}_${i}`, "approve");
   }
 
   storage.createGate({
@@ -1557,9 +1606,7 @@ test("repeated high-approval meaning gates auto-approve without spending human b
       decision: null,
       version: 1,
     });
-    storage.updateGate(`gate_auto_prior_${projectId}_${i}`, {
-      status: "approved",
-      decision: `auto_approved_repeated_meaning:${topicKey}`,
+    approveGate(`gate_auto_prior_${projectId}_${i}`, `auto_approved_repeated_meaning:${topicKey}`, {
       estimatedMinutes: 0,
     });
   }
@@ -1605,7 +1652,7 @@ test("repeated meaning gates with explicit contradiction markers are not auto-ap
       decision: null,
       version: 1,
     });
-    storage.updateGate(`gate_auto_conflict_human_${projectId}_${i}`, { status: "approved", decision: "approve" });
+    approveGate(`gate_auto_conflict_human_${projectId}_${i}`, "approve");
   }
 
   storage.createGate({
@@ -1662,7 +1709,7 @@ test("repeated meaning gates with semantic contradictions are not auto-approved"
       decision: null,
       version: 1,
     });
-    storage.updateGate(`gate_auto_semantic_human_${projectId}_${i}`, { status: "approved", decision: "approve" });
+    approveGate(`gate_auto_semantic_human_${projectId}_${i}`, "approve");
   }
 
   storage.createGate({
@@ -1719,7 +1766,7 @@ test("repeated meaning gates with same-direction semantic evidence still auto-ap
       decision: null,
       version: 1,
     });
-    storage.updateGate(`gate_auto_semantic_repeat_human_${projectId}_${i}`, { status: "approved", decision: "approve" });
+    approveGate(`gate_auto_semantic_repeat_human_${projectId}_${i}`, "approve");
   }
 
   storage.createGate({
@@ -1768,7 +1815,7 @@ test("repeated meaning gates ignore contradiction-runner source metadata when ch
       decision: null,
       version: 1,
     });
-    storage.updateGate(`gate_auto_source_human_${projectId}_${i}`, { status: "approved", decision: "approve" });
+    approveGate(`gate_auto_source_human_${projectId}_${i}`, "approve");
   }
 
   storage.createGate({
@@ -1912,7 +1959,7 @@ test("scheduler opens direction gate, imports GitHub issue, approves meaning gat
 
   const directionGate = storage.listGates(projectId).find((g) => g.type === "direction" && g.blocking === 1);
   assert.ok(directionGate);
-  storage.updateGate(directionGate.id, { status: "approved", decision: "approve_recommended" });
+  approveGate(directionGate.id, "approve_recommended");
 
   const fake = installFakeGithubFetch("发布预览 preview is critical and setup feedback is unclear");
   try {
@@ -1985,7 +2032,7 @@ test("UI-created project first direction gate uses onboarding seed instead of de
   assert.match(payload.action, /客服录音自动转成可追责改进清单/);
   assert.doesNotMatch(payload.recommended, /一键发布/);
 
-  storage.updateGate(gate.id, { status: "approved", decision: "approve_recommended" });
+  approveGate(gate.id, "approve_recommended");
   await runOperationalStagesAfterApprovedDirection(project.id, cycle.id);
 
   const prediction = storage.listPredictions(cycle.id)[0];
@@ -2143,7 +2190,7 @@ test("scheduler syncs feedback but waits until the sensor feedback window expire
     const cycle = storage.listCycles(projectId)[0];
     const directionGate = storage.listGates(projectId).find((g) => g.cycleId === cycle.id && g.type === "direction");
     assert.ok(directionGate);
-    storage.updateGate(directionGate.id, { status: "approved", decision: "approve_recommended" });
+    approveGate(directionGate.id, "approve_recommended");
 
     const fake = installFakeGithubFetch("Window feedback is unclear");
     try {
@@ -2155,10 +2202,8 @@ test("scheduler syncs feedback but waits until the sensor feedback window expire
       assert.equal(storage.listPredictions(cycle.id).length, 0);
       assert.ok(storage.listFeedback(cycle.id).some((f) => f.id.includes("fb_github_")));
 
-      const stalePayload = JSON.parse(directionGate.payload);
-      storage.updateGate(directionGate.id, {
-        payload: JSON.stringify({ ...stalePayload, createdAt: new Date(Date.now() - 900_000).toISOString() }),
-      });
+      process.env.ALAYA_SENSOR_FEEDBACK_WINDOW_MS = "1";
+      await new Promise((resolve) => setTimeout(resolve, 5));
       const ran = await schedulerTickProject(projectId);
       assert.equal(ran.action, "ran_operational_stages");
       assert.equal(storage.getCycle(cycle.id)?.status, "closed");
@@ -2184,7 +2229,7 @@ test("scheduler can compound through four flywheel cycles without duplicating ga
     assert.ok(cycle);
     const gate = storage.listGates(projectId).find((g) => g.cycleId === cycle.id && g.type === "direction" && g.blocking === 1);
     assert.ok(gate);
-    storage.updateGate(gate.id, { status: "approved", decision: "approve_recommended" });
+    approveGate(gate.id, "approve_recommended");
 
     const ran = await schedulerTickProject(projectId);
     assert.equal(ran.action, "ran_operational_stages");

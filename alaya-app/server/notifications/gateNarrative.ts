@@ -1,3 +1,5 @@
+import { decisionBriefFromPayload } from "../decisionBrief";
+
 type GateLike = {
   id: string;
   title: string;
@@ -76,6 +78,27 @@ export function knowledgeIdForMeaningGate(gateId: string): string {
 
 export function formatGateDecisionRequestText(gate: GateLike, context: { projectId?: string } = {}): string {
   const payload = parsePayload(gate.payload);
+  const brief = decisionBriefFromPayload(payload);
+  if (brief) {
+    const project = context.projectId ? `项目 ${context.projectId}` : "当前项目";
+    const prediction = `${brief.prediction.metric} ${brief.prediction.operator} ${brief.prediction.target}，窗口 ${brief.prediction.timeWindow}`;
+    return [
+      "决策简报：",
+      `${project} 需要处理${gate.blocking === 1 ? "阻塞型" : "非阻塞型"}${gateTypeLabel(gate)}。`,
+      "",
+      "主张：",
+      brief.claim,
+      brief.cited_knowledge_ids.length ? `引用知识：${brief.cited_knowledge_ids.join(", ")}` : "引用知识：无",
+      `预测：${prediction}`,
+      "",
+      "选择影响：",
+      `批准：${brief.if_approved}`,
+      `否决：${brief.if_rejected}`,
+      `回滚引用：${brief.rollback_ref}`,
+      "",
+      `闸门 ID：${gate.id}`,
+    ].join("\n");
+  }
   const summary = firstText(payload.summary, payload.reason, payload.requiredAction, payload.auditSummary?.whyNow, gate.title);
   const userQuote = firstText(payload.userQuote, payload.body, payload.description, payload.redactedBody);
   const source = firstText(payload.sourceName, payload.source, payload.externalId, "unknown source");

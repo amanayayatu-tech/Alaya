@@ -8,10 +8,24 @@ process.env.ALAYA_DB_PATH = join(mkdtempSync(join(tmpdir(), "alaya-scheduler-saf
 process.env.ALAYA_MODE = "test";
 process.env.ALAYA_LLM_PROVIDER = "mock";
 process.env.ALAYA_SAFETY_THROTTLE_EVERY_TICKS = "2";
+process.env.ALAYA_REVIEW_TIMEZONE = "Asia/Shanghai";
+process.env.ALAYA_REVIEW_WINDOWS = "00:00-00:01";
 
 const { storage, now } = await import("../server/storage.ts");
 const { gateBudgetForProject, schedulerTickProject } = await import("../server/scheduler.ts");
 const { runOperationalStagesAfterApprovedDirection } = await import("../server/flywheel.ts");
+const { HumanGateService } = await import("../server/humanGateService.ts");
+
+const gateService = new HumanGateService(storage);
+
+function approveGate(gateId: string, decision = "approve") {
+  gateService.systemResolve(gateId, decision, {
+    actor: "test",
+    status: "approved",
+    via: "test",
+    reason: "test fixture approval",
+  });
+}
 
 function createProject(projectId: string, weeklyHumanMinutes = 120, currentCycleIdx = 1) {
   storage.createProject({
@@ -46,7 +60,7 @@ function createCycle(projectId: string, idx = 1, status = "planning") {
   });
 }
 
-function createBlockingGate(projectId: string, cycleId: string, idx: number, estimatedMinutes = 8) {
+function createBlockingGate(projectId: string, cycleId: string, idx: number, estimatedMinutes = 8, missedWindows = 0) {
   return storage.createGate({
     id: `gate_blocking_${projectId}_${idx}`,
     cycleId,
@@ -57,6 +71,7 @@ function createBlockingGate(projectId: string, cycleId: string, idx: number, est
     status: "pending",
     estimatedMinutes,
     decision: null,
+    missedWindows,
     version: 1,
   });
 }
@@ -77,14 +92,14 @@ test("S1 safety_mode exits after blocking backlog is resolved and does not recre
     createBlockingGate(projectId, cycle.id, i);
   }
 
-  assert.equal(gateBudgetForProject(projectId).safetyMode, true);
+  assert.equal(gateBudgetForProject(projectId).safetyMode, false);
   const overloaded = await schedulerTickProject(projectId);
   assert.equal(overloaded.action, "safety_throttled");
   assert.equal(humanAttentionGates(projectId).length, 1);
   assert.equal(humanAttentionGates(projectId)[0].status, "pending");
 
   for (const gate of storage.listGates(projectId).filter((item) => item.id.startsWith(`gate_blocking_${projectId}_`))) {
-    storage.updateGate(gate.id, { status: "approved", decision: "approve" });
+    approveGate(gate.id, "approve");
   }
 
   const beforeRecovery = gateBudgetForProject(projectId);
@@ -107,12 +122,12 @@ test("S2 attention backlog safety_mode throttles but still advances cycles", asy
   assert.equal(opened.action, "opened_direction_gate");
   const directionGate = storage.listGates(projectId).find((gate) => gate.cycleId === cycle.id && gate.type === "direction");
   assert.ok(directionGate);
-  storage.updateGate(directionGate.id, { status: "approved", decision: "approve_recommended" });
+  approveGate(directionGate.id, "approve_recommended");
   await runOperationalStagesAfterApprovedDirection(projectId, cycle.id);
   assert.equal(storage.getCycle(cycle.id)?.status, "closed");
 
   for (let i = 1; i <= 4; i += 1) {
-    createBlockingGate(projectId, cycle.id, i, 5);
+    createBlockingGate(projectId, cycle.id, i, 5, 2);
   }
   assert.equal(gateBudgetForProject(projectId).safetyMode, true);
 

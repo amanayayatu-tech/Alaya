@@ -11,6 +11,18 @@ delete process.env.ALAYA_CAP_SHELL_EXECUTION;
 
 const { storage } = await import("../server/storage.ts");
 const { CodexCliBuilderAdapter, validateChangePackage } = await import("../server/builderAdapter.ts");
+const { HumanGateService } = await import("../server/humanGateService.ts");
+
+const gateService = new HumanGateService(storage);
+
+function approveGate(gateId: string, decision = "approve") {
+  gateService.systemResolve(gateId, decision, {
+    actor: "test",
+    status: "approved",
+    via: "test",
+    reason: "test fixture approval",
+  });
+}
 
 function seed() {
   storage.createProject({
@@ -136,7 +148,7 @@ test("approved risk gate with matching idempotency key is required before non-dr
     assert.equal(stillBlocked.status, "blocked");
     assert.notEqual(stillBlocked.approvalGateId, wrongGate.id);
 
-    storage.updateGate(blocked.approvalGateId ?? "", { status: "approved", decision: "approve" });
+    approveGate(blocked.approvalGateId ?? "", "approve");
     const approved = await adapter.applyChangePackage(pkg, { dryRun: false });
     assert.equal(approved.status, "approved");
     assert.equal(approved.applied, false);

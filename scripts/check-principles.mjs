@@ -43,6 +43,7 @@ const LLM_SDK_IMPORT = /\bfrom\s+["'](?:openai|anthropic|@anthropic-ai\/.*)["']|
 const RAW_DB_WRITE = /\brawDb\s*\.\s*prepare\s*\([\s\S]*?\)\s*\.\s*run\s*\(/;
 const DRIZZLE_WRITE = /(?:^|[^\w.])db\s*\.\s*(?:insert|update|delete)\s*\(/;
 const AUDIT_CALL = /\bthis\.(?:auditWrite|recordAudit)\s*\(/;
+const UPDATE_GATE_CALL = /\.\s*updateGate\s*\(/g;
 
 // ---------- 工具 ----------
 const errors = [];
@@ -258,6 +259,28 @@ function checkAuditBypass(root) {
   if (ok) pass("底线3-审计旁路", `${relative(resolve(root, ".."), root) || root} 写操作均经过 storage.ts 审计路径`);
 }
 
+function checkHumanGateStateEntry(root) {
+  // Gate 状态变更唯一入口：业务代码、测试夹具、脚本化场景都必须走 HumanGateService。
+  // storage.ts 只保留底层持久化方法定义，HumanGateService 是唯一允许调用 updateGate 的服务层。
+  const serviceFile = join(root, "server", "humanGateService.ts");
+  if (!existsSync(serviceFile)) return;
+
+  const files = walk(root, [".ts", ".tsx", ".js", ".mjs"]);
+  let ok = true;
+  for (const fp of files) {
+    const rel = relative(root, fp);
+    if (rel === "server/humanGateService.ts") continue;
+    const code = stripComments(readFileSync(fp, "utf8"));
+    UPDATE_GATE_CALL.lastIndex = 0;
+    const matches = [...code.matchAll(UPDATE_GATE_CALL)];
+    for (const match of matches) {
+      fail("底线3-gate状态入口", `${rel}:${lineForIndex(code, match.index ?? 0)} 直接调用 updateGate，应经由 HumanGateService`);
+      ok = false;
+    }
+  }
+  if (ok) pass("底线3-gate状态入口", `${relative(resolve(root, ".."), root) || root} gate 状态变更统一经 HumanGateService`);
+}
+
 function checkPollutedNotInEvidence(root) {
   // 底线 4：硬约束注释/逻辑必须存在 —— 至少保证 quarantined/conflict 被识别为状态
   for (const dir of PURE_FN_DIRS) {
@@ -311,6 +334,7 @@ function checkProject(root) {
   }
   checkStrongRequiresHuman(root);
   checkAuditBypass(root);
+  checkHumanGateStateEntry(root);
   checkPollutedNotInEvidence(root);
   checkGrayZone(root);
   checkNoDirectLlmImport(root);

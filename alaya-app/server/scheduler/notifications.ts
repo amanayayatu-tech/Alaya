@@ -7,6 +7,7 @@ import { formatGateDecisionReceiptText, knowledgeIdForMeaningGate } from "../not
 import { CallbackRouter } from "../notifications/router";
 import { TelegramAdapter } from "../notifications/telegram";
 import type { SchedulerTickResult } from "./types";
+import type { ReviewWindowState } from "../reviewWindow";
 
 function parsePayload(payload: string): Record<string, any> {
   try {
@@ -70,6 +71,20 @@ export function pendingGateIds(projectId: string): Set<string> {
       .map((gate) => gate.id),
   );
 }
+
+export class WindowDigestQueue {
+  shouldSendImmediately(gate: HumanGateItem): boolean {
+    return gate.status === "pending" && (gate.notifyPolicy ?? "next_window") === "immediate";
+  }
+
+  pendingWindowGates(projectId: string): HumanGateItem[] {
+    return storage
+      .listGates(projectId)
+      .filter((gate) => gate.status === "pending" && (gate.notifyPolicy ?? "next_window") !== "immediate");
+  }
+}
+
+const windowDigestQueue = new WindowDigestQueue();
 
 function gateNotificationTitle(gate: HumanGateItem): string {
   if (gate.type === "direction") return "方向闸待处理";
@@ -165,7 +180,8 @@ export async function getNotificationBus(): Promise<NotificationBus | null> {
       notificationBus = new NotificationBus(recordNotificationEmitFailure, {
         shouldSend: (event) => {
           if (event.type !== "gate_opened" || !event.gateId) return true;
-          return storage.getGate(event.gateId)?.status === "pending";
+          const gate = storage.getGate(event.gateId);
+          return Boolean(gate && windowDigestQueue.shouldSendImmediately(gate));
         },
       }).addAdapter(adapter, [config.chatId]);
     }
@@ -226,7 +242,7 @@ export function emitSchedulerNotifications(
   result: SchedulerTickResult,
 ): void {
   for (const gate of storage.listGates(result.projectId)) {
-    if (gate.status !== "pending") continue;
+    if (!windowDigestQueue.shouldSendImmediately(gate)) continue;
     void bus.emit({
       type: "gate_opened",
       projectId: result.projectId,
@@ -249,5 +265,53 @@ export function emitSchedulerNotifications(
     gateId: result.cycleId,
     actionUrl: gateWebUrl(notificationBaseUrl(), result.projectId),
     meta: result.cycleId ? { cycleId: result.cycleId } : undefined,
+  });
+}
+
+function summarizeGates(gates: HumanGateItem[]): string {
+  const blocking = gates.filter((gate) => gate.blocking === 1).length;
+  const nonBlocking = gates.length - blocking;
+  const byType = new Map<string, number>();
+  for (const gate of gates) byType.set(gate.type, (byType.get(gate.type) ?? 0) + 1);
+  const typeSummary = Array.from(byType.entries())
+    .map(([type, count]) => `${type}:${count}`)
+    .join(", ") || "none";
+  return `待审批 ${gates.length} 个（blocking ${blocking} / non-blocking ${nonBlocking}；${typeSummary}）。`;
+}
+
+export async function emitReviewWindowDigest(
+  bus: NotificationBus,
+  projectId: string,
+  state: ReviewWindowState,
+  gates: HumanGateItem[] = windowDigestQueue.pendingWindowGates(projectId),
+): Promise<void> {
+  await bus.emit({
+    type: "review_digest",
+    projectId,
+    title: `审批窗口已开启 — ${projectId}`,
+    body: [
+      `窗口：${state.windowDate} ${state.windowLabel}（${state.timezone}）`,
+      summarizeGates(gates),
+      "请进入审批会话批量处理；非 immediate 闸门不会单独打扰。",
+    ].join("\n"),
+    actionUrl: gateWebUrl(notificationBaseUrl(), projectId),
+    meta: {
+      windowDate: state.windowDate,
+      windowLabel: state.windowLabel,
+    },
+  });
+}
+
+export async function emitReviewWindowSummary(
+  bus: NotificationBus,
+  projectId: string,
+  counts: { resolved: number; deferred: number; missed: number },
+): Promise<void> {
+  await bus.emit({
+    type: "review_summary",
+    projectId,
+    title: `审批窗口已收口 — ${projectId}`,
+    body: `${counts.resolved} 已处理 / ${counts.deferred} 顺延；${counts.missed} 个 pending gate 计入 missed_windows。`,
+    actionUrl: gateWebUrl(notificationBaseUrl(), projectId),
   });
 }

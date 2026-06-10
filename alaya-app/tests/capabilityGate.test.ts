@@ -10,6 +10,7 @@ process.env.ALAYA_API_KEY = "unit-api-key-for-capability-gate";
 process.env.ALAYA_CAP_DATABASE_MIGRATION = "true";
 process.env.ALAYA_AUTO_SEED_DEMO = "false";
 process.env.ALAYA_LLM_PROVIDER = "mock";
+process.env.ALAYA_REVIEW_TIMEZONE = "Asia/Shanghai";
 
 const { storage } = await import("../server/storage.ts");
 const { evaluateCapability, checkCapability } = await import("../server/security/capabilities.ts");

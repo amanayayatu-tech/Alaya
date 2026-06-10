@@ -39,9 +39,18 @@ Related entry points:
 - Meaning gate：信号是否值得进入知识循环
 - Risk gate：风险、成本、阻断条件是否需要人工处理
 
-Human Gate 可以在 Web UI 中处理，也可以通过 Telegram 接收移动端通知。非阻塞 `meaning` gate 会在 Telegram 卡片中显示批准/否决按钮；阻塞型 `direction` / `risk` gate 只显示 Web 深链，避免手机端一键放行高风险阻断闸。
+Human Gate 可以在 Web UI 中处理，也可以通过 Telegram 接收移动端通知。普通 `meaning` / `direction` / `risk` gate 会在 Telegram 卡片中显示批准、否决、顺延按钮；否决必须选择原因码（`wrong_direction`、`weak_evidence`、`not_now`、`too_risky`），阻断型 gate 还会保留 Web 详情入口。Telegram callback 会校验 `callback_query.from.id === ALAYA_TELEGRAM_USER_ID`；未授权点击只提示并写审计事件，不会执行审批。
 
 Meaning Gate 被批准后，`HumanGateService` 会把对应外部信号写成 active knowledge，并通过同一条审批服务记录 `decision_log`、`event_log` 和 `action_ledger`。Gate resolve 与知识写入在数据库事务中执行；如果知识写入失败，gate 不会被错误地标记为已批准，后续重试也会幂等补建缺失知识。
+
+所有 gate 状态变更统一经由 `HumanGateService`：人工 approve/reject/modify 走 `resolve()`，系统侧自动恢复、合并、知识复核关闭和场景脚本批准走 `systemResolve()` / `systemMerge()`。`npm run guard` 会拒绝服务层之外的 `updateGate` 调用。
+
+shadow/staging/production 中新建 Human Gate 的 payload 必须包含结构化 `decision_brief`，包括主张、引用知识、预测契约、批准/否决影响和 rollback 引用。Telegram/Web 简报优先渲染该结构化字段；legacy gate 仍可按旧叙事字段回退展示。
+
+Human Gate 默认进入审批窗口批处理。`notify_policy=next_window` 的 gate 不会在窗口外单独推送 Telegram；命中 `ALAYA_IMMEDIATE_RISK_LEVELS` 的高风险 gate 会自动标记为 `notify_policy=immediate` 并保持即时提醒。Scheduler 在窗口开始时创建 `review_sessions`、写入 `notification_digests` 幂等记录、刷新 pending gate 的 `evidence_revalidated_at`；窗口关闭时会给仍 pending 的 gate 递增 `missed_windows`。Safety mode 不再因为 pending blocking 数量或年龄直接触发，而是只在 blocking gate 连续错过 `ALAYA_GATE_ESCALATION_MISSED_WINDOWS` 个窗口后触发。
+
+Blocking gate pending 时，Scheduler 默认不再纯等待，而是进入 speculative drafting：为同一项目创建 `cycles.speculative=1` 的 child cycle，写入 `parent_cycle_id`、`depends_on` 和 `assumed_outcomes`，生成 open prediction 与 dry-run change package，然后停在 `draft_status=ready_awaiting_approval`。这条路径不会执行观察、误差归因或知识晋级；只有 speculative apply gate 获批后，HumanGateService 才会把 draft 标为 `apply_queued`。`applyExecutor` 在 `ALAYA_APPLY_GRACE_SECONDS` 后将已排队 draft 标为 `applied_observing`，并写入 `applied_at` 与 `co_applied_set`。如果已 apply 的祖先观测误差超过假设阈值，依赖它的未 apply 后代会标为 `invalidated`，对应 pending gate 经系统决议关闭。
+在 grace 期内可通过 Telegram 或 API 撤销 speculative apply：gate 决策记为 `revoked`、draft 回到 `ready_awaiting_approval` 并退出 apply 队列；一旦 `applied_at` 写入，撤销会返回明确错误。`wrong_direction` / `weak_evidence` 的 speculative reject 会级联作废依赖后代；`not_now` 只否决当前 gate，不进入后续 `goal_repetition` 封杀集合。
 
 ### 4. Prediction Ledger
 
@@ -93,6 +102,14 @@ Alaya 的默认 4 轮场景仍然作为治理回归基线保留。超过第 4 �
 npm run e2e:long-evolution
 ```
 
+审批窗口端到端回归：
+
+```bash
+npm run e2e:review-window
+```
+
+该脚本使用 mock 时钟和临时 SQLite 库，覆盖窗口 digest、manual/scheduled session、原因码否决、grace 撤销、错峰 apply、假设偏差级联作废和收口消息。
+
 该脚本会跑 20 轮 mock LLM 飞轮，检查不再出现 `scenario_exhausted`、目标不重复、知识规模有界、合并事件有审计记录、blocking gate 不膨胀。
 
 ## Web 功能地图
@@ -116,12 +133,18 @@ Telegram 集成让 Alaya 在手机上主动提醒用户：有 blocking gate、sa
 
 | 场景 | 行为 |
 | --- | --- |
-| Scheduler 新建 pending gate | 推送 Telegram 卡片；按 `gateId` 去重，避免每个 tick 重复通知；深链携带 `projectId` 和 `gate` |
-| 普通 `meaning` / `direction` / `risk` gate | 卡片显示 `✅ 批准` / `❌ 否决`，点击后统一走 `HumanGateService`，写入 `decision_log`、`event_log` 和 `action_ledger` |
+| Scheduler 新建 immediate gate | 推送 Telegram 卡片；按 `gateId` 去重，避免每个 tick 重复通知；深链携带 `projectId` 和 `gate` |
+| Scheduler 新建 next-window gate | 窗口外不单独推送；下个审批窗口开始时进入 digest |
+| 审批窗口开始/结束 | 发送 digest 与收口消息；`notification_digests(project_id, window_date, window_label)` 保证同一窗口不重复发送 |
+| 普通 `meaning` / `direction` / `risk` gate | 卡片显示批准、否决、顺延；否决先编辑为原因码按钮，再统一走 `HumanGateService`，写入 `decision_log`、`event_log` 和 `action_ledger` |
+| Speculative apply gate | 阻断批准后进入 apply 队列；grace 期内卡片提供撤销按钮，apply 后不可撤销 |
 | 知识冲突复核 gate | 卡片显示 `✅ 隔离当前` / `↔️ 保留既有`，通过 `resolveKnowledgeReview` 收敛冲突，并保留 Web 详情入口 |
 | Safety mode | 推送纯文本通知，包含项目、原因和 Web UI 链接 |
 | `/status` | 返回所有项目的当前 cycle、pending gates、知识数和最后事件时间 |
 | `/gates` | 列出所有 pending gates；可直接处理普通 Human Gate，并给知识冲突复核提供专门按钮 |
+| `/review` | 随时开启 manual review session，按 pending gate 顺序逐卡处理 |
+| `/window` | 查看当前/下个审批窗口、pause 状态和各项目 pending/deferred backlog |
+| `/pause` / `/resume` | 暂停/恢复审批窗口提醒和 `missed_windows` 升级 |
 | `/help` | 返回可用命令 |
 
 ### 本地配置
@@ -139,9 +162,30 @@ ALAYA_CAP_EXTERNAL_NOTIFICATION=true
 ALAYA_NOTIFICATION_PROVIDER=telegram
 ALAYA_TELEGRAM_BOT_TOKEN=<BotFather token>
 ALAYA_TELEGRAM_CHAT_ID=<your chat id>
+ALAYA_TELEGRAM_USER_ID=<your numeric Telegram user id>
 ALAYA_BASE_URL=http://localhost:5000
 ALAYA_ALLOWED_NETWORK_HOSTS=api.github.com,api.openai.com,api.minimax.io,api.minimaxi.com,api.telegram.org
 ```
+
+审批窗口相关 env：
+
+```text
+ALAYA_REVIEW_WINDOWS=15:30-16:00
+ALAYA_REVIEW_TIMEZONE=Asia/Shanghai
+ALAYA_REVIEW_PAUSED=false
+ALAYA_GATE_ESCALATION_MISSED_WINDOWS=2
+ALAYA_IMMEDIATE_RISK_LEVELS=destructive,financial,compliance_sensitive
+ALAYA_APPLY_GRACE_SECONDS=60
+ALAYA_APPLY_STAGGER_SECONDS=120
+ALAYA_SPECULATIVE_DRAFTING=true
+ALAYA_SPECULATIVE_BUDGET_RATIO=0.5
+```
+
+`ALAYA_REVIEW_TIMEZONE` 在 `shadow`、`staging`、`production` 中必填，必须是有效 IANA 时区。`ALAYA_REVIEW_WINDOWS` 支持逗号分隔的 `HH:MM-HH:MM` 窗口；非法格式会在 env validation 阶段 fail fast。启用外部通知时，`ALAYA_TELEGRAM_USER_ID` 必须是数字 user id，用于后续 Telegram callback 鉴权。
+
+`ALAYA_REVIEW_PAUSED=true` 会冻结窗口提醒与 `missed_windows` 升级，适合休假或人工不可用期间；Telegram `/pause` 和 `/resume` 会在当前进程内切换同一状态。
+
+`ALAYA_SPECULATIVE_DRAFTING=false` 会恢复阻断闸 pending 时的旧等待行为。`ALAYA_SPECULATIVE_BUDGET_RATIO` 限制 speculative draft 消耗的 LLM 周预算比例；超限时 scheduler 写入 `speculative_budget_exhausted` 事件并保留已有草稿。
 
 如果 5000 端口被占用：
 
@@ -299,7 +343,7 @@ ALAYA_COST_RATE_LIMIT_WINDOW_MS=60000
 ALAYA_COST_RATE_LIMIT_MAX=10
 ```
 
-如果这两个变量被误写成非数字，运行时会回退到默认值而不是关闭 limiter。`POST /api/cycles/:id/run-full` 和 `POST /api/scheduler/tick` 都走这个保护；`/healthz`、`/readyz`、`/metrics` 不受高成本限速影响。
+如果这两个变量被误写成非数字，运行时会回退到默认值而不是关闭 limiter。`POST /api/cycles/:id/run-full` 和 `POST /api/scheduler/tick` 都走这个保护；`/healthz`、`/readyz`、`/metrics` 不受高成本限速影响。限速 bucket 会在请求进入限速器时清理过期项，避免长跑进程因历史 IP/bucket 组合无限增长。
 
 ## 数据库迁移、备份与恢复
 
@@ -434,6 +478,15 @@ alaya_knowledge_injections_total
 alaya_stall_events_total
 alaya_errors_total
 alaya_last_successful_cycle_timestamp
+alaya_review_window_adherence
+alaya_decision_dwell_ms_p50
+alaya_decision_dwell_ms_p95
+alaya_gates_deferred_total
+alaya_speculative_cycles_total
+alaya_speculative_invalidated_total
+alaya_speculative_tokens_total
+alaya_apply_queue_depth
+alaya_apply_revoked_total
 alaya_llm_agent_latency_p50_ms{agent=...}
 alaya_llm_agent_latency_p95_ms{agent=...}
 alaya_llm_agent_error_rate{agent=...}
@@ -562,6 +615,10 @@ ALAYA_CAP_EXTERNAL_NOTIFICATION=false
 ALAYA_NOTIFICATION_PROVIDER=telegram
 ALAYA_TELEGRAM_BOT_TOKEN=
 ALAYA_TELEGRAM_CHAT_ID=
+ALAYA_TELEGRAM_USER_ID=
+ALAYA_REVIEW_WINDOWS=15:30-16:00
+ALAYA_REVIEW_TIMEZONE=Asia/Shanghai
+ALAYA_REVIEW_PAUSED=false
 ```
 
 可复制 `alaya-app/.env.example` 后按需修改。

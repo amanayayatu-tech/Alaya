@@ -86,6 +86,22 @@ export function humanGateResolutionMetrics(projectId: string) {
   };
 }
 
+export function decisionDwellMetrics(projectId: string) {
+  const gates = storage.listGates(projectId).filter((gate) => Number.isFinite(gate.reviewDwellMs ?? Number.NaN));
+  const all = gates.map((gate) => Number(gate.reviewDwellMs));
+  const blocking = gates.filter((gate) => gate.blocking === 1).map((gate) => Number(gate.reviewDwellMs));
+  const blockingP50 = median(blocking);
+  return {
+    sampleSize: all.length,
+    p50Ms: median(all),
+    p95Ms: percentile(all, 95),
+    blockingSampleSize: blocking.length,
+    blockingP50Ms: blockingP50,
+    blockingP95Ms: percentile(blocking, 95),
+    lowBlockingDwellWarning: blocking.length >= 3 && blockingP50 != null && blockingP50 < 10_000,
+  };
+}
+
 export function llmCostPerCycle(projectId: string) {
   const cycles = storage.listCycles(projectId);
   const byCycle = cycles.map((cycle) => {
@@ -189,6 +205,7 @@ export function buildOpsMetrics(projectId: string) {
       smallSampleWarning: storage.listCycles(projectId).length < 3,
     },
     humanGateResolution: humanGateResolutionMetrics(projectId),
+    decisionDwell: decisionDwellMetrics(projectId),
     llmCostPerCycle: llmCostPerCycle(projectId),
     measurableClaimRatio: measurableClaimRatio(projectId),
     knowledgeReuseRate: knowledgeReuseRate(projectId),
@@ -196,6 +213,7 @@ export function buildOpsMetrics(projectId: string) {
     compoundingGainProxyPerCycle: compoundingGainProxyPerCycle(projectId),
     sources: {
       humanGateResolution: ["human_gate_items.payload.createdAt/resolvedAt", "event_log"],
+      decisionDwell: ["human_gate_items.review_dwell_ms"],
       llmCostPerCycle: ["cycles", "llm_calls"],
       measurableClaimRatio: ["predictions.claims"],
       knowledgeReuseRate: ["knowledge_items.usage_count", "event_log actor=knowledge_injection"],

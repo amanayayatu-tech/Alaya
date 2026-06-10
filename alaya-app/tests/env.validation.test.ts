@@ -5,7 +5,14 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const { validateEnv, isSchemaMigrationAllowed } = await import("../server/config/env.ts");
+const {
+  validateEnv,
+  isSchemaMigrationAllowed,
+  reviewWindowsFromEnv,
+  reviewTimezoneFromEnv,
+  gateEscalationMissedWindowsFromEnv,
+  immediateRiskLevelsFromEnv,
+} = await import("../server/config/env.ts");
 
 test("production fails fast without a configured database path", () => {
   const result = validateEnv({
@@ -90,8 +97,54 @@ test("valid production mock configuration passes core checks", () => {
     ALAYA_API_KEY: "unit-api-key-for-valid-prod-config",
     ALAYA_AUTO_SEED_DEMO: "false",
     ALAYA_LLM_PROVIDER: "mock",
+    ALAYA_REVIEW_TIMEZONE: "Asia/Shanghai",
   } as NodeJS.ProcessEnv);
   assert.deepEqual(result.errors, []);
+});
+
+test("review window env validates windows, timezone, and missed-window threshold", () => {
+  const valid = validateEnv({
+    ALAYA_MODE: "shadow",
+    ALAYA_DB_PATH: "/var/lib/alaya/alaya.db",
+    ALAYA_API_KEY: "unit-api-key-for-shadow-window-config",
+    ALAYA_AUTO_SEED_DEMO: "false",
+    ALAYA_LLM_PROVIDER: "mock",
+    ALAYA_REVIEW_TIMEZONE: "Asia/Shanghai",
+    ALAYA_REVIEW_WINDOWS: "09:00-09:15,15:30-16:00",
+    ALAYA_GATE_ESCALATION_MISSED_WINDOWS: "3",
+    ALAYA_APPLY_GRACE_SECONDS: "0",
+    ALAYA_APPLY_STAGGER_SECONDS: "30",
+    ALAYA_SPECULATIVE_BUDGET_RATIO: "0.75",
+  } as NodeJS.ProcessEnv);
+  assert.deepEqual(valid.errors, []);
+  assert.equal(reviewWindowsFromEnv({ ALAYA_REVIEW_WINDOWS: "09:00-09:15" } as NodeJS.ProcessEnv)[0].label, "09:00-09:15");
+  assert.equal(reviewTimezoneFromEnv({} as NodeJS.ProcessEnv), "Asia/Shanghai");
+  assert.equal(gateEscalationMissedWindowsFromEnv({ ALAYA_GATE_ESCALATION_MISSED_WINDOWS: "3" } as NodeJS.ProcessEnv), 3);
+  assert.equal(immediateRiskLevelsFromEnv({ ALAYA_IMMEDIATE_RISK_LEVELS: "financial, destructive" } as NodeJS.ProcessEnv).has("destructive"), true);
+
+  const invalid = validateEnv({
+    ALAYA_MODE: "shadow",
+    ALAYA_DB_PATH: "/var/lib/alaya/alaya.db",
+    ALAYA_API_KEY: "unit-api-key-for-shadow-window-config",
+    ALAYA_AUTO_SEED_DEMO: "false",
+    ALAYA_LLM_PROVIDER: "mock",
+    ALAYA_REVIEW_WINDOWS: "16:00-15:30",
+    ALAYA_REVIEW_TIMEZONE: "Not/AZone",
+    ALAYA_GATE_ESCALATION_MISSED_WINDOWS: "0",
+    ALAYA_SPECULATIVE_BUDGET_RATIO: "1.5",
+  } as NodeJS.ProcessEnv);
+  assert.ok(invalid.errors.some((error) => error.includes("ALAYA_REVIEW_WINDOWS")));
+  assert.ok(invalid.errors.some((error) => error.includes("ALAYA_REVIEW_TIMEZONE")));
+  assert.ok(invalid.errors.some((error) => error.includes("ALAYA_GATE_ESCALATION_MISSED_WINDOWS")));
+  assert.ok(invalid.errors.some((error) => error.includes("ALAYA_SPECULATIVE_BUDGET_RATIO")));
+});
+
+test("external notification requires numeric Telegram user id", () => {
+  const result = validateEnv({
+    ALAYA_CAP_EXTERNAL_NOTIFICATION: "true",
+    ALAYA_TELEGRAM_USER_ID: "owner",
+  } as NodeJS.ProcessEnv);
+  assert.ok(result.errors.some((error) => error.includes("ALAYA_TELEGRAM_USER_ID")));
 });
 
 test("storage import fails fast on invalid production env before opening the default DB", () => {
@@ -134,6 +187,7 @@ test("long-run storage import requires initialized schema but not an open migrat
       ALAYA_MODE: "development",
       ALAYA_DB_PATH: dbPath,
       ALAYA_LLM_PROVIDER: "mock",
+      ALAYA_REVIEW_TIMEZONE: "Asia/Shanghai",
     },
     encoding: "utf8",
   });
@@ -155,6 +209,7 @@ test("long-run storage import requires initialized schema but not an open migrat
       ALAYA_CAP_DATABASE_MIGRATION: "false",
       ALAYA_AUTO_SEED_DEMO: "false",
       ALAYA_LLM_PROVIDER: "mock",
+      ALAYA_REVIEW_TIMEZONE: "Asia/Shanghai",
     },
     encoding: "utf8",
   });
@@ -176,6 +231,7 @@ test("long-run storage import requires initialized schema but not an open migrat
       ALAYA_CAP_DATABASE_MIGRATION: "false",
       ALAYA_AUTO_SEED_DEMO: "false",
       ALAYA_LLM_PROVIDER: "mock",
+      ALAYA_REVIEW_TIMEZONE: "Asia/Shanghai",
     },
     encoding: "utf8",
   });

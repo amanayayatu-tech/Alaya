@@ -53,6 +53,12 @@ export function compactReviewCallbackTarget(reviewId: string, prefix = "kr:q:"):
   return `t:${createHash("sha1").update(reviewId).digest("hex").slice(0, 18)}`;
 }
 
+export function compactProjectCallbackTarget(projectId: string, prefix = "cmd:/review:"): string {
+  const direct = `${prefix}${projectId}`;
+  if (Buffer.byteLength(direct, "utf8") <= 64) return projectId;
+  return `t:${createHash("sha1").update(projectId).digest("hex").slice(0, 18)}`;
+}
+
 export const btn = {
   primary: (text: string, data: string): CardButton => ({ text, type: "primary", callbackData: assertCallbackData(data) }),
   default: (text: string, data: string): CardButton => ({ text, type: "default", callbackData: assertCallbackData(data) }),
@@ -68,8 +74,9 @@ export function gateCard(event: {
   actionUrl?: string;
   riskKey?: string;
   reviewId?: string;
+  progressLabel?: string;
 }): AlayaCard {
-  const title = `${event.isBlocking ? "🔴" : "🟡"} ${event.title}`;
+  const title = `${event.isBlocking ? "🔴" : "🟡"} ${event.progressLabel ? `${event.progressLabel} · ` : ""}${event.title}`;
   const card = new CardBuilder()
     .title(escapeMarkdownV2(title), event.isBlocking ? "red" : "orange")
     .body(escapeMarkdownV2(event.body))
@@ -89,16 +96,60 @@ export function gateCard(event: {
     card.buttons(btn.default("在 Web 查看", `nav:gate:${compactGateCallbackTarget(event.gateId, "nav:gate:")}`));
   } else if (["meaning", "direction", "risk"].includes(event.gateType)) {
     const allowTarget = compactGateCallbackTarget(event.gateId, "perm:allow:");
-    const denyTarget = compactGateCallbackTarget(event.gateId, "perm:deny:");
+    const rejectTarget = compactGateCallbackTarget(event.gateId, "perm:reject:");
+    const deferTarget = compactGateCallbackTarget(event.gateId, "perm:defer:");
     card.buttons(
       btn.primary("✅ 批准", `perm:allow:${allowTarget}`),
-      btn.danger("❌ 否决", `perm:deny:${denyTarget}`),
+      btn.danger("❌ 否决", `perm:reject:${rejectTarget}`),
+      btn.default("⏭ 顺延", `perm:defer:${deferTarget}`),
     );
+    if (event.isBlocking) {
+      card.buttons(btn.default("🔍 详情", `nav:gate:${compactGateCallbackTarget(event.gateId, "nav:gate:")}`));
+    }
   } else {
     card.buttons(btn.default("在 Web 处理", `nav:gate:${compactGateCallbackTarget(event.gateId, "nav:gate:")}`));
   }
 
   return card.build();
+}
+
+export function gateRejectReasonCard(event: {
+  title: string;
+  body: string;
+  gateId: string;
+  isBlocking: boolean;
+  actionUrl?: string;
+}): AlayaCard {
+  const title = `${event.isBlocking ? "🔴" : "🟡"} 选择否决原因 · ${event.title}`;
+  const reasonTarget = (code: string) => compactGateCallbackTarget(event.gateId, `perm:reason:${code}:`);
+  const card = new CardBuilder()
+    .title(escapeMarkdownV2(title), "red")
+    .body(escapeMarkdownV2(event.body))
+    .buttons(
+      btn.danger("方向错", `perm:reason:wrong_direction:${reasonTarget("wrong_direction")}`),
+      btn.danger("证据不足", `perm:reason:weak_evidence:${reasonTarget("weak_evidence")}`),
+    )
+    .buttons(
+      btn.default("时机不对", `perm:reason:not_now:${reasonTarget("not_now")}`),
+      btn.danger("风险太高", `perm:reason:too_risky:${reasonTarget("too_risky")}`),
+    );
+  if (event.actionUrl) {
+    card.footer(`[在 Web UI 查看详情](${escapeMarkdownV2LinkUrl(event.actionUrl)})`);
+  }
+  return card.build();
+}
+
+export function speculativeQueuedReceiptCard(event: {
+  title: string;
+  body: string;
+  gateId: string;
+}): AlayaCard {
+  const revokeTarget = compactGateCallbackTarget(event.gateId, "perm:revoke:");
+  return new CardBuilder()
+    .title(escapeMarkdownV2(`✅ ${event.title}`), "green")
+    .body(escapeMarkdownV2(event.body))
+    .buttons(btn.default("↩️ 撤销", `perm:revoke:${revokeTarget}`))
+    .build();
 }
 
 export function statusCard(state: {

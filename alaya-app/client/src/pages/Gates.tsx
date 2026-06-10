@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ClipboardCheck, Compass, HeartHandshake, Pencil, ShieldAlert, X } from "lucide-react";
+import { Check, CheckCheck, ClipboardCheck, Clock3, Compass, GitFork, HeartHandshake, Pencil, ShieldAlert, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -42,12 +42,21 @@ type GateBudget = {
   safetyMode: boolean;
 };
 
-type GateAction = "approve" | "reject" | "modify";
+type GateAction = "approve" | "reject" | "modify" | "defer";
+type RejectReasonCode = "wrong_direction" | "weak_evidence" | "not_now" | "too_risky";
 
 const actionText: Record<GateAction, string> = {
   approve: "批准",
   reject: "驳回",
   modify: "修改",
+  defer: "顺延",
+};
+
+const rejectReasonLabels: Record<RejectReasonCode, string> = {
+  wrong_direction: "方向错",
+  weak_evidence: "证据不足",
+  not_now: "时机不对",
+  too_risky: "风险太高",
 };
 
 const iconForGate: Record<string, typeof Compass> = {
@@ -63,7 +72,9 @@ export default function Gates() {
   const [filter, setFilter] = useState<string>("pending");
   const [dialog, setDialog] = useState<{ gate: HumanGate; action: GateAction } | null>(null);
   const [rationale, setRationale] = useState("");
+  const [rejectReasonCode, setRejectReasonCode] = useState<RejectReasonCode>("wrong_direction");
   const [acting, setActing] = useState(false);
+  const [groupActing, setGroupActing] = useState(false);
 
   const {
     data: gates = [],
@@ -87,11 +98,8 @@ export default function Gates() {
 
   const ordered = useMemo(() => {
     return [...gates].sort((a, b) => {
-      const aBlock = a.status === "pending" && a.blocking === 1 ? 0 : 1;
-      const bBlock = b.status === "pending" && b.blocking === 1 ? 0 : 1;
-      if (aBlock !== bBlock) return aBlock - bBlock;
-      if (a.status === "pending" && b.status !== "pending") return -1;
-      if (a.status !== "pending" && b.status === "pending") return 1;
+      const riskDelta = gateRiskScore(b) - gateRiskScore(a);
+      if (riskDelta !== 0) return riskDelta;
       return a.id.localeCompare(b.id);
     });
   }, [gates]);
@@ -124,6 +132,7 @@ export default function Gates() {
     try {
       await apiRequest("POST", `/api/human-gates/${dialog.gate.id}/${dialog.action}`, {
         rationale: rationale.trim() || `${actionText[dialog.action]}: ${dialog.gate.title}`,
+        reasonCode: dialog.action === "reject" ? rejectReasonCode : undefined,
       });
       await queryClient.invalidateQueries({ queryKey: ["/api/human-gates"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "gate-budget"] });
@@ -131,10 +140,32 @@ export default function Gates() {
       toast({ title: `闸门已${actionText[dialog.action]}`, description: dialog.gate.title });
       setDialog(null);
       setRationale("");
+      setRejectReasonCode("wrong_direction");
     } catch (err) {
       toast({ title: "闸门处理失败", description: err instanceof Error ? err.message : String(err) });
     } finally {
       setActing(false);
+    }
+  }
+
+  async function approveNonBlockingMeaningGroup() {
+    const targets = gates.filter((gate) => gate.status === "pending" && gate.type === "meaning" && gate.blocking === 0);
+    if (targets.length === 0) return;
+    setGroupActing(true);
+    try {
+      for (const gate of targets) {
+        await apiRequest("POST", `/api/human-gates/${gate.id}/approve`, {
+          rationale: `批量批准非阻塞 meaning gate: ${gate.title}`,
+        });
+      }
+      await queryClient.invalidateQueries({ queryKey: ["/api/human-gates"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "gate-budget"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "dashboard"] });
+      toast({ title: "已批量批准非阻塞意义闸", description: `${targets.length} 个 gate 已处理` });
+    } catch (err) {
+      toast({ title: "批量处理失败", description: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setGroupActing(false);
     }
   }
 
@@ -144,6 +175,8 @@ export default function Gates() {
 
   const pendingCount = gates.filter((gate) => gate.status === "pending").length;
   const blockingCount = gates.filter((gate) => gate.status === "pending" && gate.blocking === 1).length;
+  const groupedPending = summarizePendingGroups(gates);
+  const batchableMeaningCount = gates.filter((gate) => gate.status === "pending" && gate.type === "meaning" && gate.blocking === 0).length;
 
   return (
     <PageShell
@@ -209,6 +242,29 @@ export default function Gates() {
         </SectionCard>
       </div>
 
+      {pendingCount > 0 && (
+        <SectionCard title="风险优先队列" description="按阻断、风险类型、证据变化和 missed window 排序；批量批准只开放给非阻塞 meaning gate。">
+          <div className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap gap-2">
+              {groupedPending.map((item) => (
+                <StatusBadge key={item.key} meta={{ label: `${item.label} ${item.count}`, tone: item.tone }} />
+              ))}
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="gap-1.5 self-start lg:self-auto"
+              disabled={batchableMeaningCount === 0 || groupActing}
+              onClick={approveNonBlockingMeaningGroup}
+            >
+              <CheckCheck className="h-3.5 w-3.5" />
+              全批非阻塞意义闸 ({batchableMeaningCount})
+            </Button>
+          </div>
+        </SectionCard>
+      )}
+
       {blockingCount > 0 && (
         <InlineNotice tone="danger">
           当前有 {blockingCount} 个阻塞闸门。处理前，调度器会停止创建新的高风险动作或新周期。
@@ -240,6 +296,7 @@ export default function Gates() {
                 onAction={(action) => {
                   setDialog({ gate, action });
                   setRationale("");
+                  setRejectReasonCode("wrong_direction");
                 }}
               />
             ))}
@@ -261,9 +318,24 @@ export default function Gates() {
               id="gate-rationale"
               value={rationale}
               onChange={(event) => setRationale(event.target.value)}
-              placeholder="写下为什么批准、驳回或修改。这个备注会进入决策账本。"
+              placeholder="写下为什么批准、驳回、修改或顺延。这个备注会进入决策账本。"
               rows={4}
             />
+            {dialog?.action === "reject" && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="reject-reason">否决原因</label>
+                <select
+                  id="reject-reason"
+                  value={rejectReasonCode}
+                  onChange={(event) => setRejectReasonCode(event.target.value as RejectReasonCode)}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {(Object.keys(rejectReasonLabels) as RejectReasonCode[]).map((key) => (
+                    <option key={key} value={key}>{rejectReasonLabels[key]}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setDialog(null)}>取消</Button>
@@ -295,6 +367,40 @@ function gateMatchesFilter(gate: HumanGate, filter: string): boolean {
   return gate.type === filter;
 }
 
+function gateRiskScore(gate: HumanGate): number {
+  let score = 0;
+  if (gate.status === "pending") score += 1_000;
+  if (gate.blocking === 1) score += 400;
+  if (gate.type === "risk") score += 160;
+  if (gate.type === "direction") score += 120;
+  if (gate.evidenceChanged === 1) score += 80;
+  score += Math.min(120, (gate.missedWindows ?? 0) * 40);
+  score += Math.min(60, gate.estimatedMinutes);
+  return score;
+}
+
+function summarizePendingGroups(gates: HumanGate[]): Array<{ key: string; label: string; count: number; tone: Tone }> {
+  const pending = gates.filter((gate) => gate.status === "pending");
+  return [
+    { key: "blocking", label: "阻断", count: pending.filter((gate) => gate.blocking === 1).length, tone: "danger" as Tone },
+    { key: "risk", label: "风险", count: pending.filter((gate) => gate.type === "risk").length, tone: "warning" as Tone },
+    { key: "direction", label: "方向", count: pending.filter((gate) => gate.type === "direction").length, tone: "primary" as Tone },
+    { key: "meaning", label: "意义", count: pending.filter((gate) => gate.type === "meaning").length, tone: "muted" as Tone },
+    { key: "changed", label: "证据变化", count: pending.filter((gate) => gate.evidenceChanged === 1).length, tone: "warning" as Tone },
+  ].filter((item) => item.count > 0);
+}
+
+function compactArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String);
+  if (typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return value.split(",").map((item) => item.trim()).filter(Boolean);
+  }
+}
+
 function GateCard({ gate, selected, onAction }: { gate: HumanGate; selected: boolean; onAction: (action: GateAction) => void }) {
   const type = metaFor(gateTypeLabels, gate.type);
   const status = metaFor(gateStatusLabels, gate.status);
@@ -302,6 +408,9 @@ function GateCard({ gate, selected, onAction }: { gate: HumanGate; selected: boo
   const payload = gate.payload ?? {};
   const summary = humanSummary(gate);
   const isPending = gate.status === "pending";
+  const isSpeculativeApply = payload.riskKey === "speculative_apply_draft";
+  const dependsOn = compactArray(payload.dependsOn);
+  const assumptionCount = compactArray(payload.assumedOutcomes).length || (payload.assumedOutcomes ? 1 : 0);
 
   return (
     <article
@@ -319,6 +428,8 @@ function GateCard({ gate, selected, onAction }: { gate: HumanGate; selected: boo
           <StatusBadge meta={type} />
           <StatusBadge meta={status} />
           {gate.blocking === 1 && <StatusBadge meta={{ label: "必须先处理", tone: "danger" }} />}
+          {gate.evidenceChanged === 1 && <StatusBadge meta={{ label: "证据已变化", tone: "warning" }} />}
+          {(gate.missedWindows ?? 0) > 0 && <StatusBadge meta={{ label: `错过 ${gate.missedWindows} 窗口`, tone: "danger" }} />}
           <span className="text-xs text-muted-foreground">预计 {gate.estimatedMinutes} 分钟</span>
         </div>
         <h2 className="mt-2 text-base font-semibold leading-snug">{gate.title}</h2>
@@ -338,6 +449,21 @@ function GateCard({ gate, selected, onAction }: { gate: HumanGate; selected: boo
             风险级别: {payload.rollbackPlan.riskLevel ?? "未标注"}；触发条件: {payload.rollbackTrigger ?? "未标注"}。
           </div>
         )}
+        {isSpeculativeApply && (
+          <div className="mt-3 rounded-lg border border-primary/25 bg-primary/5 p-3 text-xs leading-5 text-muted-foreground">
+            <div className="mb-1 flex items-center gap-1.5 font-medium text-primary">
+              <GitFork className="h-3.5 w-3.5" />
+              推测链
+            </div>
+            草稿 {payload.draftCycleId ?? "未知"} 建立在 {dependsOn.length || (payload.parentCycleId ? 1 : 0)} 层未验证假设上；
+            显式假设 {assumptionCount} 条。批准后进入 grace apply 队列，观察回流前不会晋级知识。
+          </div>
+        )}
+        {gate.deferUntil && (
+          <div className="mt-3 rounded-lg border border-border bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
+            顺延至 {gate.deferUntil}
+          </div>
+        )}
       </div>
       <div className="flex flex-row gap-2 md:flex-col md:items-end">
         {isPending ? (
@@ -347,6 +473,9 @@ function GateCard({ gate, selected, onAction }: { gate: HumanGate; selected: boo
             </Button>
             <Button size="sm" variant="outline" onClick={() => onAction("modify")} className="gap-1.5" data-testid={`button-modify-${gate.id}`}>
               <Pencil className="h-3.5 w-3.5" /> 修改
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => onAction("defer")} className="gap-1.5" data-testid={`button-defer-${gate.id}`}>
+              <Clock3 className="h-3.5 w-3.5" /> 顺延
             </Button>
             <Button size="sm" variant="destructive" onClick={() => onAction("reject")} className="gap-1.5" data-testid={`button-reject-${gate.id}`}>
               <X className="h-3.5 w-3.5" /> 驳回

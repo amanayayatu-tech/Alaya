@@ -5,6 +5,8 @@ import { recordTrace } from "./trace";
 import { assertNetworkAllowed, requireCapability } from "./security/capabilities";
 import { redactSensitiveData, redactSensitiveText } from "./security/redact";
 import type { ModelRoute } from "@shared/core/types.js";
+import { HumanGateService } from "./humanGateService";
+import { createDecisionBrief, withDecisionBriefPayload } from "./decisionBrief";
 
 type JsonSchema = {
   type: "object";
@@ -330,13 +332,17 @@ function updateRecentDegradedGate(input: LlmCallInput, reason: string, timestamp
     const suppressedCount = typeof payload.suppressedCount === "number" && Number.isFinite(payload.suppressedCount)
       ? payload.suppressedCount
       : 0;
-    storage.updateGate(gate.id, {
-      payload: JSON.stringify({
-        ...payload,
-        lastReason: redactSensitiveText(reason),
-        lastSeenAt: timestamp,
-        suppressedCount: suppressedCount + 1,
-      }),
+    new HumanGateService(storage).systemAnnotate(gate.id, {
+      actor: "llm",
+      reason: "coalesced repeated LLM schema degradation diagnostic gate",
+      patch: {
+        payload: JSON.stringify({
+          ...payload,
+          lastReason: redactSensitiveText(reason),
+          lastSeenAt: timestamp,
+          suppressedCount: suppressedCount + 1,
+        }),
+      },
     });
     return true;
   }
@@ -353,7 +359,7 @@ function createDegradedGate(input: LlmCallInput, reason: string) {
     type: "meaning",
     blocking: 0,
     title: `LLM 输出降级: ${input.agent}/${input.promptName}`,
-    payload: JSON.stringify({
+    payload: withDecisionBriefPayload({
       source: "system_diagnostic",
       category: "llm_schema_degradation",
       topicKey: "llm_schema_degradation",
@@ -362,7 +368,16 @@ function createDegradedGate(input: LlmCallInput, reason: string) {
       createdAt: timestamp,
       lastSeenAt: timestamp,
       suppressedCount: 0,
-    }),
+    }, createDecisionBrief({
+      claim: `LLM output degraded for ${input.agent}/${input.promptName}`,
+      metric: "llm_schema_valid",
+      operator: "=",
+      target: false,
+      timeWindow: "current LLM call",
+      ifApproved: "The diagnostic can enter the meaning review path and guide prompt/schema hardening.",
+      ifRejected: "The diagnostic remains logged but does not become active knowledge.",
+      rollbackRef: "llm_calls",
+    })),
     status: "pending",
     estimatedMinutes: 5,
     decision: null,

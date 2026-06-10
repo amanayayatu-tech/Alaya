@@ -1,6 +1,8 @@
 export type AlayaEventType =
   | "gate_opened"
   | "gate_resolved"
+  | "review_digest"
+  | "review_summary"
   | "safety_mode"
   | "llm_budget_exceeded"
   | "cycle_completed"
@@ -34,6 +36,7 @@ export interface AlayaCard {
 export interface MessageRef {
   chatId: string;
   messageId: number;
+  userId?: string;
 }
 
 export type SentMessage = MessageRef;

@@ -13,6 +13,18 @@ const { recordActionProposal } = await import("../server/actionLedger.ts");
 const { callLlm } = await import("../server/llm.ts");
 const { runFullCycle, scenarioForCycle } = await import("../server/flywheel.ts");
 const { decayStaleKnowledge } = await import("../server/scheduler.ts");
+const { HumanGateService } = await import("../server/humanGateService.ts");
+
+const gateService = new HumanGateService(storage);
+
+function approveGate(gateId: string, decision = "approve") {
+  gateService.systemResolve(gateId, decision, {
+    actor: "test",
+    status: "approved",
+    via: "test",
+    reason: "test fixture approval",
+  });
+}
 
 function createProject(projectId: string) {
   storage.createProject({
@@ -205,7 +217,7 @@ test("approved action-specific risk gate unblocks the matching proposal only", (
   assert.notEqual(first.idempotencyKey, second.idempotencyKey);
   assert.notEqual(first.approvalGateId, second.approvalGateId);
 
-  storage.updateGate(first.approvalGateId ?? "", { status: "approved", decision: "approve_risk" });
+  approveGate(first.approvalGateId ?? "", "approve_risk");
   const retriedFirst = recordActionProposal({
     projectId,
     cycleId: cycle.id,

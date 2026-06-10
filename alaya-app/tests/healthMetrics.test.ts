@@ -48,6 +48,12 @@ test("metrics endpoint emits Prometheus-style core long-run metrics", async () =
     "alaya_llm_estimated_cost_usd_total",
     "alaya_knowledge_injections_total",
     "alaya_errors_total",
+    "alaya_review_window_adherence",
+    "alaya_decision_dwell_ms_p50",
+    "alaya_gates_deferred_total",
+    "alaya_speculative_cycles_total",
+    "alaya_apply_queue_depth",
+    "alaya_apply_revoked_total",
   ]) {
     assert.match(text, new RegExp(metric));
   }

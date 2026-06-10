@@ -1,11 +1,14 @@
 import type { HumanGateItem } from "@shared/schema";
-import { HumanGateService } from "../humanGateService";
+import { HumanGateService, type RejectReasonCode } from "../humanGateService";
 import { resolveKnowledgeReview } from "../knowledgeReview";
 import type { IStorage } from "../storage";
 import { now, storage } from "../storage";
 import { redactSensitiveText } from "../security/redact";
 import { escapeMarkdownV2 } from "./telegram-simple";
-import { compactGateCallbackTarget, compactReviewCallbackTarget, gateCard, statusCard } from "./card";
+import { applyGraceSecondsFromEnv } from "../config/env";
+import { nextReviewWindowStartIso, reviewWindowState } from "../reviewWindow";
+import { recordTrace } from "../trace";
+import { compactGateCallbackTarget, compactProjectCallbackTarget, compactReviewCallbackTarget, gateCard, gateRejectReasonCard, plainTextCard, speculativeQueuedReceiptCard, statusCard } from "./card";
 import {
   formatGateDecisionReceiptText,
   formatGateDecisionRequestText,
@@ -29,12 +32,29 @@ function gateUrl(baseUrl: string, gateId?: string, projectId?: string): string {
 
 function resolveGateCallbackTarget(store: IStorage, target: string): string {
   if (!target.startsWith("t:")) return target;
+  const prefixes = [
+    "perm:allow:",
+    "perm:deny:",
+    "perm:reject:",
+    "perm:defer:",
+    "perm:revoke:",
+    "nav:gate:",
+    "perm:reason:wrong_direction:",
+    "perm:reason:weak_evidence:",
+    "perm:reason:not_now:",
+    "perm:reason:too_risky:",
+    "perm:reason:risk_too_high:",
+  ];
   const gate = store.listGates().find((item) =>
-    compactGateCallbackTarget(item.id, "perm:allow:") === target ||
-    compactGateCallbackTarget(item.id, "perm:deny:") === target ||
-    compactGateCallbackTarget(item.id, "nav:gate:") === target
+    prefixes.some((prefix) => compactGateCallbackTarget(item.id, prefix) === target)
   );
   return gate?.id ?? target;
+}
+
+function normalizeReasonCode(value: string): RejectReasonCode | null {
+  if (value === "risk_too_high") return "too_risky";
+  if (value === "wrong_direction" || value === "weak_evidence" || value === "not_now" || value === "too_risky") return value;
+  return null;
 }
 
 function resolveReviewCallbackTarget(store: IStorage, target: string): string {
@@ -58,6 +78,28 @@ function parseGatePayload(value: unknown): Record<string, any> {
   }
 }
 
+function resolveProjectCallbackTarget(store: IStorage, target: string): string | undefined {
+  if (!target) return undefined;
+  if (!target.startsWith("t:")) return target;
+  const project = store.getProjects().find((item) =>
+    compactProjectCallbackTarget(item.id, "cmd:/review:") === target
+  );
+  return project?.id;
+}
+
+function reviewCommandProjectId(store: IStorage, data: string): string | undefined {
+  const match = /^cmd:\/review(?::(.+))?$/.exec(data);
+  return resolveProjectCallbackTarget(store, match?.[1] ?? "");
+}
+
+function reviewPausedFromEnv(): boolean {
+  return /^(1|true|yes|on)$/i.test(process.env.ALAYA_REVIEW_PAUSED?.trim() ?? "");
+}
+
+function reviewPaused(store: IStorage): boolean {
+  return store.getReviewPauseState() ?? reviewPausedFromEnv();
+}
+
 interface CallbackFailureContext {
   projectId: string;
   cycleId?: string | null;
@@ -78,6 +120,7 @@ export class CallbackRouter {
 
   async route(callbackId: string, data: string, ref: MessageRef): Promise<void> {
     const callbackContext = this.callbackFailureContextForData(data, ref);
+    if ((callbackId || data.startsWith("cmd:/")) && !(await this.authorizeTelegramInteraction(callbackId, data, ref, callbackContext))) return;
     const callbackWarning = callbackId
       ? await this.bestEffortTelegramFeedback("answerCallback", () => this.platform.answerCallback(callbackId), callbackContext)
       : null;
@@ -85,7 +128,21 @@ export class CallbackRouter {
     if (data.startsWith("perm:allow:")) {
       await this.handlePerm(resolveGateCallbackTarget(this.store, data.replace("perm:allow:", "")), "approve", ref, callbackWarning);
     } else if (data.startsWith("perm:deny:")) {
-      await this.handlePerm(resolveGateCallbackTarget(this.store, data.replace("perm:deny:", "")), "reject", ref, callbackWarning);
+      await this.handlePerm(resolveGateCallbackTarget(this.store, data.replace("perm:deny:", "")), "reject", ref, callbackWarning, "weak_evidence");
+    } else if (data.startsWith("perm:reject:")) {
+      await this.handleRejectMenu(resolveGateCallbackTarget(this.store, data.replace("perm:reject:", "")), ref);
+    } else if (data.startsWith("perm:reason:")) {
+      const match = /^perm:reason:([^:]+):(.+)$/.exec(data);
+      const reasonCode = normalizeReasonCode(match?.[1] ?? "");
+      if (!match || !reasonCode) {
+        await this.platform.editCard(ref, { body: escapeMarkdownV2("无效的否决原因。") });
+        return;
+      }
+      await this.handlePerm(resolveGateCallbackTarget(this.store, match[2]), "reject", ref, callbackWarning, reasonCode);
+    } else if (data.startsWith("perm:defer:")) {
+      await this.handleDefer(resolveGateCallbackTarget(this.store, data.replace("perm:defer:", "")), ref, callbackWarning);
+    } else if (data.startsWith("perm:revoke:")) {
+      await this.handleRevoke(resolveGateCallbackTarget(this.store, data.replace("perm:revoke:", "")), ref, callbackWarning);
     } else if (data.startsWith("kr:q:")) {
       await this.handleKnowledgeReview(resolveReviewCallbackTarget(this.store, data.replace("kr:q:", "")), "quarantine", ref, callbackWarning);
     } else if (data.startsWith("kr:m:")) {
@@ -96,10 +153,71 @@ export class CallbackRouter {
       await this.handleStatusCmd(ref.chatId);
     } else if (data.startsWith("cmd:/gates")) {
       await this.handleGatesCmd(ref.chatId);
+    } else if (data.startsWith("cmd:/review")) {
+      await this.handleReviewCmd(ref.chatId, reviewCommandProjectId(this.store, data));
+    } else if (data.startsWith("cmd:/window")) {
+      await this.handleWindowCmd(ref.chatId);
+    } else if (data.startsWith("cmd:/pause")) {
+      await this.handlePauseCmd(ref.chatId);
+    } else if (data.startsWith("cmd:/resume")) {
+      await this.handleResumeCmd(ref.chatId);
     }
   }
 
-  private async handlePerm(gateId: string, action: "approve" | "reject", ref: MessageRef, callbackWarning?: string | null): Promise<void> {
+  private async authorizeTelegramInteraction(
+    callbackId: string,
+    data: string,
+    ref: MessageRef,
+    context?: CallbackFailureContext,
+  ): Promise<boolean> {
+    const requiredUserId = process.env.ALAYA_TELEGRAM_USER_ID?.trim();
+    if (!requiredUserId) return true;
+    if (ref.userId === requiredUserId) return true;
+    if (callbackId) {
+      await this.bestEffortTelegramFeedback("answerCallback(unauthorized)", () =>
+        this.platform.answerCallback(callbackId, "未授权：此按钮仅绑定的 Telegram 用户可操作。"), context);
+    } else {
+      await this.bestEffortTelegramFeedback("sendText(unauthorized command)", () =>
+        this.platform.sendText(ref.chatId, escapeMarkdownV2("未授权：此命令仅绑定的 Telegram 用户可操作。")), context);
+    }
+    const payload = {
+      expectedUserId: requiredUserId,
+      actualUserId: ref.userId ?? null,
+      chatId: ref.chatId,
+      messageId: ref.messageId,
+      data,
+      ts: now(),
+    };
+    const op = callbackId ? "telegram_unauthorized_callback" : "telegram_unauthorized_command";
+    this.store.recordEvent({
+      cycleIdx: context?.cycleIdx ?? 0,
+      actor: "telegram_callback_router",
+      tableName: "notifications",
+      op,
+      before: null,
+      after: JSON.stringify(payload),
+      ts: payload.ts,
+    });
+    recordTrace({
+      projectId: context?.projectId ?? "system",
+      cycleId: context?.cycleId ?? null,
+      cycleIdx: context?.cycleIdx ?? null,
+      kind: "notification",
+      name: op,
+      agent: "telegram_callback_router",
+      status: "blocked",
+      attributes: payload,
+    });
+    return false;
+  }
+
+  private async handlePerm(
+    gateId: string,
+    action: "approve" | "reject",
+    ref: MessageRef,
+    callbackWarning?: string | null,
+    reasonCode?: RejectReasonCode,
+  ): Promise<void> {
     const gate = this.store.getGate(gateId);
     if (!gate) {
       await this.platform.editCard(ref, { body: escapeMarkdownV2(`未找到闸门：${gateId}`) });
@@ -141,14 +259,41 @@ export class CallbackRouter {
       this.platform.editCard(ref, { body: escapeMarkdownV2(formatGateProcessingText(gate)) }), failureContext);
 
     try {
+      const currentPayload = parseGatePayload(gate.payload);
       const result = action === "approve"
-        ? this.gateService.approve(gate.id, { via: "telegram", actor: "human_telegram" })
-        : this.gateService.reject(gate.id, { via: "telegram", actor: "human_telegram" });
+        ? this.gateService.approve(gate.id, {
+          via: "telegram",
+          actor: "human_telegram",
+          reviewOpenedAt: currentPayload.telegramReviewOpenedAt,
+        })
+        : this.gateService.reject(gate.id, {
+          via: "telegram",
+          actor: "human_telegram",
+          reasonCode,
+          reviewOpenedAt: currentPayload.telegramReviewOpenedAt,
+        });
       const projectId = this.store.getCycle(gate.cycleId)?.projectId ?? "system";
       const pendingGatesAfter = this.store.listGates(projectId).filter((item) => item.status === "pending").length;
       const openConflictReviewsAfter = this.store
         .listKnowledgeReviews(projectId)
         .filter((review) => review.reviewType === "conflict" && review.status === "review_required").length;
+      const resolvedPayload = parseGatePayload(result.gate.payload);
+      if (action === "approve" && gate.blocking === 1 && resolvedPayload.riskKey === "speculative_apply_draft") {
+        const grace = applyGraceSecondsFromEnv();
+        await this.bestEffortTelegramFeedback("editCard(speculative apply queued)", () =>
+          this.platform.editCard(ref, speculativeQueuedReceiptCard({
+            title: "已批准，进入 apply 队列",
+            body: [
+              `闸门「${gate.title}」已批准。`,
+              `草稿已进入 apply 队列，${grace}s 内可撤销。`,
+              `当前待处理闸门：${pendingGatesAfter} 个；开放知识冲突复核：${openConflictReviewsAfter} 个。`,
+              callbackWarning ? `注意：${callbackWarning}` : "",
+            ].filter(Boolean).join("\n"),
+            gateId: gate.id,
+          })), failureContext);
+        return;
+      }
+      if (await this.maybeContinueReviewSession(projectId, ref, callbackWarning)) return;
       await this.bestEffortTelegramFeedback("editCard(receipt)", () =>
         this.platform.editCard(ref, {
           body: escapeMarkdownV2(formatGateDecisionReceiptText(result.gate ?? gate, {
@@ -160,6 +305,7 @@ export class CallbackRouter {
             openConflictReviewsAfter,
             knowledgeId: action === "approve" && gate.type === "meaning" ? knowledgeIdForMeaningGate(gate.id) : null,
             projectId,
+            rationale: action === "reject" && reasonCode ? `reason_code=${reasonCode}` : undefined,
             callbackWarning: callbackWarning ?? undefined,
           })),
         }), failureContext);
@@ -169,6 +315,165 @@ export class CallbackRouter {
           body: escapeMarkdownV2(`处理失败：${error instanceof Error ? error.message : String(error)}`),
         }), failureContext);
     }
+  }
+
+  private reviewSessionGates(projectId: string, sessionId: string): HumanGateItem[] {
+    return this.store.listGates(projectId).filter((gate) => parseGatePayload(gate.payload).reviewSessionId === sessionId);
+  }
+
+  private pendingGatesForReviewSession(projectId: string, sessionId: string): HumanGateItem[] {
+    const sessionGates = this.reviewSessionGates(projectId, sessionId);
+    const scope = sessionGates.length > 0 ? sessionGates : this.store.getPendingGates(projectId);
+    return scope.filter((gate) => gate.status === "pending");
+  }
+
+  private markReviewSessionMember(gate: HumanGateItem, reviewSessionId: string): HumanGateItem {
+    const payload = parseGatePayload(gate.payload);
+    if (payload.reviewSessionId === reviewSessionId) return gate;
+    return this.gateService.systemAnnotate(gate.id, {
+      actor: "telegram_callback_router",
+      reason: "telegram gate assigned to review session",
+      patch: {
+        payload: JSON.stringify({
+          ...payload,
+          reviewSessionId,
+        }),
+      },
+    });
+  }
+
+  private markTelegramReviewOpened(gate: HumanGateItem, reviewSessionId?: string): HumanGateItem {
+    const payload = parseGatePayload(gate.payload);
+    const nextPayload = {
+      ...payload,
+      ...(payload.telegramReviewOpenedAt ? {} : { telegramReviewOpenedAt: now() }),
+      ...(reviewSessionId && payload.reviewSessionId !== reviewSessionId ? { reviewSessionId } : {}),
+    };
+    if (JSON.stringify(payload) === JSON.stringify(nextPayload)) return gate;
+    return this.gateService.systemAnnotate(gate.id, {
+      actor: "telegram_callback_router",
+      reason: "telegram card displayed for review dwell tracking",
+      patch: {
+        payload: JSON.stringify(nextPayload),
+      },
+    });
+  }
+
+  private async handleRejectMenu(gateId: string, ref: MessageRef): Promise<void> {
+    const gate = this.store.getGate(gateId);
+    if (!gate) {
+      await this.platform.editCard(ref, { body: escapeMarkdownV2(`未找到闸门：${gateId}`) });
+      return;
+    }
+    const projectId = this.store.getCycle(gate.cycleId)?.projectId;
+    const marked = this.markTelegramReviewOpened(gate);
+    await this.platform.editCard(ref, gateRejectReasonCard({
+      title: marked.title,
+      body: formatGateDecisionRequestText(marked, { projectId }),
+      gateId: marked.id,
+      isBlocking: marked.blocking === 1,
+      actionUrl: gateUrl(this.baseUrl, marked.id, projectId),
+    }));
+  }
+
+  private async handleDefer(gateId: string, ref: MessageRef, callbackWarning?: string | null): Promise<void> {
+    const gate = this.store.getGate(gateId);
+    if (!gate) {
+      await this.platform.editCard(ref, { body: escapeMarkdownV2(`未找到闸门：${gateId}`) });
+      return;
+    }
+    const payload = parseGatePayload(gate.payload);
+    const failureContext = this.callbackFailureContextForGate(gate, ref);
+    try {
+      const result = this.gateService.defer(gate.id, null, {
+        via: "telegram",
+        actor: "human_telegram",
+        reviewOpenedAt: payload.telegramReviewOpenedAt,
+      });
+      const projectId = this.store.getCycle(gate.cycleId)?.projectId ?? "system";
+      if (await this.maybeContinueReviewSession(projectId, ref, callbackWarning)) return;
+      await this.bestEffortTelegramFeedback("editCard(defer receipt)", () =>
+        this.platform.editCard(ref, plainTextCard("已顺延", [
+          `闸门「${result.gate.title}」已顺延至 ${result.gate.deferUntil ?? "下个窗口"}。`,
+          callbackWarning ? `注意：${callbackWarning}` : "",
+        ].filter(Boolean).join("\n"))), failureContext);
+    } catch (error) {
+      await this.bestEffortTelegramFeedback("editCard(defer error)", () =>
+        this.platform.editCard(ref, {
+          body: escapeMarkdownV2(`顺延失败：${error instanceof Error ? error.message : String(error)}`),
+        }), failureContext);
+    }
+  }
+
+  private async handleRevoke(gateId: string, ref: MessageRef, callbackWarning?: string | null): Promise<void> {
+    const gate = this.store.getGate(gateId);
+    if (!gate) {
+      await this.platform.editCard(ref, { body: escapeMarkdownV2(`未找到闸门：${gateId}`) });
+      return;
+    }
+    const failureContext = this.callbackFailureContextForGate(gate, ref);
+    try {
+      const result = this.gateService.revoke(gate.id, {
+        via: "telegram",
+        actor: "human_telegram",
+      });
+      await this.bestEffortTelegramFeedback("editCard(revoke receipt)", () =>
+        this.platform.editCard(ref, plainTextCard("已撤销 apply", [
+          `闸门「${result.gate.title}」已回到待审批状态，草稿退出 apply 队列。`,
+          callbackWarning ? `注意：${callbackWarning}` : "",
+        ].filter(Boolean).join("\n"))), failureContext);
+    } catch (error) {
+      await this.bestEffortTelegramFeedback("editCard(revoke error)", () =>
+        this.platform.editCard(ref, {
+          body: escapeMarkdownV2(`撤销失败：${error instanceof Error ? error.message : String(error)}`),
+        }), failureContext);
+    }
+  }
+
+  private reviewGateCard(gate: HumanGateItem, projectId: string, progressLabel?: string) {
+    const payload = parseGatePayload(gate.payload);
+    return gateCard({
+      title: gate.title,
+      body: formatGateDecisionRequestText(gate, { projectId }),
+      gateId: gate.id,
+      gateType: gate.type,
+      isBlocking: gate.blocking === 1,
+      actionUrl: gateUrl(this.baseUrl, gate.id, projectId),
+      riskKey: payload.riskKey,
+      reviewId: payload.reviewId,
+      progressLabel,
+    });
+  }
+
+  private async maybeContinueReviewSession(projectId: string, ref: MessageRef, callbackWarning?: string | null): Promise<boolean> {
+    const session = this.store.getOpenReviewSession(projectId);
+    if (!session) return false;
+    const sessionGates = this.reviewSessionGates(projectId, session.id);
+    const scopedGates = sessionGates.length > 0 ? sessionGates : this.store.listGates(projectId);
+    const pending = this.pendingGatesForReviewSession(projectId, session.id);
+    if (pending.length === 0) {
+      const deferred = scopedGates.filter((gate) => gate.status === "deferred").length;
+      const resolved = Math.max(0, session.gatesTotal - deferred);
+      this.store.updateReviewSession(session.id, {
+        closedAt: now(),
+        gatesResolved: resolved,
+        gatesDeferred: deferred,
+      });
+      await this.platform.editCard(ref, plainTextCard("审批会话完成", [
+        `${resolved} 已处理 / ${deferred} 顺延。`,
+        callbackWarning ? `注意：${callbackWarning}` : "",
+      ].filter(Boolean).join("\n")));
+      return true;
+    }
+
+    const nextGate = this.markTelegramReviewOpened(pending[0], session.id);
+    const completed = Math.max(0, session.gatesTotal - pending.length);
+    await this.platform.editCard(ref, this.reviewGateCard(
+      nextGate,
+      projectId,
+      `${Math.min(completed + 1, session.gatesTotal)}/${session.gatesTotal}`,
+    ));
+    return true;
   }
 
   private async handleKnowledgeReview(reviewId: string, action: "quarantine" | "merge_supersede", ref: MessageRef, callbackWarning?: string | null): Promise<void> {
@@ -270,8 +575,18 @@ export class CallbackRouter {
   }
 
   private callbackFailureContextForData(data: string, ref: MessageRef): CallbackFailureContext | undefined {
-    if (data.startsWith("perm:allow:") || data.startsWith("perm:deny:") || data.startsWith("nav:gate:")) {
-      const target = data.replace(/^(perm:allow:|perm:deny:|nav:gate:)/, "");
+    if (
+      data.startsWith("perm:allow:") ||
+      data.startsWith("perm:deny:") ||
+      data.startsWith("perm:reject:") ||
+      data.startsWith("perm:defer:") ||
+      data.startsWith("perm:revoke:") ||
+      data.startsWith("perm:reason:") ||
+      data.startsWith("nav:gate:")
+    ) {
+      const target = data.startsWith("perm:reason:")
+        ? data.replace(/^perm:reason:[^:]+:/, "")
+        : data.replace(/^(perm:allow:|perm:deny:|perm:reject:|perm:defer:|perm:revoke:|nav:gate:)/, "");
       const gate = this.store.getGate(resolveGateCallbackTarget(this.store, target));
       return gate ? this.callbackFailureContextForGate(gate, ref) : { projectId: "system", chatId: ref.chatId, messageId: ref.messageId };
     }
@@ -364,18 +679,79 @@ export class CallbackRouter {
         continue;
       }
       for (const gate of gates) {
-        const payload = parseGatePayload(gate.payload);
+        const marked = this.markTelegramReviewOpened(gate);
+        const payload = parseGatePayload(marked.payload);
         await this.platform.sendCard(chatId, gateCard({
-          title: gate.title,
-          body: formatGateDecisionRequestText(gate, { projectId: project.id }),
-          gateId: gate.id,
-          gateType: gate.type,
-          isBlocking: gate.blocking === 1,
-          actionUrl: gateUrl(this.baseUrl, gate.id, project.id),
+          title: marked.title,
+          body: formatGateDecisionRequestText(marked, { projectId: project.id }),
+          gateId: marked.id,
+          gateType: marked.type,
+          isBlocking: marked.blocking === 1,
+          actionUrl: gateUrl(this.baseUrl, marked.id, project.id),
           riskKey: payload.riskKey,
           reviewId: payload.reviewId,
         }));
       }
     }
+  }
+
+  private async handleReviewCmd(chatId: string, projectId?: string): Promise<void> {
+    const projects = projectId
+      ? this.store.getProjects().filter((project) => project.id === projectId)
+      : this.store.getProjects().slice().reverse();
+    if (projectId && projects.length === 0) {
+      await this.platform.sendText(chatId, escapeMarkdownV2(`未找到项目：${projectId}`));
+      return;
+    }
+    for (const project of projects) {
+      const pending = this.store.getPendingGates(project.id);
+      if (pending.length === 0) continue;
+      const session = this.store.getOpenReviewSession(project.id) ?? this.store.createReviewSession({
+        id: `review_manual_${project.id.replace(/[^a-zA-Z0-9_]+/g, "_").slice(0, 64)}_${Date.now().toString(36)}`,
+        projectId: project.id,
+        source: "manual",
+        openedAt: now(),
+        closedAt: null,
+        gatesTotal: pending.length,
+        gatesResolved: 0,
+        gatesDeferred: 0,
+        digestMessageId: null,
+        summaryMessageId: null,
+      });
+      const sessionPending = this.pendingGatesForReviewSession(project.id, session.id)
+        .map((gate) => this.markReviewSessionMember(gate, session.id));
+      const firstGate = this.markTelegramReviewOpened(sessionPending[0] ?? pending[0], session.id);
+      await this.platform.sendCard(chatId, this.reviewGateCard(firstGate, project.id, `1/${session.gatesTotal}`));
+      return;
+    }
+    await this.platform.sendText(chatId, escapeMarkdownV2(projectId ? `项目 ${projectId} 当前没有待审批闸门。` : "当前没有待审批闸门。"));
+  }
+
+  private async handleWindowCmd(chatId: string): Promise<void> {
+    const state = reviewWindowState(new Date());
+    const nextStart = nextReviewWindowStartIso(new Date());
+    const lines = [
+      `当前窗口：${state.inWindow ? `${state.windowDate} ${state.windowLabel}` : "窗口外"}（${state.timezone}）`,
+      `下个窗口开始：${nextStart}`,
+      `暂停状态：${reviewPaused(this.store) ? "已暂停" : "正常"}`,
+    ];
+    for (const project of this.store.getProjects()) {
+      const pending = this.store.getPendingGates(project.id);
+      const deferred = this.store.listGates(project.id).filter((gate) => gate.status === "deferred").length;
+      lines.push(`${project.id}: pending ${pending.length} / deferred ${deferred}`);
+    }
+    await this.platform.sendText(chatId, escapeMarkdownV2(lines.join("\n")));
+  }
+
+  private async handlePauseCmd(chatId: string): Promise<void> {
+    process.env.ALAYA_REVIEW_PAUSED = "true";
+    this.store.setReviewPauseState(true, "human_telegram");
+    await this.platform.sendText(chatId, escapeMarkdownV2("已暂停审批窗口提醒与 missed_windows 升级。"));
+  }
+
+  private async handleResumeCmd(chatId: string): Promise<void> {
+    process.env.ALAYA_REVIEW_PAUSED = "false";
+    this.store.setReviewPauseState(false, "human_telegram");
+    await this.platform.sendText(chatId, escapeMarkdownV2("已恢复审批窗口提醒与 missed_windows 统计。"));
   }
 }

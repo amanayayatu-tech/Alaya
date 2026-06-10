@@ -13,9 +13,11 @@ process.env.ALAYA_CAP_DATABASE_MIGRATION = "true";
 process.env.ALAYA_AUTO_SEED_DEMO = "false";
 process.env.ALAYA_LLM_PROVIDER = "mock";
 process.env.ALAYA_API_KEY = "unit-api-key-for-shadow-mode";
+process.env.ALAYA_REVIEW_TIMEZONE = "Asia/Shanghai";
 
 const { storage } = await import("../server/storage.ts");
 const { registerRoutes } = await import("../server/routes.ts");
+const { HumanGateService } = await import("../server/humanGateService.ts");
 
 const app = express();
 app.use(express.json());
@@ -133,4 +135,124 @@ test("new governed API routes use explicit capability classes in long-run modes"
   assert.equal(storage.listActionLedger().some((action) => action.actionType === "capability.shell_execution"), true);
   assert.equal(storage.listActionLedger().some((action) => action.actionType === "capability.llm_call"), true);
   process.env.ALAYA_MODE = "shadow";
+});
+
+test("shadow mode replay of an already-approved meaning gate does not backfill real knowledge", () => {
+  process.env.ALAYA_MODE = "shadow";
+  const projectId = "proj_shadow_gate_replay";
+  const cycleId = "cycle_shadow_gate_replay";
+  const gateId = "gate_shadow_meaning_replay";
+  storage.createProject({
+    id: projectId,
+    name: "Shadow Gate Replay",
+    direction: "do not backfill in shadow",
+    targetUser: "operator",
+    redlines: "[]",
+    weeklyHumanMinutes: 150,
+    weeklyLlmBudgetCents: 100,
+    firstClaimMetric: "activation_rate",
+    firstClaimOperator: ">=",
+    firstClaimTarget: 0.3,
+    seedIdentity: "",
+    worldModel: "",
+    currentCycleIdx: 1,
+    version: 1,
+  });
+  storage.createCycle({
+    id: cycleId,
+    projectId,
+    idx: 1,
+    goal: "replay",
+    status: "running",
+    eCycle: null,
+    worstClaimError: null,
+    reasoning: "",
+    version: 1,
+  });
+  storage.createGate({
+    id: gateId,
+    cycleId,
+    type: "meaning",
+    blocking: 0,
+    title: "Replay approved meaning gate",
+    payload: JSON.stringify({
+      source: "form",
+      topicKey: "shadow-replay",
+      summary: "approved signal should not be backfilled in shadow",
+      userQuote: "shadow replay",
+      externalId: "shadow-form-1",
+      category: "test",
+      decision_brief: {
+        claim: "Approved shadow replay signal must not be backfilled as real knowledge",
+        cited_knowledge_ids: [],
+        prediction: {
+          metric: "shadow_backfill",
+          operator: "=",
+          target: false,
+          timeWindow: "current replay",
+        },
+        if_approved: "Would backfill the approved meaning gate only when capability allows writes.",
+        if_rejected: "The replay remains a resolved gate without knowledge side effects.",
+        rollback_ref: "shadow-mode-test",
+      },
+    }),
+    status: "approved",
+    estimatedMinutes: 5,
+    decision: "approve",
+    version: 1,
+  });
+
+  const result = new HumanGateService(storage).approve(gateId, { actor: "test", via: "test" });
+  assert.equal(result.dryRun, true);
+  assert.equal(storage.listKnowledge(projectId).some((item) => item.sourceRef === "shadow-form-1"), false);
+  assert.equal(storage.listActionLedger(projectId).some((action) => (
+    action.actionType === "capability.knowledge_write" &&
+    action.status === "dry_run" &&
+    action.approvalGateId === gateId
+  )), true);
+});
+
+test("long-run modes reject new human gates without a decision brief", () => {
+  process.env.ALAYA_MODE = "shadow";
+  const projectId = "proj_shadow_missing_brief";
+  const cycleId = "cycle_shadow_missing_brief";
+  storage.createProject({
+    id: projectId,
+    name: "Missing Brief",
+    direction: "require brief",
+    targetUser: "operator",
+    redlines: "[]",
+    weeklyHumanMinutes: 150,
+    weeklyLlmBudgetCents: 100,
+    firstClaimMetric: "activation_rate",
+    firstClaimOperator: ">=",
+    firstClaimTarget: 0.3,
+    seedIdentity: "",
+    worldModel: "",
+    currentCycleIdx: 1,
+    version: 1,
+  });
+  storage.createCycle({
+    id: cycleId,
+    projectId,
+    idx: 1,
+    goal: "brief required",
+    status: "running",
+    eCycle: null,
+    worstClaimError: null,
+    reasoning: "",
+    version: 1,
+  });
+  assert.throws(() => storage.createGate({
+    id: "gate_shadow_missing_brief",
+    cycleId,
+    type: "meaning",
+    blocking: 0,
+    title: "Missing brief",
+    payload: JSON.stringify({ summary: "no brief" }),
+    status: "pending",
+    estimatedMinutes: 5,
+    decision: null,
+    version: 1,
+  }), /decision_brief/);
 });

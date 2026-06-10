@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -33,6 +33,14 @@ export const cycles = sqliteTable("cycles", {
   eCycle: real("e_cycle"),
   worstClaimError: real("worst_claim_error"),
   reasoning: text("reasoning").notNull().default(""),
+  speculative: integer("speculative").notNull().default(0),
+  parentCycleId: text("parent_cycle_id"),
+  dependsOn: text("depends_on"),
+  assumedOutcomes: text("assumed_outcomes"),
+  draftStatus: text("draft_status"),
+  applyScheduledAt: text("apply_scheduled_at"),
+  appliedAt: text("applied_at"),
+  coAppliedSet: text("co_applied_set"),
   version: integer("version").notNull().default(1),
 });
 
@@ -143,10 +151,42 @@ export const humanGateItems = sqliteTable("human_gate_items", {
   status: text("status").notNull().default("pending"),
   estimatedMinutes: integer("estimated_minutes").notNull().default(10),
   decision: text("decision"),
+  notifyPolicy: text("notify_policy").notNull().default("next_window"),
+  deferUntil: text("defer_until"),
+  rejectReasonCode: text("reject_reason_code"),
+  reviewDwellMs: integer("review_dwell_ms"),
+  evidenceRevalidatedAt: text("evidence_revalidated_at"),
+  evidenceChanged: integer("evidence_changed").notNull().default(0),
+  missedWindows: integer("missed_windows").notNull().default(0),
   version: integer("version").notNull().default(1),
 });
 
-// ---------------- 10. decisionLog ----------------
+// ---------------- 10. reviewSessions ----------------
+export const reviewSessions = sqliteTable("review_sessions", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull(),
+  source: text("source").notNull().default("scheduled"),
+  openedAt: text("opened_at").notNull(),
+  closedAt: text("closed_at"),
+  gatesTotal: integer("gates_total").notNull().default(0),
+  gatesResolved: integer("gates_resolved").notNull().default(0),
+  gatesDeferred: integer("gates_deferred").notNull().default(0),
+  digestMessageId: text("digest_message_id"),
+  summaryMessageId: text("summary_message_id"),
+});
+
+// ---------------- 11. notificationDigests ----------------
+export const notificationDigests = sqliteTable("notification_digests", {
+  projectId: text("project_id").notNull(),
+  windowDate: text("window_date").notNull(),
+  windowLabel: text("window_label").notNull(),
+  sentAt: text("sent_at").notNull(),
+  messageId: text("message_id"),
+}, (table) => ({
+  uniqueWindow: uniqueIndex("idx_notification_digests_project_window").on(table.projectId, table.windowDate, table.windowLabel),
+}));
+
+// ---------------- 12. decisionLog ----------------
 export const decisionLog = sqliteTable("decision_log", {
   id: text("id").primaryKey(),
   cycleId: text("cycle_id").notNull(),
@@ -156,7 +196,7 @@ export const decisionLog = sqliteTable("decision_log", {
   ts: text("ts").notNull(),
 });
 
-// ---------------- 11. eventLog ----------------
+// ---------------- 13. eventLog ----------------
 export const eventLog = sqliteTable("event_log", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   cycleIdx: integer("cycle_idx").notNull().default(0),
@@ -320,7 +360,20 @@ export const insertProjectSchema = createInsertSchema(projects).omit({ id: true,
 export type InsertProject = z.infer<typeof insertProjectSchema>;
 export type Project = typeof projects.$inferSelect;
 
-export type Cycle = typeof cycles.$inferSelect;
+type CycleRow = typeof cycles.$inferSelect;
+export type Cycle = Omit<
+  CycleRow,
+  "speculative" | "parentCycleId" | "dependsOn" | "assumedOutcomes" | "draftStatus" | "applyScheduledAt" | "appliedAt" | "coAppliedSet"
+> & {
+  speculative?: number;
+  parentCycleId?: string | null;
+  dependsOn?: string | null;
+  assumedOutcomes?: string | null;
+  draftStatus?: string | null;
+  applyScheduledAt?: string | null;
+  appliedAt?: string | null;
+  coAppliedSet?: string | null;
+};
 export type Agent = typeof agents.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
 export type FeedbackItem = typeof feedbackItems.$inferSelect;
@@ -340,7 +393,22 @@ export type KnowledgeItem = Omit<
   noveltyScore?: number | null;
   sourceRound?: number | null;
 };
-export type HumanGateItem = typeof humanGateItems.$inferSelect;
+type HumanGateItemRow = typeof humanGateItems.$inferSelect;
+export type GateNotifyPolicy = "immediate" | "next_window";
+export type HumanGateItem = Omit<
+  HumanGateItemRow,
+  "notifyPolicy" | "deferUntil" | "rejectReasonCode" | "reviewDwellMs" | "evidenceRevalidatedAt" | "evidenceChanged" | "missedWindows"
+> & {
+  notifyPolicy?: GateNotifyPolicy;
+  deferUntil?: string | null;
+  rejectReasonCode?: string | null;
+  reviewDwellMs?: number | null;
+  evidenceRevalidatedAt?: string | null;
+  evidenceChanged?: number;
+  missedWindows?: number;
+};
+export type ReviewSessionItem = typeof reviewSessions.$inferSelect;
+export type NotificationDigestItem = typeof notificationDigests.$inferSelect;
 export type DecisionLogItem = typeof decisionLog.$inferSelect;
 export type EventLogItem = typeof eventLog.$inferSelect;
 export type LlmCall = typeof llmCalls.$inferSelect;

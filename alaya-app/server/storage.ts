@@ -1,11 +1,12 @@
 import Database from "better-sqlite3";
-import { assertEnvValid, isLongRunMode, isSchemaMigrationAllowed, runModeFromEnv } from "./config/env";
+import { assertEnvValid, immediateRiskLevelsFromEnv, isLongRunMode, isSchemaMigrationAllowed, runModeFromEnv } from "./config/env";
 import { redactSensitiveData, redactSensitiveText } from "./security/redact";
+import { assertDecisionBriefPayload } from "./decisionBrief";
 import type {
   Project, Cycle, Agent, Task, FeedbackItem, Prediction, Observation,
   KnowledgeItem, HumanGateItem, DecisionLogItem, EventLogItem, LlmCall, AgentRun,
   ExternalFeedbackSource, TraceEventItem, ActionLedgerRow,
-  KnowledgeReviewItem, ExternalBusinessSignal, OrgModule,
+  KnowledgeReviewItem, ExternalBusinessSignal, OrgModule, ReviewSessionItem, NotificationDigestItem,
 } from "@shared/schema";
 
 assertEnvValid();
@@ -25,6 +26,8 @@ const REQUIRED_TABLES = [
   "observations",
   "knowledge_items",
   "human_gate_items",
+  "review_sessions",
+  "notification_digests",
   "decision_log",
   "event_log",
   "llm_calls",
@@ -38,6 +41,16 @@ const REQUIRED_TABLES = [
 ];
 
 const REQUIRED_COLUMNS: Record<string, string[]> = {
+  cycles: [
+    "speculative",
+    "parent_cycle_id",
+    "depends_on",
+    "assumed_outcomes",
+    "draft_status",
+    "apply_scheduled_at",
+    "applied_at",
+    "co_applied_set",
+  ],
   llm_calls: ["input_token_count", "output_token_count", "llm_failure_type", "token_source"],
   knowledge_items: ["usage_count", "last_injected_at", "last_verified_at", "last_decayed_at", "semantic_key"],
   external_feedback_sources: ["config", "status", "last_synced_at"],
@@ -46,6 +59,15 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   knowledge_review_items: ["status", "resolution"],
   external_business_signals: ["dedupe_key", "risk_level", "gate_id"],
   org_modules: ["version_label", "knowledge_id"],
+  human_gate_items: [
+    "notify_policy",
+    "defer_until",
+    "reject_reason_code",
+    "review_dwell_ms",
+    "evidence_revalidated_at",
+    "evidence_changed",
+    "missed_windows",
+  ],
 };
 
 const REQUIRED_TABLE_SET = new Set(REQUIRED_TABLES);
@@ -112,6 +134,14 @@ export function runSchemaMigrations() {
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL, idx INTEGER NOT NULL,
     goal TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'planning',
     e_cycle REAL, worst_claim_error REAL, reasoning TEXT NOT NULL DEFAULT '',
+    speculative INTEGER NOT NULL DEFAULT 0,
+    parent_cycle_id TEXT,
+    depends_on TEXT,
+    assumed_outcomes TEXT,
+    draft_status TEXT,
+    apply_scheduled_at TEXT,
+    applied_at TEXT,
+    co_applied_set TEXT,
     version INTEGER NOT NULL DEFAULT 1
   );
   CREATE TABLE IF NOT EXISTS agents (
@@ -163,7 +193,28 @@ export function runSchemaMigrations() {
     id TEXT PRIMARY KEY, cycle_id TEXT NOT NULL, type TEXT NOT NULL,
     blocking INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL, payload TEXT NOT NULL DEFAULT '{}',
     status TEXT NOT NULL DEFAULT 'pending', estimated_minutes INTEGER NOT NULL DEFAULT 10,
-    decision TEXT, version INTEGER NOT NULL DEFAULT 1
+    decision TEXT,
+    notify_policy TEXT NOT NULL DEFAULT 'next_window',
+    defer_until TEXT,
+    reject_reason_code TEXT,
+    review_dwell_ms INTEGER,
+    evidence_revalidated_at TEXT,
+    evidence_changed INTEGER NOT NULL DEFAULT 0,
+    missed_windows INTEGER NOT NULL DEFAULT 0,
+    version INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE TABLE IF NOT EXISTS review_sessions (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'scheduled',
+    opened_at TEXT NOT NULL, closed_at TEXT,
+    gates_total INTEGER NOT NULL DEFAULT 0,
+    gates_resolved INTEGER NOT NULL DEFAULT 0,
+    gates_deferred INTEGER NOT NULL DEFAULT 0,
+    digest_message_id TEXT, summary_message_id TEXT
+  );
+  CREATE TABLE IF NOT EXISTS notification_digests (
+    project_id TEXT NOT NULL, window_date TEXT NOT NULL, window_label TEXT NOT NULL,
+    sent_at TEXT NOT NULL, message_id TEXT,
+    UNIQUE(project_id, window_date, window_label)
   );
   CREATE TABLE IF NOT EXISTS decision_log (
     id TEXT PRIMARY KEY, cycle_id TEXT NOT NULL, gate_type TEXT NOT NULL,
@@ -256,6 +307,21 @@ export function runSchemaMigrations() {
     if (!projectColumns.has(name)) sqlite.exec(`ALTER TABLE projects ADD COLUMN ${name} ${spec}`);
   }
 
+  const cycleColumns = tableColumns("cycles");
+  const cycleColumnSpecs: Array<[string, string]> = [
+    ["speculative", "INTEGER NOT NULL DEFAULT 0"],
+    ["parent_cycle_id", "TEXT"],
+    ["depends_on", "TEXT"],
+    ["assumed_outcomes", "TEXT"],
+    ["draft_status", "TEXT"],
+    ["apply_scheduled_at", "TEXT"],
+    ["applied_at", "TEXT"],
+    ["co_applied_set", "TEXT"],
+  ];
+  for (const [name, spec] of cycleColumnSpecs) {
+    if (!cycleColumns.has(name)) sqlite.exec(`ALTER TABLE cycles ADD COLUMN ${name} ${spec}`);
+  }
+
   const feedbackColumns = tableColumns("feedback_items");
   const feedbackColumnSpecs: Array<[string, string]> = [
     ["source_type", "TEXT NOT NULL DEFAULT 'scenario'"],
@@ -283,6 +349,20 @@ export function runSchemaMigrations() {
   ];
   for (const [name, spec] of knowledgeColumnSpecs) {
     if (!knowledgeColumns.has(name)) sqlite.exec(`ALTER TABLE knowledge_items ADD COLUMN ${name} ${spec}`);
+  }
+
+  const gateColumns = tableColumns("human_gate_items");
+  const gateColumnSpecs: Array<[string, string]> = [
+    ["notify_policy", "TEXT NOT NULL DEFAULT 'next_window'"],
+    ["defer_until", "TEXT"],
+    ["reject_reason_code", "TEXT"],
+    ["review_dwell_ms", "INTEGER"],
+    ["evidence_revalidated_at", "TEXT"],
+    ["evidence_changed", "INTEGER NOT NULL DEFAULT 0"],
+    ["missed_windows", "INTEGER NOT NULL DEFAULT 0"],
+  ];
+  for (const [name, spec] of gateColumnSpecs) {
+    if (!gateColumns.has(name)) sqlite.exec(`ALTER TABLE human_gate_items ADD COLUMN ${name} ${spec}`);
   }
 
   const llmColumns = tableColumns("llm_calls");
@@ -327,11 +407,17 @@ export function runSchemaMigrations() {
 
   sqlite.exec(`
   CREATE INDEX IF NOT EXISTS idx_cycles_project_idx ON cycles(project_id, idx);
+  CREATE INDEX IF NOT EXISTS idx_cycles_project_draft ON cycles(project_id, draft_status, idx);
+  CREATE INDEX IF NOT EXISTS idx_cycles_parent ON cycles(parent_cycle_id, draft_status);
   CREATE INDEX IF NOT EXISTS idx_tasks_cycle ON tasks(cycle_id);
   CREATE INDEX IF NOT EXISTS idx_feedback_cycle ON feedback_items(cycle_id);
   CREATE INDEX IF NOT EXISTS idx_predictions_cycle ON predictions(cycle_id);
   CREATE INDEX IF NOT EXISTS idx_knowledge_project_cycle ON knowledge_items(project_id, created_by_cycle, id);
   CREATE INDEX IF NOT EXISTS idx_gates_cycle ON human_gate_items(cycle_id);
+  CREATE INDEX IF NOT EXISTS idx_gates_notify_policy ON human_gate_items(status, notify_policy);
+  CREATE INDEX IF NOT EXISTS idx_gates_missed_windows ON human_gate_items(status, blocking, missed_windows);
+  CREATE INDEX IF NOT EXISTS idx_review_sessions_project_open ON review_sessions(project_id, closed_at, opened_at);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_digests_project_window ON notification_digests(project_id, window_date, window_label);
   CREATE INDEX IF NOT EXISTS idx_decisions_cycle_ts ON decision_log(cycle_id, ts);
   CREATE INDEX IF NOT EXISTS idx_agent_runs_cycle_id ON agent_runs(cycle_id, id);
   CREATE INDEX IF NOT EXISTS idx_external_sources_project ON external_feedback_sources(project_id);
@@ -379,6 +465,27 @@ function parseJsonObject(value: string): Record<string, any> {
   }
 }
 
+function normalizeGateNotifyPolicy(gate: HumanGateItem): "immediate" | "next_window" {
+  if (gate.notifyPolicy === "immediate" || gate.notifyPolicy === "next_window") return gate.notifyPolicy;
+  if (gate.type !== "risk") return "next_window";
+  const payload = parseJsonObject(gate.payload);
+  const riskLevel = String(payload.riskLevel ?? payload.risk_level ?? "").trim().toLowerCase();
+  return riskLevel && immediateRiskLevelsFromEnv().has(riskLevel) ? "immediate" : "next_window";
+}
+
+function normalizeGate(gate: HumanGateItem): HumanGateItem {
+  return {
+    ...gate,
+    notifyPolicy: normalizeGateNotifyPolicy(gate),
+    deferUntil: gate.deferUntil ?? null,
+    rejectReasonCode: gate.rejectReasonCode ?? null,
+    reviewDwellMs: gate.reviewDwellMs ?? null,
+    evidenceRevalidatedAt: gate.evidenceRevalidatedAt ?? null,
+    evidenceChanged: gate.evidenceChanged ?? 0,
+    missedWindows: gate.missedWindows ?? 0,
+  };
+}
+
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
 }
@@ -401,7 +508,18 @@ function rowToProject(r: any): Project {
 function rowToCycle(r: any): Cycle {
   return {
     id: r.id, projectId: r.project_id, idx: r.idx, goal: r.goal, status: r.status,
-    eCycle: r.e_cycle, worstClaimError: r.worst_claim_error, reasoning: r.reasoning, version: r.version,
+    eCycle: r.e_cycle,
+    worstClaimError: r.worst_claim_error,
+    reasoning: r.reasoning,
+    speculative: r.speculative ?? 0,
+    parentCycleId: r.parent_cycle_id ?? null,
+    dependsOn: r.depends_on ?? null,
+    assumedOutcomes: r.assumed_outcomes ?? null,
+    draftStatus: r.draft_status ?? null,
+    applyScheduledAt: r.apply_scheduled_at ?? null,
+    appliedAt: r.applied_at ?? null,
+    coAppliedSet: r.co_applied_set ?? null,
+    version: r.version,
   };
 }
 function rowObject(value: unknown, table: string): Record<string, any> {
@@ -442,7 +560,38 @@ function rowToGate(r: any): HumanGateItem {
   return {
     id: r.id, cycleId: r.cycle_id, type: r.type, blocking: r.blocking, title: r.title,
     payload: r.payload, status: r.status, estimatedMinutes: r.estimated_minutes,
-    decision: r.decision, version: r.version,
+    decision: r.decision,
+    notifyPolicy: r.notify_policy ?? "next_window",
+    deferUntil: r.defer_until ?? null,
+    rejectReasonCode: r.reject_reason_code ?? null,
+    reviewDwellMs: r.review_dwell_ms ?? null,
+    evidenceRevalidatedAt: r.evidence_revalidated_at ?? null,
+    evidenceChanged: r.evidence_changed ?? 0,
+    missedWindows: r.missed_windows ?? 0,
+    version: r.version,
+  };
+}
+function rowToReviewSession(r: any): ReviewSessionItem {
+  return {
+    id: r.id,
+    projectId: r.project_id,
+    source: r.source,
+    openedAt: r.opened_at,
+    closedAt: r.closed_at,
+    gatesTotal: r.gates_total,
+    gatesResolved: r.gates_resolved,
+    gatesDeferred: r.gates_deferred,
+    digestMessageId: r.digest_message_id,
+    summaryMessageId: r.summary_message_id,
+  };
+}
+function rowToNotificationDigest(r: any): NotificationDigestItem {
+  return {
+    projectId: r.project_id,
+    windowDate: r.window_date,
+    windowLabel: r.window_label,
+    sentAt: r.sent_at,
+    messageId: r.message_id,
   };
 }
 function rowToFeedback(r: any): FeedbackItem {
@@ -597,13 +746,22 @@ export interface IStorage {
   getPendingGates(projectId: string): HumanGateItem[];
   getProjectState(projectId: string): { currentCycle: number; lastCycleAt: string | null };
   getKnowledgeCount(projectId: string): number;
-  updateGate(id: string, patch: Partial<HumanGateItem>): HumanGateItem | undefined;
+  updateGate(id: string, patch: Partial<HumanGateItem> & { actor?: string }): HumanGateItem | undefined;
+  // review windows
+  createReviewSession(s: ReviewSessionItem): ReviewSessionItem;
+  getOpenReviewSession(projectId: string): ReviewSessionItem | undefined;
+  listReviewSessions(projectId?: string): ReviewSessionItem[];
+  updateReviewSession(id: string, patch: Partial<ReviewSessionItem>): ReviewSessionItem | undefined;
+  createNotificationDigest(d: NotificationDigestItem): NotificationDigestItem;
+  getNotificationDigest(projectId: string, windowDate: string, windowLabel: string): NotificationDigestItem | undefined;
   // decision log
   createDecision(d: DecisionLogItem): DecisionLogItem;
   listDecisions(projectId?: string): DecisionLogItem[];
   // event log
   recordEvent(e: Omit<EventLogItem, "id">): void;
   listEvents(): EventLogItem[];
+  getReviewPauseState(): boolean | undefined;
+  setReviewPauseState(paused: boolean, actor?: string, at?: string): void;
   // llm calls
   recordLlmCall(c: LlmCallInsert): void;
   listLlmCalls(): LlmCall[];
@@ -697,13 +855,33 @@ export class DatabaseStorage implements IStorage {
   }
   // ---- cycles ----
   createCycle(c: Cycle): Cycle {
-    rawDb.prepare(`INSERT INTO cycles (id,project_id,idx,goal,status,e_cycle,worst_claim_error,reasoning,version)
-      VALUES (@id,@project_id,@idx,@goal,@status,@e_cycle,@worst_claim_error,@reasoning,@version)`).run({
+    const n = {
+      ...c,
+      speculative: c.speculative ?? 0,
+      parentCycleId: c.parentCycleId ?? null,
+      dependsOn: c.dependsOn ?? null,
+      assumedOutcomes: c.assumedOutcomes ?? null,
+      draftStatus: c.draftStatus ?? null,
+      applyScheduledAt: c.applyScheduledAt ?? null,
+      appliedAt: c.appliedAt ?? null,
+      coAppliedSet: c.coAppliedSet ?? null,
+    };
+    rawDb.prepare(`INSERT INTO cycles (id,project_id,idx,goal,status,e_cycle,worst_claim_error,reasoning,speculative,parent_cycle_id,depends_on,assumed_outcomes,draft_status,apply_scheduled_at,applied_at,co_applied_set,version)
+      VALUES (@id,@project_id,@idx,@goal,@status,@e_cycle,@worst_claim_error,@reasoning,@speculative,@parent_cycle_id,@depends_on,@assumed_outcomes,@draft_status,@apply_scheduled_at,@applied_at,@co_applied_set,@version)`).run({
       id: c.id, project_id: c.projectId, idx: c.idx, goal: c.goal, status: c.status,
-      e_cycle: c.eCycle, worst_claim_error: c.worstClaimError, reasoning: c.reasoning, version: c.version,
+      e_cycle: c.eCycle, worst_claim_error: c.worstClaimError, reasoning: c.reasoning,
+      speculative: n.speculative,
+      parent_cycle_id: n.parentCycleId,
+      depends_on: n.dependsOn,
+      assumed_outcomes: n.assumedOutcomes,
+      draft_status: n.draftStatus,
+      apply_scheduled_at: n.applyScheduledAt,
+      applied_at: n.appliedAt,
+      co_applied_set: n.coAppliedSet,
+      version: c.version,
     });
-    this.auditWrite("orchestrator", "cycles", "insert", null, c, c.idx);
-    return c;
+    this.auditWrite("orchestrator", "cycles", "insert", null, n, n.idx);
+    return n;
   }
   getCycle(id: string): Cycle | undefined {
     const r = rawDb.prepare(`SELECT * FROM cycles WHERE id=?`).get(id);
@@ -716,8 +894,22 @@ export class DatabaseStorage implements IStorage {
     const cur = this.getCycle(id);
     if (!cur) return undefined;
     const n = { ...cur, ...patch, version: cur.version + 1 };
-    rawDb.prepare(`UPDATE cycles SET goal=@goal,status=@status,e_cycle=@e_cycle,worst_claim_error=@worst_claim_error,reasoning=@reasoning,version=@version WHERE id=@id`).run({
-      id, goal: n.goal, status: n.status, e_cycle: n.eCycle, worst_claim_error: n.worstClaimError, reasoning: n.reasoning, version: n.version,
+    rawDb.prepare(`UPDATE cycles SET goal=@goal,status=@status,e_cycle=@e_cycle,worst_claim_error=@worst_claim_error,reasoning=@reasoning,speculative=@speculative,parent_cycle_id=@parent_cycle_id,depends_on=@depends_on,assumed_outcomes=@assumed_outcomes,draft_status=@draft_status,apply_scheduled_at=@apply_scheduled_at,applied_at=@applied_at,co_applied_set=@co_applied_set,version=@version WHERE id=@id`).run({
+      id,
+      goal: n.goal,
+      status: n.status,
+      e_cycle: n.eCycle,
+      worst_claim_error: n.worstClaimError,
+      reasoning: n.reasoning,
+      speculative: n.speculative ?? 0,
+      parent_cycle_id: n.parentCycleId ?? null,
+      depends_on: n.dependsOn ?? null,
+      assumed_outcomes: n.assumedOutcomes ?? null,
+      draft_status: n.draftStatus ?? null,
+      apply_scheduled_at: n.applyScheduledAt ?? null,
+      applied_at: n.appliedAt ?? null,
+      co_applied_set: n.coAppliedSet ?? null,
+      version: n.version,
     });
     this.auditWrite("orchestrator", "cycles", "update", cur, n, n.idx);
     return n;
@@ -917,13 +1109,24 @@ export class DatabaseStorage implements IStorage {
   }
   // ---- gates ----
   createGate(g: HumanGateItem): HumanGateItem {
-    rawDb.prepare(`INSERT INTO human_gate_items (id,cycle_id,type,blocking,title,payload,status,estimated_minutes,decision,version)
-      VALUES (@id,@cycle_id,@type,@blocking,@title,@payload,@status,@estimated_minutes,@decision,@version)`).run({
-      id: g.id, cycle_id: g.cycleId, type: g.type, blocking: g.blocking, title: g.title,
-      payload: g.payload, status: g.status, estimated_minutes: g.estimatedMinutes, decision: g.decision, version: g.version,
+    const n = normalizeGate(g);
+    if (isLongRunMode(runModeFromEnv())) assertDecisionBriefPayload(n);
+    rawDb.prepare(`INSERT INTO human_gate_items (id,cycle_id,type,blocking,title,payload,status,estimated_minutes,decision,notify_policy,defer_until,reject_reason_code,review_dwell_ms,evidence_revalidated_at,evidence_changed,missed_windows,version)
+      VALUES (@id,@cycle_id,@type,@blocking,@title,@payload,@status,@estimated_minutes,@decision,@notify_policy,@defer_until,@reject_reason_code,@review_dwell_ms,@evidence_revalidated_at,@evidence_changed,@missed_windows,@version)`).run({
+      id: n.id, cycle_id: n.cycleId, type: n.type, blocking: n.blocking, title: n.title,
+      payload: n.payload, status: n.status, estimated_minutes: n.estimatedMinutes,
+      decision: n.decision,
+      notify_policy: n.notifyPolicy,
+      defer_until: n.deferUntil,
+      reject_reason_code: n.rejectReasonCode,
+      review_dwell_ms: n.reviewDwellMs,
+      evidence_revalidated_at: n.evidenceRevalidatedAt,
+      evidence_changed: n.evidenceChanged,
+      missed_windows: n.missedWindows,
+      version: n.version,
     });
-    this.auditWrite("orchestrator", "human_gate_items", "insert", null, g, this.cycleIdxFor(g.cycleId));
-    return g;
+    this.auditWrite("orchestrator", "human_gate_items", "insert", null, n, this.cycleIdxFor(n.cycleId));
+    return n;
   }
   getGate(id: string): HumanGateItem | undefined {
     const r = rawDb.prepare(`SELECT * FROM human_gate_items WHERE id=?`).get(id);
@@ -960,23 +1163,97 @@ export class DatabaseStorage implements IStorage {
     `).get(projectId) as { count?: number } | undefined;
     return row?.count ?? 0;
   }
-  updateGate(id: string, patch: Partial<HumanGateItem>): HumanGateItem | undefined {
+  updateGate(id: string, patch: Partial<HumanGateItem> & { actor?: string }): HumanGateItem | undefined {
+    const { actor: requestedActor, ...gatePatch } = patch;
     const cur = this.getGate(id);
     if (!cur) return undefined;
-    const resolvedNow = patch.status != null && patch.status !== cur.status && patch.status !== "pending";
-    const payload = resolvedNow && patch.payload == null
+    const resolvedNow = gatePatch.status != null && gatePatch.status !== cur.status && gatePatch.status !== "pending";
+    const payload = resolvedNow && gatePatch.payload == null
       ? JSON.stringify({ ...parseJsonObject(cur.payload), resolvedAt: now() })
-      : patch.payload;
-    const n = { ...cur, ...patch, ...(payload != null ? { payload } : {}), version: cur.version + 1 };
-    rawDb.prepare(`UPDATE human_gate_items SET type=@type,blocking=@blocking,title=@title,payload=@payload,status=@status,estimated_minutes=@estimated_minutes,decision=@decision,version=@version WHERE id=@id`).run({
+      : gatePatch.payload;
+    const n = normalizeGate({ ...cur, ...gatePatch, ...(payload != null ? { payload } : {}), version: cur.version + 1 });
+    rawDb.prepare(`UPDATE human_gate_items SET type=@type,blocking=@blocking,title=@title,payload=@payload,status=@status,estimated_minutes=@estimated_minutes,decision=@decision,notify_policy=@notify_policy,defer_until=@defer_until,reject_reason_code=@reject_reason_code,review_dwell_ms=@review_dwell_ms,evidence_revalidated_at=@evidence_revalidated_at,evidence_changed=@evidence_changed,missed_windows=@missed_windows,version=@version WHERE id=@id`).run({
       id, type: n.type, blocking: n.blocking, title: n.title, payload: n.payload, status: n.status,
-      estimated_minutes: n.estimatedMinutes, decision: n.decision, version: n.version,
+      estimated_minutes: n.estimatedMinutes, decision: n.decision,
+      notify_policy: n.notifyPolicy,
+      defer_until: n.deferUntil,
+      reject_reason_code: n.rejectReasonCode,
+      review_dwell_ms: n.reviewDwellMs,
+      evidence_revalidated_at: n.evidenceRevalidatedAt,
+      evidence_changed: n.evidenceChanged,
+      missed_windows: n.missedWindows,
+      version: n.version,
     });
-    const actor = patch.decision?.includes("auto_approved") || patch.decision?.startsWith("merged_into:")
+    const actor = requestedActor ?? (gatePatch.decision?.includes("auto_approved") || gatePatch.decision?.startsWith("merged_into:")
       ? "scheduler"
-      : patch.status === "resolved" ? "human" : "librarian";
+      : gatePatch.status === "resolved" ? "human" : "librarian");
     this.auditWrite(actor, "human_gate_items", "update", cur, n, this.cycleIdxFor(n.cycleId));
     return n;
+  }
+  // ---- review windows ----
+  createReviewSession(s: ReviewSessionItem): ReviewSessionItem {
+    rawDb.prepare(`INSERT INTO review_sessions (id,project_id,source,opened_at,closed_at,gates_total,gates_resolved,gates_deferred,digest_message_id,summary_message_id)
+      VALUES (@id,@project_id,@source,@opened_at,@closed_at,@gates_total,@gates_resolved,@gates_deferred,@digest_message_id,@summary_message_id)`).run({
+      id: s.id,
+      project_id: s.projectId,
+      source: s.source,
+      opened_at: s.openedAt,
+      closed_at: s.closedAt,
+      gates_total: s.gatesTotal,
+      gates_resolved: s.gatesResolved,
+      gates_deferred: s.gatesDeferred,
+      digest_message_id: s.digestMessageId,
+      summary_message_id: s.summaryMessageId,
+    });
+    this.auditWrite("scheduler", "review_sessions", "insert", null, s, 0);
+    return s;
+  }
+  getOpenReviewSession(projectId: string): ReviewSessionItem | undefined {
+    const r = rawDb.prepare(`SELECT * FROM review_sessions WHERE project_id=? AND closed_at IS NULL ORDER BY opened_at DESC LIMIT 1`).get(projectId);
+    return r ? rowToReviewSession(r) : undefined;
+  }
+  listReviewSessions(projectId?: string): ReviewSessionItem[] {
+    const rows = projectId
+      ? rawDb.prepare(`SELECT * FROM review_sessions WHERE project_id=? ORDER BY opened_at ASC`).all(projectId)
+      : rawDb.prepare(`SELECT * FROM review_sessions ORDER BY opened_at ASC`).all();
+    return rows.map(rowToReviewSession);
+  }
+  updateReviewSession(id: string, patch: Partial<ReviewSessionItem>): ReviewSessionItem | undefined {
+    const curRow = rawDb.prepare(`SELECT * FROM review_sessions WHERE id=?`).get(id);
+    if (!curRow) return undefined;
+    const cur = rowToReviewSession(curRow);
+    const n = { ...cur, ...patch };
+    rawDb.prepare(`UPDATE review_sessions SET project_id=@project_id,source=@source,opened_at=@opened_at,closed_at=@closed_at,gates_total=@gates_total,gates_resolved=@gates_resolved,gates_deferred=@gates_deferred,digest_message_id=@digest_message_id,summary_message_id=@summary_message_id WHERE id=@id`).run({
+      id: n.id,
+      project_id: n.projectId,
+      source: n.source,
+      opened_at: n.openedAt,
+      closed_at: n.closedAt,
+      gates_total: n.gatesTotal,
+      gates_resolved: n.gatesResolved,
+      gates_deferred: n.gatesDeferred,
+      digest_message_id: n.digestMessageId,
+      summary_message_id: n.summaryMessageId,
+    });
+    this.auditWrite("scheduler", "review_sessions", "update", cur, n, 0);
+    return n;
+  }
+  createNotificationDigest(d: NotificationDigestItem): NotificationDigestItem {
+    rawDb.prepare(`INSERT OR IGNORE INTO notification_digests (project_id,window_date,window_label,sent_at,message_id)
+      VALUES (@project_id,@window_date,@window_label,@sent_at,@message_id)`).run({
+      project_id: d.projectId,
+      window_date: d.windowDate,
+      window_label: d.windowLabel,
+      sent_at: d.sentAt,
+      message_id: d.messageId,
+    });
+    const created = this.getNotificationDigest(d.projectId, d.windowDate, d.windowLabel) ?? d;
+    this.auditWrite("scheduler", "notification_digests", "insert", null, created, 0);
+    return created;
+  }
+  getNotificationDigest(projectId: string, windowDate: string, windowLabel: string): NotificationDigestItem | undefined {
+    const r = rawDb.prepare(`SELECT * FROM notification_digests WHERE project_id=? AND window_date=? AND window_label=?`).get(projectId, windowDate, windowLabel);
+    return r ? rowToNotificationDigest(r) : undefined;
   }
   // ---- decision log ----
   createDecision(d: DecisionLogItem): DecisionLogItem {
@@ -995,6 +1272,31 @@ export class DatabaseStorage implements IStorage {
   }
   listEvents(): EventLogItem[] {
     return rawDb.prepare(`SELECT * FROM event_log ORDER BY id DESC LIMIT 500`).all().map(rowToEvent);
+  }
+  getReviewPauseState(): boolean | undefined {
+    const row = rawDb.prepare(`
+      SELECT op, after FROM event_log
+      WHERE table_name = 'review_sessions' AND op IN ('review_paused', 'review_resumed')
+      ORDER BY id DESC
+      LIMIT 1
+    `).get() as { op?: string; after?: string | null } | undefined;
+    if (!row) return undefined;
+    const payload = parseJsonObject(row.after ?? "{}");
+    if (typeof payload.paused === "boolean") return payload.paused;
+    if (row.op === "review_paused") return true;
+    if (row.op === "review_resumed") return false;
+    return undefined;
+  }
+  setReviewPauseState(paused: boolean, actor = "human_telegram", at = now()): void {
+    this.recordEvent({
+      cycleIdx: 0,
+      actor,
+      tableName: "review_sessions",
+      op: paused ? "review_paused" : "review_resumed",
+      before: null,
+      after: JSON.stringify({ paused, ts: at }),
+      ts: at,
+    });
   }
   // ---- llm calls ----
   recordLlmCall(c: LlmCallInsert): void {

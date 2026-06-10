@@ -50,6 +50,12 @@ export interface HumanGate {
     sentiment?: string;
     topicKey?: string;
     summary?: string;
+    riskKey?: string;
+    draftCycleId?: string;
+    parentCycleId?: string;
+    dependsOn?: string[] | string;
+    assumedOutcomes?: unknown[] | string;
+    rejectReasonCode?: string;
     rollbackTrigger?: string;
     rollbackPlan?: {
       packageType?: string;
@@ -64,7 +70,14 @@ export interface HumanGate {
       verificationConstraints?: string[];
     };
   };
-  status: string; estimatedMinutes: number; decision: string | null; version: number;
+  status: string; estimatedMinutes: number; decision: string | null;
+  notifyPolicy?: "immediate" | "next_window";
+  deferUntil?: string | null;
+  rejectReasonCode?: string | null;
+  reviewDwellMs?: number | null;
+  evidenceChanged?: number;
+  missedWindows?: number;
+  version: number;
 }
 export interface AgentRun {
   id: number; cycleId: string; cycleIdx: number; agent: string; action: string;

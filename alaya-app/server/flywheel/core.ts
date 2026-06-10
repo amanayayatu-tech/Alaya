@@ -11,6 +11,8 @@ import { buildKnowledgeContext } from "../knowledgeInjection";
 import { computeSemanticKey, isContradiction, isSemanticDuplicate } from "../knowledgeSimilarity";
 import { recordTrace } from "../trace";
 import { recordActionProposal } from "../actionLedger";
+import { HumanGateService } from "../humanGateService";
+import { createDecisionBrief, withDecisionBriefPayload } from "../decisionBrief";
 import { computeClaimError, computeCycleError } from "@shared/core/compute_error.js";
 import { classifyError, routeError } from "@shared/core/classify_error.js";
 import { applyEvidence } from "@shared/core/update_confidence.js";
@@ -348,7 +350,13 @@ function goalsAlreadyUsed(projectId: string, beforeIdx: number): string[] {
   const gateGoals = storage.listGates(projectId)
     .filter((gate) => {
       const cycle = storage.getCycle(gate.cycleId);
-      return !cycle || cycle.idx < beforeIdx;
+      if (cycle && cycle.idx >= beforeIdx) return false;
+      if (gate.status === "deferred") return false;
+      if (gate.status === "rejected") {
+        const reason = gate.rejectReasonCode ?? "";
+        return reason === "" || reason === "wrong_direction" || reason === "weak_evidence";
+      }
+      return gate.status !== "pending";
     })
     .flatMap((gate) => {
       try {
@@ -703,7 +711,7 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
     knowledgeRefs: refs,
   }, refs);
 
-  const gatePayload = JSON.stringify({
+  const gatePayload = withDecisionBriefPayload({
     recommended: goal,
     alternatives: sc.alternativeGoals,
     knowledgeRefs: refs,
@@ -715,7 +723,17 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
     ...(auditSummary ? { auditSummary } : {}),
     scenario: persistedScenario,
     createdAt: now(),
-  });
+  }, createDecisionBrief({
+    claim: goal,
+    citedKnowledgeIds: refs,
+    metric: sc.predictionMetric,
+    operator: sc.predictionOperator,
+    target: sc.predictionTarget,
+    timeWindow: "current scenario observation window",
+    ifApproved: `Run the planned action: ${action}`,
+    ifRejected: "Do not run the planned action; select or generate a safer direction.",
+    rollbackRef: rollbackPlan ? "payload.rollbackPlan" : "event_log:direction_gate",
+  }));
 
   // direction gate (PRD 11.1). Scheduler ticks can overlap with a manual UI
   // tick; the gate identity is deterministic, so reusing it keeps the stage
@@ -759,16 +777,15 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
 }
 
 export function humanResolveDirectionGate(projectId: string, cycleId: string, gateId: string, sc: ScenarioRound) {
-  storage.updateGate(gateId, { status: "approved", decision: "approve_recommended" });
-  storage.createDecision({
-    id: `dec_dir_c${sc.index}_${cycleId.slice(-8)}`, cycleId, gateType: "direction",
-    decision: "approve_recommended",
-    rationale: sc.index === 4
-      ? "批准第4轮可回滚变更包: 方向来自前轮 preview/user_fear 知识,新增 rollbackPlan 与 auditSummary 作为执行约束。"
-      : "推荐目标与已验证知识一致",
-    ts: now(),
+  const rationale = sc.index === 4
+    ? "批准第4轮可回滚变更包: 方向来自前轮 preview/user_fear 知识,新增 rollbackPlan 与 auditSummary 作为执行约束。"
+    : "推荐目标与已验证知识一致";
+  new HumanGateService(storage).systemResolve(gateId, "approve_recommended", {
+    actor: "human",
+    status: "approved",
+    via: "scenario",
+    reason: rationale,
   });
-  logEvent(sc.index, "human", "decision_log", "insert", { gateId, decision: "approve_recommended" });
   recordTrace({
     projectId,
     cycleId,
@@ -869,7 +886,19 @@ export async function runSensor(projectId: string, cycleId: string, sc: Scenario
       id: gateId,
       cycleId, type: "meaning", blocking: 0,
       title: `模糊反馈意义闸: ${u.text.slice(0, 12)}...`,
-      payload: JSON.stringify({ userQuote: u.text, mergedCount: 1, topicKey: u.text.slice(0, 18), createdAt: now() }),
+      payload: withDecisionBriefPayload({
+        userQuote: u.text,
+        mergedCount: 1,
+        topicKey: u.text.slice(0, 18),
+        createdAt: now(),
+      }, createDecisionBrief({
+        claim: `Unclear feedback may be meaningful: ${u.text.slice(0, 80)}`,
+        metric: "meaning_gate_review",
+        timeWindow: "before next knowledge injection",
+        ifApproved: "The feedback can enter the human-approved meaning knowledge path.",
+        ifRejected: "The feedback remains rejected and does not affect active knowledge.",
+        rollbackRef: `feedback_items:${u.id}`,
+      })),
       status: "pending", estimatedMinutes: 8, decision: null, version: 1,
     });
     logEvent(sc.index, "sensor", "human_gate_items", "insert", { gateId: gate.id });

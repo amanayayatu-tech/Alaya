@@ -9,12 +9,44 @@ import { recordTrace } from "../trace";
 import { observeSchedulerCycle } from "../observability/metrics";
 import { createKnowledgeReviewReminders, detectKnowledgeConflicts } from "../knowledgeReview";
 import { isContradiction, semanticSimilarity } from "../knowledgeSimilarity";
-import { claimSchema, type HumanGateItem, type KnowledgeItem, type Task } from "@shared/schema";
-import { emitSchedulerNotifications, getNotificationBus, pendingGateIds } from "./notifications";
+import { claimSchema, type Cycle, type HumanGateItem, type KnowledgeItem, type Task } from "@shared/schema";
+import { emitReviewWindowDigest, emitReviewWindowSummary, emitSchedulerNotifications, getNotificationBus, pendingGateIds } from "./notifications";
 import type { GateBudgetState, LlmBudgetState, SchedulerTickOptions, SchedulerTickResult } from "./types";
+import { HumanGateService } from "../humanGateService";
+import { createDecisionBrief, withDecisionBriefPayload } from "../decisionBrief";
+import { gateEscalationMissedWindowsFromEnv, speculativeBudgetRatioFromEnv, speculativeDraftingFromEnv } from "../config/env";
+import { reviewWindowState, sameReviewWindow, type ReviewWindowState } from "../reviewWindow";
+import type { NotificationBus } from "../notifications/bus";
+import { CodexCliBuilderAdapter } from "../builderAdapter";
+import { reconcileSpeculativeAssumptions, runApplyExecutor } from "../applyExecutor";
 
 const runningProjectTicks = new Set<string>();
 const safetyThrottleTicksByProject = new Map<string, number>();
+const humanGateService = new HumanGateService(storage);
+
+function reviewPaused(): boolean {
+  const persisted = storage.getReviewPauseState();
+  if (persisted != null) return persisted;
+  return /^(1|true|yes|on)$/i.test(process.env.ALAYA_REVIEW_PAUSED?.trim() ?? "");
+}
+
+function schedulerDecisionBrief(input: {
+  claim: string;
+  metric?: string;
+  timeWindow?: string;
+  ifApproved: string;
+  ifRejected: string;
+  rollbackRef?: string;
+}) {
+  return createDecisionBrief({
+    claim: input.claim,
+    metric: input.metric ?? "scheduler_risk_review",
+    timeWindow: input.timeWindow ?? "before next scheduler advancement",
+    ifApproved: input.ifApproved,
+    ifRejected: input.ifRejected,
+    rollbackRef: input.rollbackRef ?? "event_log:human_gate_items",
+  });
+}
 function parsePayload(payload: string): Record<string, any> {
   try {
     return JSON.parse(payload);
@@ -187,6 +219,8 @@ export function gateBudgetForProject(projectId: string): GateBudgetState {
     const createdAt = parsePayload(g.payload).createdAt as string | undefined;
     return Math.max(max, ageDays(createdAt));
   }, 0);
+  const missedWindowThreshold = gateEscalationMissedWindowsFromEnv();
+  const escalatedBlockingGate = pendingBlocking.some((gate) => (gate.missedWindows ?? 0) >= missedWindowThreshold);
   return {
     budget,
     used,
@@ -197,7 +231,7 @@ export function gateBudgetForProject(projectId: string): GateBudgetState {
     pendingBlocking: pendingBlocking.length,
     pendingNonBlocking: pendingNonBlocking.length,
     oldestBlockingAgeDays,
-    safetyMode: pendingBlocking.length > 3 || oldestBlockingAgeDays > 5,
+    safetyMode: escalatedBlockingGate,
   };
 }
 
@@ -215,15 +249,18 @@ function enforceHumanAttentionBudget(projectId: string, state: GateBudgetState) 
   const existing = findHumanAttentionGate(projectId, weeklyWindowStart);
   if (!overloaded) {
     if (existing?.status === "pending") {
-      storage.updateGate(existing.id, {
+      humanGateService.systemResolve(existing.id, "auto_resolved_attention_recovered", {
+        actor: "scheduler",
         status: "resolved",
-        decision: "auto_resolved_attention_recovered",
-        estimatedMinutes: 0,
-        payload: JSON.stringify({
-          ...parsePayload(existing.payload),
-          resolvedAt: now(),
-          resolvedReason: "human_attention_backlog_cleared",
-        }),
+        reason: "human_attention_backlog_cleared",
+        patch: {
+          estimatedMinutes: 0,
+          payload: JSON.stringify({
+            ...parsePayload(existing.payload),
+            resolvedAt: now(),
+            resolvedReason: "human_attention_backlog_cleared",
+          }),
+        },
       });
     }
     return { safetyMode: false, state: gateBudgetForProject(projectId) };
@@ -239,7 +276,7 @@ function enforceHumanAttentionBudget(projectId: string, state: GateBudgetState) 
     type: "risk",
     blocking: 1,
     title: "人类注意力过载",
-    payload: JSON.stringify({
+    payload: withDecisionBriefPayload({
       riskKey: "human_attention_overload",
       weeklyWindowStart,
       budgetMinutes: state.budget,
@@ -250,7 +287,14 @@ function enforceHumanAttentionBudget(projectId: string, state: GateBudgetState) 
       createdAt: now(),
       reason: "pending_human 或本周人工投入已超过可持续阈值，自动推进已暂停。",
       requiredAction: "合并/关闭低价值闸门、降低非阻塞意义闸频率、提高预算，或进入低速模式只做反馈收集和知识整理。",
-    }),
+    }, schedulerDecisionBrief({
+      claim: "Human attention backlog exceeds the sustainable review budget",
+      metric: "pending_human_minutes",
+      timeWindow: "current weekly review window",
+      ifApproved: "The overload risk is acknowledged and the operator can choose a recovery path.",
+      ifRejected: "The scheduler should remain throttled until backlog or budget pressure is reduced.",
+      rollbackRef: "gate_budget_for_project",
+    })),
     status: "pending",
     estimatedMinutes: 15,
     decision: null,
@@ -308,7 +352,7 @@ function enforceLlmBudget(projectId: string, cycleId: string): LlmBudgetState {
     type: "risk",
     blocking: 1,
     title: "LLM 成本预算闸",
-    payload: JSON.stringify({
+    payload: withDecisionBriefPayload({
       riskKey: "llm_weekly_budget",
       weeklyWindowStart: state.weeklyWindowStart,
       budgetCents: state.budgetCents,
@@ -319,7 +363,14 @@ function enforceLlmBudget(projectId: string, cycleId: string): LlmBudgetState {
       currentCycleIdx: cycle?.idx ?? 0,
       reason: "LLM 成本超过项目每周预算，自动推进已暂停。",
       requiredAction: "人工确认继续本周预算、提高预算，或暂停高成本 Agent 调用。",
-    }),
+    }, schedulerDecisionBrief({
+      claim: "LLM spend exceeded the weekly project budget",
+      metric: "weekly_llm_cost_usd",
+      timeWindow: "current weekly budget window",
+      ifApproved: "The budget overrun is acknowledged and the scheduler may continue according to operator policy.",
+      ifRejected: "High-cost LLM work should stay paused until budget or provider usage is corrected.",
+      rollbackRef: "llm_calls",
+    })),
     status: "pending",
     estimatedMinutes: 8,
     decision: null,
@@ -416,7 +467,7 @@ function enforceFlywheelCompoundingGuard(projectId: string, cycleId: string) {
       type: "risk",
       blocking: 1,
       title: "飞轮空转风险闸",
-      payload: JSON.stringify({
+      payload: withDecisionBriefPayload({
         riskKey: "flywheel_empty_learning",
         createdAt: now(),
         evaluatedCycleIdx: cycle?.idx ?? 0,
@@ -426,7 +477,13 @@ function enforceFlywheelCompoundingGuard(projectId: string, cycleId: string) {
         influenceTextSnippet: evidence.text.slice(0, 500),
         reason: "连续 3 轮后，新一轮建议没有证明前轮知识如何改变本轮决策，自动推进已暂停。",
         requiredAction: "人工复核 Orchestrator reasoning、补充有效知识引用，或回滚到世界模型/知识沉淀算法修正。",
-      }),
+      }, schedulerDecisionBrief({
+        claim: "The current direction does not prove prior knowledge changed the decision",
+        metric: "knowledge_refs_influence",
+        ifApproved: "The operator accepts the compounding evidence and can let the cycle proceed.",
+        ifRejected: "The cycle remains blocked until reasoning cites and uses prior knowledge concretely.",
+        rollbackRef: "agent_runs.orchestrator",
+      })),
       status: "pending",
       estimatedMinutes: 12,
       decision: null,
@@ -550,7 +607,7 @@ function enforcePredictionMeasurabilityGuard(projectId: string, cycleId: string)
     type: "risk",
     blocking: 1,
     title: "预测可测量性失败",
-    payload: JSON.stringify({
+    payload: withDecisionBriefPayload({
       riskKey: "prediction_measurability_failure",
       createdAt: now(),
       evaluatedCycleIdx: cycle?.idx ?? 0,
@@ -558,7 +615,13 @@ function enforcePredictionMeasurabilityGuard(projectId: string, cycleId: string)
       failures: state.failures,
       reason: "本轮 prediction 无法形成可计算的 prediction_error，不能作为下一轮学习信号。",
       requiredAction: "把自然语言预测拆成 measurable claim，并补齐 expected_observation、time_window、success_threshold、failure_threshold、uncertainty、observation 和 prediction_error；qualitative 判断应进入 meaning gate 或人工裁定。",
-    }),
+    }, schedulerDecisionBrief({
+      claim: "The cycle prediction cannot produce a computable prediction error",
+      metric: "measurable_claim_count",
+      ifApproved: "The operator accepts the current prediction contract and may continue the cycle.",
+      ifRejected: "The cycle remains blocked until claims and observation thresholds are measurable.",
+      rollbackRef: "predictions.claims",
+    })),
     status: "pending",
     estimatedMinutes: 12,
     decision: null,
@@ -632,7 +695,7 @@ function enforceKnowledgeMaturityGuard(projectId: string, cycleId: string) {
     type: "risk",
     blocking: 1,
     title: "知识成熟停滞",
-    payload: JSON.stringify({
+    payload: withDecisionBriefPayload({
       riskKey: "knowledge_maturity_stagnation",
       createdAt: now(),
       evaluatedCycleIdx: cycle?.idx ?? 0,
@@ -645,7 +708,13 @@ function enforceKnowledgeMaturityGuard(projectId: string, cycleId: string) {
       strongShare: state.strongShare,
       reason: "知识库 active 项持续增长，但 strong 项没有同步成熟，飞轮可能只是在沉淀内容而不是形成可复用强知识。",
       requiredAction: "人工复核 Distiller 抽象质量、Librarian 晋级/淘汰规则和知识审批流程；必要时暂停新功能扩张，只做合并、stale/conflict 审计和 strong 晋级校准。",
-    }),
+    }, schedulerDecisionBrief({
+      claim: "Active knowledge is growing without strong knowledge maturation",
+      metric: "strong_knowledge_share",
+      ifApproved: "The operator accepts the maturation risk and may continue with explicit follow-up.",
+      ifRejected: "The scheduler should remain paused until knowledge review and promotion rules are fixed.",
+      rollbackRef: "knowledge_items.status",
+    })),
     status: "pending",
     estimatedMinutes: 15,
     decision: null,
@@ -710,7 +779,7 @@ function enforceLibrarianAuditGuard(projectId: string, cycleId: string) {
     type: "risk",
     blocking: 1,
     title: "Librarian 知识审计失败",
-    payload: JSON.stringify({
+    payload: withDecisionBriefPayload({
       riskKey: "librarian_stale_conflict_audit_failure",
       createdAt: now(),
       evaluatedCycleIdx: cycle?.idx ?? 0,
@@ -718,7 +787,13 @@ function enforceLibrarianAuditGuard(projectId: string, cycleId: string) {
       unmarkedConflictIds: state.unmarkedConflictIds,
       reason: "知识库存在已过期但仍可用于决策的知识，或明确冲突但未进入 conflict 的知识，说明 Librarian stale/conflict 审计没有生效。",
       requiredAction: "先把过期知识降级为 stale/expired，把冲突知识标记为 conflict/quarantined，并复核 Librarian 审计规则；修复前不得让这些知识进入下一轮决策。",
-    }),
+    }, schedulerDecisionBrief({
+      claim: "Librarian audit left stale or conflicting knowledge decision-eligible",
+      metric: "unmarked_polluted_knowledge_count",
+      ifApproved: "The operator accepts the audit exception and can continue with tracked risk.",
+      ifRejected: "The cycle remains blocked until polluted knowledge is demoted or quarantined.",
+      rollbackRef: "knowledge_items.status",
+    })),
     status: "pending",
     estimatedMinutes: 12,
     decision: null,
@@ -776,7 +851,7 @@ function enforceBuilderMisdirectionGuard(projectId: string, cycleId: string) {
     type: "risk",
     blocking: 1,
     title: "Builder 任务偏航",
-    payload: JSON.stringify({
+    payload: withDecisionBriefPayload({
       riskKey: "builder_misdirected_specs",
       createdAt: now(),
       evaluatedCycleIdx: cycle?.idx ?? 0,
@@ -784,7 +859,13 @@ function enforceBuilderMisdirectionGuard(projectId: string, cycleId: string) {
       taskIds: state.taskIds,
       reason: "Builder Adapter 多次生成导致外部代码工具误改方向或改错对象的 task spec，自动推进已暂停。",
       requiredAction: "人工复核 Builder task spec 模板、风险约束、repo context 和外部工具回传报告；修正前不要继续发放新的代码变更包。",
-    }),
+    }, schedulerDecisionBrief({
+      claim: "Builder task specs repeatedly misdirected external tooling",
+      metric: "misdirected_builder_task_count",
+      ifApproved: "The operator accepts the builder risk and can continue after reviewing the task context.",
+      ifRejected: "The scheduler should not issue new builder change packages until the template or context is fixed.",
+      rollbackRef: "tasks.spec",
+    })),
     status: "pending",
     estimatedMinutes: 15,
     decision: null,
@@ -811,14 +892,20 @@ function openEvolutionRiskGate(projectId: string, cycleId: string, riskKey: stri
     type: "risk",
     blocking: 1,
     title: "自主进化停机风险闸",
-    payload: JSON.stringify({
+    payload: withDecisionBriefPayload({
       riskKey,
       createdAt: now(),
       evaluatedCycleIdx: cycle?.idx ?? 0,
       evidence,
       reason: "自主进化反空转检查触发，系统诚实停机并等待人工复核。",
       requiredAction: "复核误差趋势、目标重复、知识成熟与知识库增长；必要时调整目标生成器、合并策略或人工审批节奏。",
-    }),
+    }, schedulerDecisionBrief({
+      claim: `Autonomous evolution stop risk triggered: ${riskKey}`,
+      metric: "autonomous_stop_risk",
+      ifApproved: "The operator accepts the stop-risk evidence and may allow the autonomous goal path to continue.",
+      ifRejected: "The project remains paused until the stop-risk cause is corrected.",
+      rollbackRef: "stall_guard.evidence",
+    })),
     status: "pending",
     estimatedMinutes: 15,
     decision: null,
@@ -879,28 +966,10 @@ function mergeMeaningGates(projectId: string) {
   for (const gates of Array.from(groups.values())) {
     if (gates.length < 2) continue;
     const [keeper, ...rest] = gates;
-    const quotes = gates.map((g) => parsePayload(g.payload).userQuote).filter(Boolean);
-    const mergedAt = now();
-    storage.updateGate(keeper.id, {
-      payload: JSON.stringify({
-        ...parsePayload(keeper.payload),
-        mergedCount: gates.length,
-        mergedQuotes: quotes,
-        mergedAt,
-      }),
+    humanGateService.systemMerge(keeper.id, rest.map((gate) => gate.id), {
+      actor: "scheduler",
+      reason: "same topic meaning gates merged",
     });
-    for (const gate of rest) {
-      storage.updateGate(gate.id, {
-        status: "modified",
-        decision: `merged_into:${keeper.id}`,
-        estimatedMinutes: 0,
-        payload: JSON.stringify({
-          ...parsePayload(gate.payload),
-          mergedInto: keeper.id,
-          mergedAt,
-        }),
-      });
-    }
   }
 }
 
@@ -922,38 +991,50 @@ function autoApproveRepeatedLowValueMeaningGates(projectId: string) {
     pending.forEach((gate, idx) => {
       const reviewRequirement = meaningGateHumanReviewRequirement(projectId, gate);
       if (reviewRequirement) {
-        storage.updateGate(gate.id, {
-          payload: JSON.stringify({
-            ...parsePayload(gate.payload),
-            sampleReview: true,
-            sampleReviewReason: reviewRequirement,
-            sampleReviewAt: now(),
-          }),
+        humanGateService.systemAnnotate(gate.id, {
+          actor: "scheduler",
+          reason: "meaning gate kept pending for required sample review",
+          patch: {
+            payload: JSON.stringify({
+              ...parsePayload(gate.payload),
+              sampleReview: true,
+              sampleReviewReason: reviewRequirement,
+              sampleReviewAt: now(),
+            }),
+          },
         });
         return;
       }
       const autoCandidateNo = priorAutoApproved + idx + 1;
       if (autoCandidateNo % 10 === 0) {
-        storage.updateGate(gate.id, {
-          payload: JSON.stringify({
-            ...parsePayload(gate.payload),
-            sampleReview: true,
-            sampleReviewReason: "Every 10th repeated meaning gate remains pending for human sampling review.",
-            sampleReviewAt: now(),
-          }),
+        humanGateService.systemAnnotate(gate.id, {
+          actor: "scheduler",
+          reason: "meaning gate kept pending for periodic sample review",
+          patch: {
+            payload: JSON.stringify({
+              ...parsePayload(gate.payload),
+              sampleReview: true,
+              sampleReviewReason: "Every 10th repeated meaning gate remains pending for human sampling review.",
+              sampleReviewAt: now(),
+            }),
+          },
         });
         return;
       }
-      storage.updateGate(gate.id, {
+      humanGateService.systemResolve(gate.id, `auto_approved_repeated_meaning:${topicKey}`, {
+        actor: "scheduler",
         status: "approved",
-        decision: `auto_approved_repeated_meaning:${topicKey}`,
-        estimatedMinutes: 0,
-        payload: JSON.stringify({
-          ...parsePayload(gate.payload),
-          autoApprovedAt: now(),
-          autoApproveReason: "10+ resolved meaning gates in this topic have approval rate >95%; kept every 10th pending for sampling review.",
-          sampleReview: false,
-        }),
+        via: "auto_approved_repeated_meaning",
+        reason: "10+ resolved meaning gates in this topic have approval rate >95%",
+        patch: {
+          estimatedMinutes: 0,
+          payload: JSON.stringify({
+            ...parsePayload(gate.payload),
+            autoApprovedAt: now(),
+            autoApproveReason: "10+ resolved meaning gates in this topic have approval rate >95%; kept every 10th pending for sampling review.",
+            sampleReview: false,
+          }),
+        },
       });
     });
   }
@@ -1088,7 +1169,7 @@ function degradeTimedOutBuilderTasks(cycleId: string): number {
         type: "risk",
         blocking: 0,
         title: "Builder 超时降级审计",
-        payload: JSON.stringify({
+        payload: withDecisionBriefPayload({
           riskKey: "builder_timeout_degraded",
           taskId: task.id,
           createdAt: degradedAt,
@@ -1096,7 +1177,14 @@ function degradeTimedOutBuilderTasks(cycleId: string): number {
           timeoutMs,
           previousStatus: task.status,
           auditSummary: nextSpec.auditSummary,
-        }),
+        }, schedulerDecisionBrief({
+          claim: `Builder task ${task.id} timed out and was degraded`,
+          metric: "builder_task_timeout",
+          timeWindow: "current scheduler tick",
+          ifApproved: "The timeout degradation is accepted as an audit note and the flywheel can continue.",
+          ifRejected: "The degraded task should be manually inspected before further builder work proceeds.",
+          rollbackRef: `tasks:${task.id}`,
+        })),
         status: "pending",
         estimatedMinutes: 6,
         decision: null,
@@ -1219,7 +1307,531 @@ function withSafetyThrottle(result: SchedulerTickResult, context: SoftSafetyCont
   };
 }
 
+export interface ReviewWindowTickResult {
+  state: ReviewWindowState;
+  openedSessionId?: string;
+  closedSessionId?: string;
+  digestSent: boolean;
+  summarySent: boolean;
+  missedWindowsIncremented: number;
+  deferredReset: number;
+}
+
+function reviewSessionId(projectId: string, state: ReviewWindowState): string {
+  const safeProjectId = projectId.replace(/[^a-zA-Z0-9_]+/g, "_").slice(0, 80);
+  const safeWindow = `${state.windowDate}_${state.windowLabel}`.replace(/[^a-zA-Z0-9_]+/g, "_").slice(0, 80);
+  return `review_${safeProjectId}_${safeWindow}`;
+}
+
+function pendingReviewGates(projectId: string): HumanGateItem[] {
+  return storage
+    .listGates(projectId)
+    .filter((gate) => gate.status === "pending");
+}
+
+function reviewSessionGates(projectId: string, sessionId: string): HumanGateItem[] {
+  return storage
+    .listGates(projectId)
+    .filter((gate) => parsePayload(gate.payload).reviewSessionId === sessionId);
+}
+
+function resetDueDeferredGates(projectId: string, at: Date): number {
+  const atMs = at.getTime();
+  let reset = 0;
+  for (const gate of storage.listGates(projectId)) {
+    if (gate.status !== "deferred") continue;
+    const dueMs = Date.parse(gate.deferUntil ?? "");
+    if (Number.isFinite(dueMs) && dueMs > atMs) continue;
+    humanGateService.systemAnnotate(gate.id, {
+      actor: "scheduler",
+      reason: "deferred gate returned to pending at review window boundary",
+      patch: {
+        status: "pending",
+        decision: null,
+        deferUntil: null,
+      },
+    });
+    reset += 1;
+  }
+  return reset;
+}
+
+function revalidatePendingGatesForWindow(projectId: string, atIso: string, reviewSessionId: string): number {
+  let revalidated = 0;
+  for (const gate of pendingReviewGates(projectId)) {
+    const payload = parsePayload(gate.payload);
+    humanGateService.systemAnnotate(gate.id, {
+      actor: "scheduler",
+      reason: "review window evidence revalidation",
+      patch: {
+        payload: JSON.stringify({
+          ...payload,
+          reviewSessionId,
+        }),
+        evidenceRevalidatedAt: atIso,
+        evidenceChanged: 0,
+      },
+    });
+    revalidated += 1;
+  }
+  return revalidated;
+}
+
+async function closeReviewSession(
+  projectId: string,
+  sessionId: string,
+  bus: NotificationBus | null | undefined,
+  at: Date,
+): Promise<{ closedSessionId?: string; summarySent: boolean; missedWindowsIncremented: number }> {
+  const session = storage.listReviewSessions(projectId).find((item) => item.id === sessionId && item.closedAt == null);
+  if (!session) return { summarySent: false, missedWindowsIncremented: 0 };
+
+  const sessionGates = reviewSessionGates(projectId, session.id);
+  const scopedGates = sessionGates.length > 0 ? sessionGates : storage.listGates(projectId);
+  const pending = scopedGates.filter((gate) => gate.status === "pending");
+  const deferred = scopedGates.filter((gate) => gate.status === "deferred");
+  for (const gate of pending) {
+    humanGateService.systemAnnotate(gate.id, {
+      actor: "scheduler",
+      reason: "review window closed with gate still pending",
+      patch: {
+        missedWindows: (gate.missedWindows ?? 0) + 1,
+      },
+    });
+  }
+  const resolved = Math.max(0, session.gatesTotal - pending.length - deferred.length);
+  storage.updateReviewSession(session.id, {
+    closedAt: at.toISOString(),
+    gatesResolved: resolved,
+    gatesDeferred: deferred.length,
+  });
+
+  if (bus) {
+    await emitReviewWindowSummary(bus, projectId, {
+      resolved,
+      deferred: deferred.length,
+      missed: pending.length,
+    });
+  }
+
+  return {
+    closedSessionId: session.id,
+    summarySent: Boolean(bus),
+    missedWindowsIncremented: pending.length,
+  };
+}
+
+export async function processReviewWindowTick(
+  projectId: string,
+  bus: NotificationBus | null = null,
+  at = new Date(),
+): Promise<ReviewWindowTickResult> {
+  const state = reviewWindowState(at);
+  if (reviewPaused()) {
+    return {
+      state,
+      digestSent: false,
+      summarySent: false,
+      missedWindowsIncremented: 0,
+      deferredReset: 0,
+    };
+  }
+  const atIso = at.toISOString();
+  const deferredReset = resetDueDeferredGates(projectId, at);
+  let openSession = storage.getOpenReviewSession(projectId);
+  let closedSessionId: string | undefined;
+  let summarySent = false;
+  let missedWindowsIncremented = 0;
+
+  if (openSession && (!state.inWindow || !sameReviewWindow(openSession.openedAt, state))) {
+    const closed = await closeReviewSession(projectId, openSession.id, bus, at);
+    closedSessionId = closed.closedSessionId;
+    summarySent = closed.summarySent;
+    missedWindowsIncremented = closed.missedWindowsIncremented;
+    openSession = undefined;
+  }
+
+  if (!state.inWindow) {
+    return {
+      state,
+      closedSessionId,
+      digestSent: false,
+      summarySent,
+      missedWindowsIncremented,
+      deferredReset,
+    };
+  }
+
+  if (openSession) {
+    return {
+      state,
+      digestSent: false,
+      summarySent,
+      missedWindowsIncremented,
+      deferredReset,
+    };
+  }
+
+  const pending = pendingReviewGates(projectId);
+  const sessionId = reviewSessionId(projectId, state);
+  const session = storage.createReviewSession({
+    id: sessionId,
+    projectId,
+    source: "scheduled",
+    openedAt: atIso,
+    closedAt: null,
+    gatesTotal: pending.length,
+    gatesResolved: 0,
+    gatesDeferred: 0,
+    digestMessageId: null,
+    summaryMessageId: null,
+  });
+  revalidatePendingGatesForWindow(projectId, atIso, session.id);
+
+  let digestSent = false;
+  if (bus && !storage.getNotificationDigest(projectId, state.windowDate, state.windowLabel)) {
+    storage.createNotificationDigest({
+      projectId,
+      windowDate: state.windowDate,
+      windowLabel: state.windowLabel,
+      sentAt: atIso,
+      messageId: null,
+    });
+    await emitReviewWindowDigest(bus, projectId, state, pending.filter((gate) => (gate.notifyPolicy ?? "next_window") !== "immediate"));
+    digestSent = true;
+  }
+
+  return {
+    state,
+    openedSessionId: session.id,
+    closedSessionId,
+    digestSent,
+    summarySent,
+    missedWindowsIncremented,
+    deferredReset,
+  };
+}
+
+function activeSpeculativeChild(projectId: string, parentCycleId: string): Cycle | undefined {
+  return storage.listCycles(projectId).find((cycle) => (
+    cycle.speculative === 1 &&
+    cycle.parentCycleId === parentCycleId &&
+    !["invalidated", "applied_observing"].includes(cycle.draftStatus ?? "")
+  ));
+}
+
+function speculativeDependencyIds(projectId: string, current: Cycle): string[] {
+  const deps = new Set<string>();
+  let cursor: Cycle | undefined = current;
+  while (cursor) {
+    if ((cursor.draftStatus ?? "") !== "applied_observing" && !cursor.appliedAt) deps.add(cursor.id);
+    cursor = cursor.parentCycleId ? storage.getCycle(cursor.parentCycleId) : undefined;
+  }
+  for (const cycle of storage.listCycles(projectId)) {
+    if (cycle.speculative !== 1) continue;
+    if (!["ready_awaiting_approval", "apply_queued"].includes(cycle.draftStatus ?? "")) continue;
+    deps.add(cycle.id);
+  }
+  return Array.from(deps);
+}
+
+function speculativeBudgetExhausted(projectId: string): { exhausted: boolean; state: LlmBudgetState; limitUsd: number } {
+  const state = llmBudgetForProject(projectId);
+  const limitUsd = +(state.budgetUsd * speculativeBudgetRatioFromEnv()).toFixed(6);
+  return {
+    exhausted: state.usedUsd > limitUsd,
+    state,
+    limitUsd,
+  };
+}
+
+function speculativeClaimForDraft(cycleIdx: number, draft: NextGoalDraft) {
+  return {
+    id: `claim_spec_${cycleIdx}_${draft.prediction.metric.replace(/[^a-zA-Z0-9_]+/g, "_")}`,
+    type: "metric_threshold",
+    metric: draft.prediction.metric,
+    operator: draft.prediction.operator,
+    target: draft.prediction.target,
+    weight: 3,
+    expectedObservation: draft.prediction.statement,
+    timeWindow: "after_apply_observation_window",
+    successThreshold: `${draft.prediction.metric} ${draft.prediction.operator} ${draft.prediction.target}`,
+    failureThreshold: `${draft.prediction.metric} ${draft.prediction.operator === ">=" ? "<" : ">"} ${draft.prediction.target}`,
+    uncertainty: 0.4,
+  };
+}
+
+async function generateSpeculativeGoalDraft(projectId: string, cycleIdx: number, cycleId: string, current: Cycle): Promise<NextGoalDraft> {
+  try {
+    return await generateNextGoal(buildNextGoalInput(projectId, cycleIdx, cycleId));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/no eligible knowledge/i.test(message)) throw error;
+    const project = storage.getProject(projectId);
+    storage.recordEvent({
+      cycleIdx,
+      actor: "scheduler",
+      tableName: "cycles",
+      op: "speculative_seed_fallback",
+      before: null,
+      after: JSON.stringify({ projectId, cycleId, parentCycleId: current.id, reason: message }),
+      ts: now(),
+    });
+    return {
+      proposedGoal: `准备 ${current.goal || project?.direction || "下一轮方向"} 的 dry-run 审计草稿`,
+      belief: "当前阻断闸仍待审批；系统只能准备可回滚、可审计的草稿，不执行真实观察或知识晋级。",
+      prediction: {
+        statement: `${project?.firstClaimMetric ?? "activation_rate"} ${project?.firstClaimOperator ?? ">="} ${project?.firstClaimTarget ?? 0.3}`,
+        metric: project?.firstClaimMetric ?? "activation_rate",
+        operator: project?.firstClaimOperator === "<=" ? "<=" : ">=",
+        target: project?.firstClaimTarget ?? 0.3,
+      },
+      action: `生成 ${current.goal || project?.direction || "下一轮方向"} 的 dry-run change package、rollback plan 和 audit summary`,
+      alternativeGoals: [],
+      referencedKnowledgeIds: [],
+      reasoningHowKnowledgeChangedDecision: `无可复用 active/strong 知识时使用 project seed 生成推测草稿；父 cycle ${current.id} 获批前不会 apply。`,
+    };
+  }
+}
+
+async function createSpeculativeDraft(projectId: string, current: Cycle): Promise<SchedulerTickResult> {
+  const llmBudget = llmBudgetForProject(projectId);
+  if (!speculativeDraftingFromEnv()) {
+    return {
+      projectId,
+      action: "waiting_blocking_gate",
+      cycleId: current.id,
+      budget: gateBudgetForProject(projectId),
+      llmBudget,
+      note: "waiting for blocking human gate; speculative drafting is disabled",
+    };
+  }
+
+  const budget = speculativeBudgetExhausted(projectId);
+  if (budget.exhausted) {
+    storage.recordEvent({
+      cycleIdx: current.idx,
+      actor: "scheduler",
+      tableName: "cycles",
+      op: "speculative_budget_exhausted",
+      before: null,
+      after: JSON.stringify({
+        projectId,
+        cycleId: current.id,
+        usedUsd: budget.state.usedUsd,
+        limitUsd: budget.limitUsd,
+        ratio: speculativeBudgetRatioFromEnv(),
+        ts: now(),
+      }),
+      ts: now(),
+    });
+    recordTrace({
+      projectId,
+      cycleId: current.id,
+      cycleIdx: current.idx,
+      kind: "scheduler",
+      name: "speculative_budget_exhausted",
+      agent: "scheduler",
+      status: "blocked",
+      attributes: {
+        usedUsd: budget.state.usedUsd,
+        limitUsd: budget.limitUsd,
+        ratio: speculativeBudgetRatioFromEnv(),
+      },
+    });
+    return {
+      projectId,
+      action: "speculative_budget_exhausted",
+      cycleId: current.id,
+      budget: gateBudgetForProject(projectId),
+      llmBudget: budget.state,
+      note: `speculative drafting paused; LLM spend ${budget.state.usedUsd} exceeds speculative limit ${budget.limitUsd}`,
+    };
+  }
+
+  const existing = activeSpeculativeChild(projectId, current.id);
+  if (existing) {
+    return {
+      projectId,
+      action: "created_speculative_draft",
+      cycleId: current.id,
+      nextCycleId: existing.id,
+      budget: gateBudgetForProject(projectId),
+      llmBudget,
+      note: `speculative draft already exists with status ${existing.draftStatus ?? "unknown"}`,
+    };
+  }
+
+  const nextIdx = Math.max(...storage.listCycles(projectId).map((cycle) => cycle.idx), current.idx) + 1;
+  const safeProject = projectId.replace(/[^a-zA-Z0-9_]+/g, "_").slice(-32);
+  const childId = `cycle_spec_${nextIdx}_${safeProject}_${current.id.replace(/[^a-zA-Z0-9_]+/g, "_").slice(-16)}`;
+  const draft = await generateSpeculativeGoalDraft(projectId, nextIdx, childId, current);
+  const dependsOn = speculativeDependencyIds(projectId, current);
+  const assumedOutcomes = dependsOn.map((cycleId) => ({
+    cycle: cycleId,
+    claim: "blocking_gate_approval",
+    assumed: "approved",
+  }));
+  const cycle = storage.createCycle({
+    id: childId,
+    projectId,
+    idx: nextIdx,
+    goal: draft.proposedGoal,
+    status: "planning",
+    eCycle: null,
+    worstClaimError: null,
+    reasoning: draft.reasoningHowKnowledgeChangedDecision,
+    speculative: 1,
+    parentCycleId: current.id,
+    dependsOn: JSON.stringify(dependsOn),
+    assumedOutcomes: JSON.stringify(assumedOutcomes),
+    draftStatus: "drafting",
+    applyScheduledAt: null,
+    appliedAt: null,
+    coAppliedSet: null,
+    version: 1,
+  });
+
+  const claim = speculativeClaimForDraft(nextIdx, draft);
+  const predictionId = `pred_spec_${nextIdx}_${childId.slice(-12)}`;
+  if (!storage.getPrediction(predictionId)) {
+    storage.createPrediction({
+      id: predictionId,
+      cycleId: childId,
+      belief: draft.belief,
+      prediction: draft.prediction.statement,
+      action: draft.action,
+      claims: JSON.stringify([claim]),
+      observation: null,
+      predictionError: null,
+      worstClaimError: null,
+      errorType: null,
+      updateTarget: null,
+      status: "open",
+      knowledgeRefs: JSON.stringify(draft.referencedKnowledgeIds),
+    });
+  }
+
+  const adapter = new CodexCliBuilderAdapter();
+  const pkg = await adapter.generateChangePackage({
+    projectId,
+    cycleId: childId,
+    goal: draft.action,
+    constraints: [
+      "speculative draft only",
+      "do not apply before approval",
+      "prepare rollback plan and audit summary",
+    ],
+  });
+  const taskId = `task_speculative_builder_${childId.slice(-24)}`;
+  if (!storage.listTasks(childId).some((task) => task.id === taskId)) {
+    storage.createTask({
+      id: taskId,
+      cycleId: childId,
+      agent: "builder",
+      kind: "speculative_change_package",
+      status: "done",
+      spec: JSON.stringify({
+        draftStatus: "ready_awaiting_approval",
+        action: draft.action,
+        changePackage: pkg,
+        rollbackPlan: pkg.rollbackPlan,
+        auditSummary: pkg.auditSummary,
+        predictionId,
+      }),
+    });
+  }
+
+  const gateId = `gate_spec_apply_${childId.slice(-32)}`;
+  if (!storage.getGate(gateId)) {
+    storage.createGate({
+      id: gateId,
+      cycleId: childId,
+      type: "risk",
+      blocking: 1,
+      title: "推测草稿 apply 审批",
+      payload: withDecisionBriefPayload({
+        riskKey: "speculative_apply_draft",
+        draftCycleId: childId,
+        parentCycleId: current.id,
+        idempotencyKey: pkg.idempotencyKey,
+        riskLevel: pkg.riskLevel,
+        goal: draft.proposedGoal,
+        action: draft.action,
+        affectedFiles: pkg.affectedFiles,
+        rollbackPlan: pkg.rollbackPlan,
+        auditSummary: pkg.auditSummary,
+        assumedOutcomes,
+        createdAt: now(),
+      }, createDecisionBrief({
+        claim: `Apply speculative draft: ${draft.proposedGoal}`,
+        citedKnowledgeIds: draft.referencedKnowledgeIds,
+        metric: draft.prediction.metric,
+        operator: draft.prediction.operator,
+        target: draft.prediction.target,
+        timeWindow: "after apply observation window",
+        ifApproved: "Queue the speculative draft for grace-period apply and observation.",
+        ifRejected: "Invalidate or keep the speculative draft from applying; no observation or knowledge promotion occurs.",
+        rollbackRef: "payload.rollbackPlan",
+      })),
+      status: "pending",
+      estimatedMinutes: 12,
+      decision: null,
+      version: 1,
+    });
+  }
+
+  const ready = storage.updateCycle(cycle.id, { draftStatus: "ready_awaiting_approval" }) ?? cycle;
+  storage.recordAgentRun({
+    cycleId: childId,
+    cycleIdx: nextIdx,
+    agent: "builder",
+    action: "speculative_draft_change_package",
+    outputSummary: `draft ready awaiting approval: ${pkg.diffSummary}`,
+    knowledgeRefsUsed: JSON.stringify(draft.referencedKnowledgeIds),
+    ts: now(),
+  });
+  recordTrace({
+    projectId,
+    cycleId: childId,
+    cycleIdx: nextIdx,
+    kind: "scheduler",
+    name: "speculative_draft_ready",
+    agent: "scheduler",
+    attributes: {
+      parentCycleId: current.id,
+      dependsOn,
+      draftStatus: ready.draftStatus,
+      predictionId,
+      idempotencyKey: pkg.idempotencyKey,
+    },
+  });
+
+  return {
+    projectId,
+    action: "created_speculative_draft",
+    cycleId: current.id,
+    nextCycleId: childId,
+    budget: gateBudgetForProject(projectId),
+    llmBudget: llmBudgetForProject(projectId),
+    note: "created speculative draft and stopped at approval boundary",
+  };
+}
+
 async function schedulerTickProjectUnlocked(projectId: string, options: SchedulerTickOptions = {}): Promise<SchedulerTickResult> {
+  reconcileSpeculativeAssumptions(projectId);
+  const applyResult = await runApplyExecutor(projectId);
+  if (applyResult.applied > 0) {
+    return {
+      projectId,
+      action: "apply_executor_ran",
+      cycleId: applyResult.appliedCycleIds[0],
+      budget: gateBudgetForProject(projectId),
+      llmBudget: llmBudgetForProject(projectId),
+      note: `apply executor marked ${applyResult.applied} speculative draft(s) as applied_observing`,
+    };
+  }
+
   decayStaleKnowledge(projectId);
   detectKnowledgeConflicts(projectId);
   createKnowledgeReviewReminders(projectId);
@@ -1228,7 +1840,7 @@ async function schedulerTickProjectUnlocked(projectId: string, options: Schedule
   const budget = gateBudgetForProject(projectId);
   const softSafetyReasons = [
     ...(humanAttention.safetyMode ? ["human attention backlog over budget"] : []),
-    ...(budget.safetyMode ? ["blocking gate backlog exceeds safety threshold"] : []),
+    ...(budget.safetyMode ? ["blocking gate missed review window threshold"] : []),
   ];
   const softSafety = softSafetyContext(projectId, softSafetyReasons);
 
@@ -1422,14 +2034,7 @@ async function schedulerTickProjectUnlocked(projectId: string, options: Schedule
   }
 
   if (!blockingGatesResolved(current.id)) {
-    return withSafetyThrottle({
-      projectId,
-      action: "waiting_blocking_gate",
-      cycleId: current.id,
-      budget,
-      llmBudget,
-      note: "waiting for blocking human gate",
-    }, softSafety);
+    return withSafetyThrottle(await createSpeculativeDraft(projectId, current), softSafety);
   }
 
   if (!builderCompleteOrAbsent(current.id)) {
@@ -1535,9 +2140,10 @@ export async function schedulerTickProject(projectId: string, options: Scheduler
   }
 
   runningProjectTicks.add(projectId);
-  const bus = await getNotificationBus();
-  const beforePendingGateIds = bus ? pendingGateIds(projectId) : new Set<string>();
   try {
+    const bus = await getNotificationBus();
+    await processReviewWindowTick(projectId, bus);
+    const beforePendingGateIds = bus ? pendingGateIds(projectId) : new Set<string>();
     const result = await schedulerTickProjectUnlocked(projectId, options);
     if (bus) emitSchedulerNotifications(bus, beforePendingGateIds, result);
     return result;

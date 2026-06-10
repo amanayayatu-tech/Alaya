@@ -3,6 +3,7 @@ import { callLlm } from "./llm";
 import type { Cycle, ExternalFeedbackSource } from "@shared/schema";
 import { readFileSync } from "node:fs";
 import { assertNetworkAllowed } from "./security/capabilities";
+import { createDecisionBrief, withDecisionBriefPayload } from "./decisionBrief";
 
 const CLASSIFY_SCHEMA = {
   type: "object" as const,
@@ -151,7 +152,7 @@ function ensureExternalFeedbackErrorGate(source: ExternalFeedbackSource, cycleId
     type: "risk",
     blocking: 1,
     title: "外部反馈源同步失败",
-    payload: JSON.stringify({
+    payload: withDecisionBriefPayload({
       riskKey: "external_feedback_sync_error",
       sourceId: source.id,
       sourceKind: source.kind,
@@ -159,7 +160,16 @@ function ensureExternalFeedbackErrorGate(source: ExternalFeedbackSource, cycleId
       createdAt: now(),
       reason: "外部反馈源不可用，不能把本轮无新增反馈解释为真实外部沉默。",
       requiredAction: "检查 GitHub token、仓库权限、API 状态或临时切换到表单/手动反馈输入。",
-    }),
+    }, createDecisionBrief({
+      claim: `External feedback source ${source.id} failed to sync`,
+      metric: "external_feedback_sync_success",
+      operator: "=",
+      target: false,
+      timeWindow: "current scheduler tick",
+      ifApproved: "The risk is acknowledged and the scheduler can continue according to the chosen recovery path.",
+      ifRejected: "The cycle should stay paused until the feedback source is repaired or explicitly replaced.",
+      rollbackRef: "external_feedback_sources.last_sync_error",
+    })),
     status: "pending",
     estimatedMinutes: 10,
     decision: null,
@@ -366,7 +376,7 @@ export async function ingestFormFeedback(projectId: string, input: FormFeedbackI
     type: "meaning",
     blocking: 0,
     title: `表单反馈意义闸: ${classification.redactedTitle.slice(0, 36)}`,
-    payload: JSON.stringify({
+    payload: withDecisionBriefPayload({
       source: "form_feedback",
       sourceId: source.id,
       sourceName,
@@ -378,7 +388,14 @@ export async function ingestFormFeedback(projectId: string, input: FormFeedbackI
       topicKey: classification.topicKey,
       summary: classification.summary,
       createdAt: now(),
-    }),
+    }, createDecisionBrief({
+      claim: classification.summary,
+      metric: "form_feedback_review",
+      timeWindow: "before next knowledge injection",
+      ifApproved: "This form feedback can become human-approved meaning knowledge and be checked for conflicts.",
+      ifRejected: "This form feedback remains stored feedback and will not enter active knowledge.",
+      rollbackRef: `feedback_items:${feedback.id}`,
+    })),
     status: "pending",
     estimatedMinutes: classification.category === "bug" ? 6 : 8,
     decision: null,
@@ -471,7 +488,7 @@ export async function syncGithubIssuesForSource(
           type: "meaning",
           blocking: 0,
           title: `外部反馈意义闸: #${issue.number} ${classification.redactedTitle.slice(0, 36)}`,
-          payload: JSON.stringify({
+          payload: withDecisionBriefPayload({
             source: "github_issues",
             sourceId: source.id,
             externalId: `github:${owner}/${repo}#${issue.number}`,
@@ -482,7 +499,14 @@ export async function syncGithubIssuesForSource(
             topicKey: classification.topicKey,
             summary: classification.summary,
             createdAt: now(),
-          }),
+          }, createDecisionBrief({
+            claim: classification.summary,
+            metric: "github_issue_feedback_review",
+            timeWindow: "before next knowledge injection",
+            ifApproved: "This GitHub issue can become human-approved meaning knowledge and be checked for conflicts.",
+            ifRejected: "This GitHub issue remains stored feedback and will not enter active knowledge.",
+            rollbackRef: `feedback_items:${feedbackId}`,
+          })),
           status: "pending",
           estimatedMinutes: classification.category === "bug" ? 6 : 8,
           decision: null,
