@@ -57,6 +57,45 @@ const NEXT_GOAL_SCHEMA = {
   },
 };
 
+const NEXT_GOAL_OUTPUT_CONTRACT = {
+  prompt: "generate_autonomous_goal",
+  requiredKeys: [
+    "proposedGoal",
+    "belief",
+    "prediction",
+    "action",
+    "alternativeGoals",
+    "referencedKnowledgeIds",
+    "reasoningHowKnowledgeChangedDecision",
+  ],
+  predictionShape: {
+    statement: "string",
+    metric: "string",
+    operator: ">= | <= | =",
+    target: "number",
+  },
+  rules: [
+    "Return only one JSON object with exactly the required top-level keys.",
+    "Use empty arrays as [] for alternativeGoals or referencedKnowledgeIds when no safe value exists.",
+    "Use only referencedKnowledgeIds that appear in eligibleKnowledge.",
+    "Do not wrap JSON in markdown, prose, XML, or thinking blocks.",
+  ],
+  minimalExample: {
+    proposedGoal: "C7 rollback preview holdout comparison",
+    belief: "kb_1 shows rollback preview reduces operator hesitation.",
+    prediction: {
+      statement: "rollback_preview_completion_rate >= 0.5",
+      metric: "rollback_preview_completion_rate",
+      operator: ">=",
+      target: 0.5,
+    },
+    action: "Run a rollback preview holdout comparison using approved knowledge only.",
+    alternativeGoals: [],
+    referencedKnowledgeIds: ["kb_1"],
+    reasoningHowKnowledgeChangedDecision: "kb_1 changed the next goal toward rollback preview validation.",
+  },
+};
+
 const AUTONOMOUS_THEMES = [
   {
     goal: "把可回滚审计扩展到批量发布前检查",
@@ -388,13 +427,15 @@ export async function generateNextGoal(input: NextGoalInput, llm: LlmCaller = ca
       lastCyclePredictionError: input.lastCyclePredictionError,
       recentFeedback: input.recentFeedback,
       rejectedGoals: input.rejectedGoals,
+      outputContract: NEXT_GOAL_OUTPUT_CONTRACT,
     },
     knowledgeSummary: input.eligibleKnowledge.map((item) => `${item.id} ${item.status} ${item.title}`).join("\n"),
     prohibited: [
       "Do not repeat rejected or already used goals.",
       "Do not reference stale, expired, quarantined, conflict, or superseded knowledge.",
       "Do not promote any knowledge to strong.",
-      "Return JSON matching the schema.",
+      "Return only one JSON object for generate_autonomous_goal with exact keys: proposedGoal, belief, prediction, action, alternativeGoals, referencedKnowledgeIds, reasoningHowKnowledgeChangedDecision.",
+      "Use empty arrays as [] for alternativeGoals or referencedKnowledgeIds when no safe values exist; prediction.target must be a number.",
     ],
     schema: NEXT_GOAL_SCHEMA,
     simplifiedSchema: NEXT_GOAL_SCHEMA,
