@@ -138,6 +138,28 @@ test("detects incompatible conclusion tags on the same normalized key", () => {
   assert.equal(storage.getKnowledge("kb_tag_negative")?.status, "conflict");
 });
 
+test("generic contradiction wording in onboarding seed knowledge does not create a conflict review", () => {
+  const projectId = "proj_seed_marker_not_conflict";
+  project(projectId);
+  knowledge(projectId, "kb_seed_identity_marker", {
+    sourceRef: "onboarding",
+    tags: ["identity", "seed"],
+    content: "身份说明：遇到 PPG vs ECG 矛盾证据时，必须进入 conflict 知识状态并等待人工审核。",
+  });
+  knowledge(projectId, "kb_seed_world_marker", {
+    sourceRef: "onboarding",
+    tags: ["world_model", "seed"],
+    content: "初始世界模型：系统需要识别明确冲突和互相矛盾的证据，但这只是任务说明。",
+  });
+
+  const conflicts = detectKnowledgeConflicts(projectId);
+
+  assert.equal(conflicts.length, 0);
+  assert.equal(storage.listKnowledgeReviews(projectId).filter((item) => item.reviewType === "conflict").length, 0);
+  assert.equal(storage.getKnowledge("kb_seed_identity_marker")?.status, "active");
+  assert.equal(storage.getKnowledge("kb_seed_world_marker")?.status, "active");
+});
+
 test("creates stale and expiry review reminders without changing active facts", () => {
   const projectId = "proj_review_reminders";
   project(projectId);

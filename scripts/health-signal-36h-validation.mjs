@@ -26,17 +26,7 @@ const PROJECT_DESCRIPTION = [
   "每轮任务：基于当前知识库，给出当前最优选型决策，并列明置信度与关键证据。如果遇到矛盾证据，必须在知识库中记录冲突并等待人工审核。",
 ].join("\n");
 
-const CONTRACT_FINDINGS = [
-  {
-    severity: "P1",
-    title: "monitor contract mismatch: /api/human-gates returns an array, not { pendingCount }",
-    detail: "The requested jq '.pendingCount' monitor expression returns null against the current API. This runner computes pending gates client-side and records the raw API shape.",
-  },
-  {
-    severity: "P1",
-    title: "monitor contract mismatch: /api/knowledge returns an array, not { total }",
-    detail: "The requested jq '.total' monitor expression returns null against the current API. This runner computes total/status counts client-side.",
-  },
+const STARTUP_FINDINGS = [
   {
     severity: "P2",
     title: "first four cycle stimuli are partly hard-coded to the generic high-risk automation scenario",
@@ -282,7 +272,7 @@ const existingRun = existsSync(monitorCsv) || existsSync(eventsJsonl) || existsS
 
 if (!existsSync(issuesMd)) {
   writeFileSync(issuesMd, `# Health Signal ${durationLabel} Validation Issues\n\nLog dir: ${logDir}\n`);
-  for (const finding of CONTRACT_FINDINGS) issue(finding);
+  for (const finding of STARTUP_FINDINGS) issue(finding);
 }
 
 if (!existsSync(monitorCsv)) {
@@ -675,9 +665,16 @@ function shouldHoldMeaningGate(gate, approvedMeaningCount) {
   if (!approveMeaning) return true;
   const payload = parsePayload(gate);
   if (payload.riskKey === "knowledge_review_reminder") return true;
-  if (meaningGateRequiresHumanReview(gate)) return true;
+  if (meaningGateRequiresHumanReview(gate) && !isRunnerInjectedContradictionGate(gate)) return true;
   if (holdEveryMeaning > 0 && (approvedMeaningCount + 1) % holdEveryMeaning === 0) return true;
   return false;
+}
+
+function isRunnerInjectedContradictionGate(gate) {
+  const payload = parsePayload(gate);
+  return payload.sourceName === "health-signal-contradiction-runner" ||
+    String(payload.sourceId ?? "").includes("health_signal_contradiction_runner") ||
+    /^sample_\d{4}_(ppg|ecg|hybrid)_/i.test(String(payload.externalId ?? ""));
 }
 
 function meaningGateRequiresHumanReview(gate) {
@@ -722,7 +719,12 @@ async function resolvePendingGates(baseUrl, projectId, state) {
     const rationale = [
       `Health Signal ${durationLabel} validation human proxy via ${decisionVia}.`,
       gate.type === "direction" ? "Approve the proposed direction so the flywheel can continue and expose compounding/conflict behavior." : "",
-      gate.type === "meaning" ? "Approve injected/ambiguous evidence to materialize knowledge and test conflict isolation." : "",
+      gate.type === "meaning" && isRunnerInjectedContradictionGate(gate)
+        ? "Approve runner-injected contradiction evidence so the product conflict detector must materialize a knowledge review."
+        : "",
+      gate.type === "meaning" && !isRunnerInjectedContradictionGate(gate)
+        ? "Approve injected/ambiguous evidence to materialize knowledge and test conflict isolation."
+        : "",
       gate.type === "risk" ? "Risk gate recorded for validation; approve to continue after logging the risk." : "",
     ].filter(Boolean).join(" ");
     const updated = await requestJson(baseUrl, `/api/human-gates/${gate.id}/approve`, {
@@ -959,11 +961,17 @@ function llmTokenSourceStats(calls) {
   return { total, provider, estimated, providerRatio, label };
 }
 
+function responseItems(value) {
+  if (Array.isArray(value)) return value;
+  if (value && Array.isArray(value.items)) return value.items;
+  return [];
+}
+
 async function collectMetrics(baseUrl, projectId, appPid, sample, lastAction) {
-  const [health, gates, knowledge, reviews, cycles, ops, traces, actionLedger, llmCalls] = await Promise.all([
+  const [health, gateResponse, knowledgeResponse, reviews, cycles, ops, traces, actionLedger, llmCalls] = await Promise.all([
     requestJson(baseUrl, `/api/flywheel/health?projectId=${projectId}`),
-    requestJson(baseUrl, `/api/human-gates?projectId=${projectId}`),
-    requestJson(baseUrl, `/api/knowledge?projectId=${projectId}`),
+    requestJson(baseUrl, `/api/human-gates?projectId=${projectId}&summary=true`),
+    requestJson(baseUrl, `/api/knowledge?projectId=${projectId}&summary=true`),
     requestJson(baseUrl, `/api/projects/${projectId}/knowledge-reviews`),
     requestJson(baseUrl, `/api/projects/${projectId}/cycles`),
     requestJson(baseUrl, `/api/projects/${projectId}/ops-metrics`),
@@ -971,6 +979,8 @@ async function collectMetrics(baseUrl, projectId, appPid, sample, lastAction) {
     requestJson(baseUrl, `/api/action-ledger?projectId=${projectId}&limit=5000`),
     requestJson(baseUrl, `/api/projects/${projectId}/llm-calls`),
   ]);
+  const gates = responseItems(gateResponse);
+  const knowledge = responseItems(knowledgeResponse);
   const pending = gates.filter((gate) => gate.status === "pending");
   const openConflictReviews = reviews.filter((review) => review.reviewType === "conflict" && review.status === "review_required").length;
   const resolvedConflictReviews = reviews.filter((review) => review.reviewType === "conflict" && review.status === "resolved").length;

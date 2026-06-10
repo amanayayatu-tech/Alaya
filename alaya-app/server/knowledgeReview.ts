@@ -46,6 +46,11 @@ function parseTags(value: string): string[] {
   }
 }
 
+function isOnboardingSeedKnowledge(item: KnowledgeItem): boolean {
+  const tags = parseTags(item.tags).map((tag) => tag.toLowerCase());
+  return item.id.startsWith("kb_seed_") || item.sourceRef === "onboarding" || tags.includes("seed");
+}
+
 function normalizeKey(input: string): string {
   return input
     .toLowerCase()
@@ -235,13 +240,18 @@ function incompatibleConclusions(a: KnowledgeItem, b: KnowledgeItem): boolean {
 function explicitContradictionMarkers(a: KnowledgeItem, b: KnowledgeItem): string | null {
   const haystack = `${parseTags(a.tags).join(" ")}\n${a.notes}\n${a.sourceRef}\n${a.content}`;
   const reverse = `${parseTags(b.tags).join(" ")}\n${b.notes}\n${b.sourceRef}\n${b.content}`;
-  const patterns = [
+  const targeted = [
     new RegExp(`(?:contradicts|conflicts?[_ -]?with|contradiction[_ -]?with)[:= ]+${b.id}\\b`, "i"),
     new RegExp(`(?:contradicts|conflicts?[_ -]?with|contradiction[_ -]?with)[:= ]+${a.id}\\b`, "i"),
-    /contradicts_strong|conflict_with_strong|needs_conflict_review|明确冲突|互相矛盾/i,
   ];
-  if (patterns[0].test(haystack) || patterns[2].test(haystack)) return "explicit contradiction marker on primary knowledge";
-  if (patterns[1].test(reverse) || patterns[2].test(reverse)) return "explicit contradiction marker on related knowledge";
+  if (targeted[0].test(haystack)) return "explicit contradiction marker on primary knowledge";
+  if (targeted[1].test(reverse)) return "explicit contradiction marker on related knowledge";
+
+  if (isOnboardingSeedKnowledge(a) || isOnboardingSeedKnowledge(b)) return null;
+
+  const genericMarker = /contradicts_strong|conflict_with_strong|needs_conflict_review|明确冲突|互相矛盾/i;
+  if (genericMarker.test(haystack)) return "explicit contradiction marker on primary knowledge";
+  if (genericMarker.test(reverse)) return "explicit contradiction marker on related knowledge";
   return null;
 }
 
