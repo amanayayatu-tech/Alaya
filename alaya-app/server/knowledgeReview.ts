@@ -1,4 +1,5 @@
 import { makeIdempotencyKey } from "alaya-core/src/core/action_risk.js";
+import { GRAY_ARCHIVE_QUEUE_DAYS, grayZoneStaleness } from "alaya-core/src/core/update_confidence.js";
 import type { KnowledgeItem, KnowledgeReviewItem } from "@shared/schema";
 import { recordActionProposal } from "./actionLedger";
 import { storage, now } from "./storage";
@@ -25,6 +26,7 @@ export interface KnowledgeReminderOptions {
   nowMs?: number;
   staleAfterDays?: number;
   expiryWithinDays?: number;
+  grayArchiveQueueDays?: number;
 }
 
 export interface ResolveKnowledgeReviewInput {
@@ -47,6 +49,24 @@ function parseTags(value: string): string[] {
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
   } catch {
     return [];
+  }
+}
+
+function coreKnowledgeView(item: KnowledgeItem): any {
+  return {
+    ...item,
+    tags: parseTags(item.tags),
+    validUntil: item.validUntil ?? null,
+    approvedBy: item.approvedBy ?? null,
+  };
+}
+
+function parseJsonObject(value: string): Record<string, any> {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, any> : {};
+  } catch {
+    return {};
   }
 }
 
@@ -181,6 +201,18 @@ function ensureReviewGate(review: KnowledgeReviewItem, blocking: boolean): void 
   if (!review.cycleId) return;
   const gateId = `gate_${review.id}`;
   if (storage.getGate(gateId)) return;
+  const primary = storage.getKnowledge(review.primaryKnowledgeId);
+  const semanticKey = primary?.semanticKey?.trim() || "";
+  const evidence = parseJsonObject(review.evidence);
+  const grayArchiveStats = review.reviewType === "gray_archive_review" && primary ? [{
+    knowledgeId: primary.id,
+    semanticKey,
+    grayStreak: primary.grayStreak ?? 0,
+    evidenceAlpha: primary.evidenceAlpha,
+    evidenceBeta: primary.evidenceBeta,
+    daysSinceLastUse: evidence.daysSinceLastUse ?? null,
+    wallclockDecayedScore: evidence.wallclockDecayedScore ?? null,
+  }] : [];
   storage.createGate({
     id: gateId,
     cycleId: review.cycleId,
@@ -193,6 +225,9 @@ function ensureReviewGate(review: KnowledgeReviewItem, blocking: boolean): void 
       reviewType: review.reviewType,
       primaryKnowledgeId: review.primaryKnowledgeId,
       relatedKnowledgeId: review.relatedKnowledgeId,
+      semanticKey,
+      topicKey: semanticKey || review.primaryKnowledgeId,
+      grayArchiveStats,
       reason: review.reason,
       recommendedAction: review.recommendedAction,
       createdAt: review.createdAt,
@@ -592,14 +627,18 @@ export function createKnowledgeReviewReminders(projectId: string, options: Knowl
   const nowMs = options.nowMs ?? Date.now();
   const staleAfterDays = options.staleAfterDays ?? 90;
   const expiryWithinDays = options.expiryWithinDays ?? 14;
+  const grayArchiveQueueDays = options.grayArchiveQueueDays ?? GRAY_ARCHIVE_QUEUE_DAYS;
   const cycle = latestCycle(projectId);
   const reminders: KnowledgeReviewItem[] = [];
   for (const item of storage.listKnowledge(projectId)) {
     if (item.supersededBy || !["active", "strong"].includes(item.status)) continue;
+    const gray = grayZoneStaleness({ k: coreKnowledgeView(item), currentTimeMs: nowMs });
     const verifiedAgeDays = lastVerifiedMs(item) > 0 ? (nowMs - lastVerifiedMs(item)) / 86_400_000 : Number.POSITIVE_INFINITY;
     const validUntilMs = Date.parse(item.validUntil ?? "");
     const daysUntilExpiry = Number.isFinite(validUntilMs) ? (validUntilMs - nowMs) / 86_400_000 : Number.POSITIVE_INFINITY;
-    const reviewType = verifiedAgeDays >= staleAfterDays ? "stale_review" : daysUntilExpiry <= expiryWithinDays ? "expiry_review" : "";
+    const reviewType = gray.isGrayActive && gray.daysSinceLastUse >= grayArchiveQueueDays
+      ? "gray_archive_review"
+      : verifiedAgeDays >= staleAfterDays ? "stale_review" : daysUntilExpiry <= expiryWithinDays ? "expiry_review" : "";
     if (!reviewType) continue;
     const review = ensureReview({
       projectId,
@@ -608,11 +647,17 @@ export function createKnowledgeReviewReminders(projectId: string, options: Knowl
       primaryKnowledgeId: item.id,
       reason: reviewType === "stale_review"
         ? `knowledge has not been verified for ${Math.floor(verifiedAgeDays)} days`
-        : `knowledge expires in ${Math.ceil(daysUntilExpiry)} days`,
+        : reviewType === "gray_archive_review"
+          ? `gray-zone knowledge has not been used for ${Math.floor(gray.daysSinceLastUse)} days`
+          : `knowledge expires in ${Math.ceil(daysUntilExpiry)} days`,
       evidence: {
         knowledgeId: item.id,
         lastVerifiedAt: item.lastVerifiedAt,
+        lastInjectedAt: item.lastInjectedAt,
         validUntil: item.validUntil,
+        semanticKey: item.semanticKey ?? "",
+        daysSinceLastUse: Number.isFinite(gray.daysSinceLastUse) ? +gray.daysSinceLastUse.toFixed(2) : null,
+        wallclockDecayedScore: Number.isFinite(gray.wallclockDecayedScore) ? +gray.wallclockDecayedScore.toFixed(4) : null,
         verifiedAgeDays: Number.isFinite(verifiedAgeDays) ? +verifiedAgeDays.toFixed(2) : null,
         daysUntilExpiry: Number.isFinite(daysUntilExpiry) ? +daysUntilExpiry.toFixed(2) : null,
       },

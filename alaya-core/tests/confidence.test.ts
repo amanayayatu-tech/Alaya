@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyEvidence, applyTimeDecay, decayConfidence } from "../src/core/update_confidence.js";
+import { applyEvidence, applyTimeDecay, decayConfidence, grayZoneStaleness } from "../src/core/update_confidence.js";
 import { transitionState, eligibleForHighRisk } from "../src/core/transition_state.js";
 import { evidenceCount } from "../src/core/types.js";
 import type { KnowledgeItem } from "../src/core/types.js";
@@ -122,6 +122,37 @@ test("Bjork 时间衰减:相同入参确定性且低于0.5建议 stale", () => {
   assert.equal(first.shouldDemoteToStale, true);
 });
 
+test("灰区墙钟衰减只作用于 active gray 知识的计算视图", () => {
+  const now = Date.parse("2026-06-04T00:00:00.000Z");
+  const gray = grayZoneStaleness({
+    k: seed({ status: "active", confidenceScore: 0.6, lastInjectedAt: now - (10 * 86_400_000) }),
+    currentTimeMs: now,
+  });
+  assert.equal(gray.isGrayActive, true);
+  assert.equal(Math.round(gray.daysSinceLastUse), 10);
+  assert.ok(gray.wallclockDecayedScore < 0.6);
+
+  const strong = grayZoneStaleness({
+    k: seed({ status: "strong", confidenceScore: 0.9, lastInjectedAt: now - (10 * 86_400_000) }),
+    currentTimeMs: now,
+  });
+  assert.equal(strong.isGrayActive, false);
+  assert.equal(strong.wallclockDecayedScore, 0.9);
+});
+
+test("utility evidence uses weak half-counts and persists gray streak", () => {
+  const k = seed({ status: "active", confidenceScore: 0.5, grayStreak: 1 });
+  const confirmed = applyEvidence(k, { kind: "cycle_utility_confirm" });
+  assert.equal(confirmed.next.evidenceAlpha, 1.5);
+  assert.equal(confirmed.next.confidenceScore, 0.6);
+  assert.equal(confirmed.grayZone, true);
+  assert.equal(confirmed.grayStreak, 2);
+
+  const refuted = applyEvidence(confirmed.next, { kind: "cycle_utility_refute" });
+  assert.equal(refuted.next.evidenceBeta, 1.5);
+  assert.equal(refuted.grayStreak, 3);
+});
+
 // ---- 状态迁移 ----
 test("draft->active 需 score>=0.6 且 evidenceCount>=1", () => {
   const k = seed({ evidenceAlpha: 2, evidenceBeta: 1, confidenceScore: 2 / 3 });
@@ -140,6 +171,18 @@ test("active->strong 需人类确认(两步)", () => {
   const r2 = transitionState(k, { currentCycle: 5, conflictsWithStrong: false, humanApprovedStrongPromotion: true });
   assert.equal(r2.nextStatus, "strong");
   assert.equal(r2.changed, true);
+});
+
+test("active gray wallclock decay uses min effective score, not multiplied score", () => {
+  const k = seed({ status: "active", evidenceAlpha: 3, evidenceBeta: 2, confidenceScore: 0.6 });
+  const r = transitionState(k, {
+    currentCycle: 5,
+    conflictsWithStrong: false,
+    daysSinceLastUse: 8,
+    wallclockDecayedScore: 0.49,
+  });
+  assert.equal(r.nextStatus, "stale");
+  assert.match(r.reason, /wallclock_decay effectiveScore=0\.49/);
 });
 
 test("任意->conflict:与strong断言相反", () => {

@@ -665,16 +665,44 @@ export class HumanGateService {
       return gate;
     });
     const gates = [keeper, ...rest];
-    const quotes = gates.map((g) => parseGatePayload(g.payload).userQuote).filter(Boolean);
+    const payloads = gates.map((g) => parseGatePayload(g.payload));
+    const quotes = payloads.map((payload) => payload.userQuote).filter(Boolean);
+    const grayArchiveStats = payloads.flatMap((payload) => (
+      Array.isArray(payload.grayArchiveStats) ? payload.grayArchiveStats : []
+    ));
     const mergedAt = now();
 
     return this.inTransaction(() => {
+      const keeperPayload = parseGatePayload(keeper.payload);
+      const keeperBrief = keeperPayload.decision_brief && typeof keeperPayload.decision_brief === "object" && !Array.isArray(keeperPayload.decision_brief)
+        ? keeperPayload.decision_brief as Record<string, any>
+        : null;
+      const mergedCitedKnowledgeIds = Array.from(new Set([
+        ...gates.flatMap((gate) => {
+          const brief = parseGatePayload(gate.payload).decision_brief;
+          return brief && typeof brief === "object" && Array.isArray(brief.cited_knowledge_ids)
+            ? brief.cited_knowledge_ids.filter((id: unknown): id is string => typeof id === "string" && id.length > 0)
+            : [];
+        }),
+        ...grayArchiveStats
+          .map((item) => item && typeof item === "object" ? (item as Record<string, any>).knowledgeId : null)
+          .filter((id): id is string => typeof id === "string" && id.length > 0),
+      ]));
+      const semanticKey = typeof keeperPayload.semanticKey === "string" ? keeperPayload.semanticKey : "";
       const updatedKeeper = this.store.updateGate(keeper.id, {
         payload: JSON.stringify({
-          ...parseGatePayload(keeper.payload),
+          ...keeperPayload,
           mergedCount: gates.length,
           mergedQuotes: quotes,
           mergedAt,
+          ...(grayArchiveStats.length > 0 ? { grayArchiveStats } : {}),
+          ...(keeperBrief && grayArchiveStats.length > 0 ? {
+            decision_brief: {
+              ...keeperBrief,
+              claim: `${grayArchiveStats.length} gray-zone knowledge item(s) need lifecycle review${semanticKey ? ` (semanticKey: ${semanticKey})` : ""}`,
+              cited_knowledge_ids: mergedCitedKnowledgeIds,
+            },
+          } : {}),
         }),
         actor,
       }) ?? keeper;
@@ -777,6 +805,7 @@ export class HumanGateService {
       evidenceBeta: evidence.evidenceBeta,
       confidenceScore: evidence.confidenceScore,
       confidenceLevel: evidence.confidenceLevel,
+      grayStreak: evidence.grayStreak,
       status: "active",
       humanApprovedCount: evidence.humanApprovedCount,
       approvedBy: input.actor ?? "human",

@@ -128,6 +128,7 @@ export interface KnowledgeItem {
   lastInjectedAt?: number | null;
   lastVerifiedAt?: number | null;
   lastDecayedAt?: number | null;
+  grayStreak?: number;
   storageStrength?: number;
   noveltyScore?: number | null;
   sourceRound?: number | null;

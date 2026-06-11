@@ -10,6 +10,7 @@ process.env.ALAYA_LLM_PROVIDER = "mock";
 const { applyTimeDecay } = await import("alaya-core/src/core/update_confidence.ts");
 const { storage } = await import("../server/storage.ts");
 const { decayStaleKnowledge, schedulerTickProject } = await import("../server/scheduler.ts");
+const { applyCycleUtilityFeedback } = await import("../server/flywheel.ts");
 
 const DAY = 86_400_000;
 const currentTime = Date.parse("2026-06-04T00:00:00.000Z");
@@ -33,7 +34,7 @@ function createProject(projectId: string) {
   });
 }
 
-function createKnowledge(projectId: string, id: string, lastVerifiedAt: number) {
+function createKnowledge(projectId: string, id: string, lastVerifiedAt: number, overrides: Record<string, any> = {}) {
   storage.createKnowledge({
     id,
     projectId,
@@ -42,11 +43,11 @@ function createKnowledge(projectId: string, id: string, lastVerifiedAt: number) 
     content: "This principle was useful but has not been verified for a long time.",
     sourceType: "metric",
     sourceRef: "decay-test",
-    evidenceAlpha: 5,
-    evidenceBeta: 1,
-    confidenceScore: 0.8,
-    confidenceLevel: "high",
-    status: "active",
+    evidenceAlpha: overrides.evidenceAlpha ?? 5,
+    evidenceBeta: overrides.evidenceBeta ?? 1,
+    confidenceScore: overrides.confidenceScore ?? 0.8,
+    confidenceLevel: overrides.confidenceLevel ?? "high",
+    status: overrides.status ?? "active",
     humanApprovedCount: 0,
     externalVerifiedCount: 1,
     validFrom: new Date(lastVerifiedAt).toISOString().slice(0, 10),
@@ -56,11 +57,48 @@ function createKnowledge(projectId: string, id: string, lastVerifiedAt: number) 
     createdBy: "distiller",
     approvedBy: null,
     usageCount: 0,
+    lastInjectedAt: overrides.lastInjectedAt ?? null,
     lastVerifiedAt,
+    grayStreak: overrides.grayStreak ?? 0,
     storageStrength: 1,
     tags: JSON.stringify(["decay"]),
     notes: "",
+    semanticKey: overrides.semanticKey ?? "",
     version: 1,
+    ...overrides,
+  });
+}
+
+function createCycle(projectId: string, id: string, coAppliedSet: string | null = null) {
+  return storage.createCycle({
+    id,
+    projectId,
+    idx: 1,
+    goal: "observe gray utility",
+    status: "running",
+    eCycle: null,
+    worstClaimError: null,
+    reasoning: "",
+    coAppliedSet,
+    version: 1,
+  });
+}
+
+function createPrediction(cycleId: string, knowledgeRefs: string[], error: number) {
+  storage.createPrediction({
+    id: `pred_${cycleId}`,
+    cycleId,
+    belief: "belief",
+    prediction: "activation_rate >= 0.3",
+    action: "action",
+    claims: "[]",
+    observation: "activation_rate observed",
+    predictionError: error,
+    worstClaimError: error,
+    errorType: "model",
+    updateTarget: "utility_feedback",
+    status: "resolved",
+    knowledgeRefs: JSON.stringify(knowledgeRefs),
   });
 }
 
@@ -120,6 +158,75 @@ test("decayStaleKnowledge records lastDecayedAt and is not applied twice for the
   const twice = storage.getKnowledge("kb_decay_idempotent");
   assert.equal(twice?.confidenceScore, once?.confidenceScore);
   assert.equal(twice?.storageStrength, once?.storageStrength);
+});
+
+test("decayStaleKnowledge demotes active gray knowledge through wallclock gray decay", () => {
+  const projectId = "proj_gray_wallclock_decay";
+  createProject(projectId);
+  createCycle(projectId, "cycle_gray_wallclock_decay");
+  createKnowledge(projectId, "kb_gray_wallclock_decay", currentTime, {
+    evidenceAlpha: 13,
+    evidenceBeta: 7,
+    confidenceScore: 0.65,
+    confidenceLevel: "medium",
+    lastInjectedAt: currentTime - (8 * DAY),
+    semanticKey: "gray_wallclock_decay",
+  });
+
+  const result = decayStaleKnowledge(projectId, currentTime);
+
+  assert.equal(result.demoted, 1);
+  const updated = storage.getKnowledge("kb_gray_wallclock_decay");
+  assert.equal(updated?.status, "stale");
+  assert.ok((updated?.confidenceScore ?? 1) < 0.5);
+  assert.equal(updated?.lastDecayedAt, currentTime);
+  assert.ok(storage.listEvents().some((event) => event.actor === "librarian/gray_decay" && event.tableName === "knowledge_items"));
+});
+
+test("cycle utility feedback confirms cited gray knowledge and persists grayStreak", () => {
+  const projectId = "proj_gray_utility_confirm";
+  createProject(projectId);
+  const cycle = createCycle(projectId, "cycle_gray_utility_confirm");
+  createKnowledge(projectId, "kb_gray_utility_confirm", currentTime, {
+    evidenceAlpha: 1,
+    evidenceBeta: 1,
+    confidenceScore: 0.5,
+    confidenceLevel: "low",
+    grayStreak: 1,
+  });
+  createPrediction(cycle.id, ["kb_gray_utility_confirm"], 0.2);
+
+  const result = applyCycleUtilityFeedback(projectId, cycle.id, currentTime);
+
+  assert.equal(result.applied, 1);
+  assert.equal(result.eventKind, "cycle_utility_confirm");
+  const updated = storage.getKnowledge("kb_gray_utility_confirm");
+  assert.equal(updated?.evidenceAlpha, 1.5);
+  assert.equal(updated?.confidenceScore, 0.6);
+  assert.equal(updated?.grayStreak, 2);
+  assert.equal(updated?.lastVerifiedAt, currentTime);
+});
+
+test("cycle utility refute is skipped when co_applied_set makes attribution ambiguous", () => {
+  const projectId = "proj_gray_utility_coapplied";
+  createProject(projectId);
+  const cycle = createCycle(projectId, "cycle_gray_utility_coapplied", JSON.stringify(["cycle_other"]));
+  createKnowledge(projectId, "kb_gray_utility_coapplied", currentTime, {
+    evidenceAlpha: 1,
+    evidenceBeta: 1,
+    confidenceScore: 0.5,
+    confidenceLevel: "low",
+    grayStreak: 1,
+  });
+  createPrediction(cycle.id, ["kb_gray_utility_coapplied"], 0.8);
+
+  const result = applyCycleUtilityFeedback(projectId, cycle.id, currentTime);
+
+  assert.equal(result.applied, 0);
+  assert.equal(result.skipped, "co_applied_set_nonempty");
+  const updated = storage.getKnowledge("kb_gray_utility_coapplied");
+  assert.equal(updated?.evidenceBeta, 1);
+  assert.equal(updated?.grayStreak, 1);
 });
 
 test("scheduler tick applies stale knowledge decay before returning", async () => {

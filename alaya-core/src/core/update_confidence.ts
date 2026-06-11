@@ -17,12 +17,16 @@ import { evidenceCount } from "./types.js";
 export const GRAY_LOW = 0.3;
 export const GRAY_HIGH = 0.7;
 export const GRAY_STREAK_TO_GATE = 3; // 连续灰区达此次数,建议升意义闸
+export const GRAY_WALLCLOCK_LAMBDA = 0.05;
+export const GRAY_ARCHIVE_QUEUE_DAYS = 14;
 
 export type EvidenceEvent =
   | { kind: "prediction"; normalizedError: number }
   | { kind: "human_approve" }
   | { kind: "human_reject" }
-  | { kind: "external_verify" };
+  | { kind: "external_verify" }
+  | { kind: "cycle_utility_confirm" }
+  | { kind: "cycle_utility_refute" };
 
 export interface ConfidenceUpdateResult {
   next: KnowledgeItem;
@@ -30,6 +34,8 @@ export interface ConfidenceUpdateResult {
   grayZone: boolean;
   /** 是否建议触发意义闸(连续灰区超阈值) */
   suggestMeaningGate: boolean;
+  /** 更新后的连续灰区计数,供上层持久化 */
+  grayStreak: number;
 }
 
 function computeLevel(score: number, evCount: number, humanApproved: boolean): ConfidenceLevel {
@@ -43,7 +49,7 @@ function computeLevel(score: number, evCount: number, humanApproved: boolean): C
 export function applyEvidence(
   k: KnowledgeItem,
   event: EvidenceEvent,
-  grayStreakBefore = 0,
+  grayStreakBefore = k.grayStreak ?? 0,
 ): ConfidenceUpdateResult {
   let { evidenceAlpha: alpha, evidenceBeta: beta } = k;
   let humanApprovedCount = k.humanApprovedCount;
@@ -83,9 +89,19 @@ export function applyEvidence(
       externalVerifiedCount += 1;
       grayStreak = 0;
       break;
+    case "cycle_utility_confirm":
+      alpha += 0.5;
+      break;
+    case "cycle_utility_refute":
+      beta += 0.5;
+      break;
   }
 
   const score = alpha / (alpha + beta);
+  if (event.kind === "cycle_utility_confirm" || event.kind === "cycle_utility_refute") {
+    grayZone = score > GRAY_LOW && score < GRAY_HIGH;
+    grayStreak = grayZone ? grayStreak + 1 : 0;
+  }
   const next: KnowledgeItem = {
     ...k,
     evidenceAlpha: alpha,
@@ -94,12 +110,50 @@ export function applyEvidence(
     humanApprovedCount,
     externalVerifiedCount,
     confidenceLevel: computeLevel(score, evidenceCount({ evidenceAlpha: alpha, evidenceBeta: beta }), humanApprovedCount > 0),
+    grayStreak,
   };
 
   return {
     next,
     grayZone,
     suggestMeaningGate: grayStreak >= GRAY_STREAK_TO_GATE,
+    grayStreak,
+  };
+}
+
+export interface GrayStalenessInput {
+  k: KnowledgeItem;
+  currentTimeMs: number;
+}
+
+export interface GrayStalenessResult {
+  isGrayActive: boolean;
+  daysSinceLastUse: number;
+  wallclockDecayedScore: number;
+}
+
+function parseDateMs(value: string | number | null | undefined): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string" || value.trim().length === 0) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function grayZoneStaleness(input: GrayStalenessInput): GrayStalenessResult {
+  const score = input.k.confidenceScore;
+  const isGrayActive = input.k.status === "active" && score > GRAY_LOW && score < GRAY_HIGH;
+  const anchor = parseDateMs(input.k.lastInjectedAt)
+    ?? parseDateMs(input.k.lastVerifiedAt)
+    ?? parseDateMs(input.k.validFrom)
+    ?? input.currentTimeMs;
+  const daysSinceLastUse = Math.max(0, (input.currentTimeMs - anchor) / 86_400_000);
+  const wallclockDecayedScore = isGrayActive
+    ? score * Math.exp(-GRAY_WALLCLOCK_LAMBDA * daysSinceLastUse)
+    : score;
+  return {
+    isGrayActive,
+    daysSinceLastUse,
+    wallclockDecayedScore,
   };
 }
 

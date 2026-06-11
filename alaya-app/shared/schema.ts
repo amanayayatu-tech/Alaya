@@ -130,6 +130,7 @@ export const knowledgeItems = sqliteTable("knowledge_items", {
   lastInjectedAt: integer("last_injected_at"),
   lastVerifiedAt: integer("last_verified_at"),
   lastDecayedAt: integer("last_decayed_at"),
+  grayStreak: integer("gray_streak").notNull().default(0),
   storageStrength: real("storage_strength").notNull().default(1.0),
   noveltyScore: real("novelty_score"),
   sourceRound: integer("source_round"),
@@ -382,13 +383,14 @@ export type Observation = typeof observations.$inferSelect;
 type KnowledgeItemRow = typeof knowledgeItems.$inferSelect;
 export type KnowledgeItem = Omit<
   KnowledgeItemRow,
-  "supersededBy" | "semanticKey" | "lastInjectedAt" | "lastVerifiedAt" | "lastDecayedAt" | "storageStrength" | "noveltyScore" | "sourceRound"
+  "supersededBy" | "semanticKey" | "lastInjectedAt" | "lastVerifiedAt" | "lastDecayedAt" | "grayStreak" | "storageStrength" | "noveltyScore" | "sourceRound"
 > & {
   supersededBy?: string | null;
   semanticKey?: string;
   lastInjectedAt?: number | null;
   lastVerifiedAt?: number | null;
   lastDecayedAt?: number | null;
+  grayStreak?: number;
   storageStrength?: number;
   noveltyScore?: number | null;
   sourceRound?: number | null;

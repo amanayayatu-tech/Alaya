@@ -870,6 +870,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const updated = storage.updateKnowledge(k.id, {
       evidenceAlpha: r.next.evidenceAlpha, evidenceBeta: r.next.evidenceBeta,
       confidenceScore: r.next.confidenceScore, confidenceLevel: r.next.confidenceLevel,
+      grayStreak: r.next.grayStreak,
       humanApprovedCount: r.next.humanApprovedCount, approvedBy: "owner",
       actor: "human",
       status: t.changed ? t.nextStatus : (k.status === "draft" ? "active" : k.status),
@@ -918,6 +919,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const reminders = createKnowledgeReviewReminders(project.id, {
       staleAfterDays: typeof req.body?.staleAfterDays === "number" ? req.body.staleAfterDays : undefined,
       expiryWithinDays: typeof req.body?.expiryWithinDays === "number" ? req.body.expiryWithinDays : undefined,
+      grayArchiveQueueDays: typeof req.body?.grayArchiveQueueDays === "number" ? req.body.grayArchiveQueueDays : undefined,
     });
     res.json(reminders.map((review) => parseJsonFields(review, ["evidence", "resolution"])));
   });
