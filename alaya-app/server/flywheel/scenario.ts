@@ -1,4 +1,4 @@
-import type { Operator } from "@shared/core/types.js";
+import type { Operator } from "alaya-core/src/core/types.js";
 
 export interface ScenarioRound {
   index: number;

@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "description": "Alaya cognitive-compounding flywheel: TypeScript core plus Express/React local MVP.",
+  "workspaces": [
+    "alaya-core",
+    "alaya-app"
+  ],
   "scripts": {
     "install:core": "npm --prefix alaya-core install",
     "install:app": "npm --prefix alaya-app install",

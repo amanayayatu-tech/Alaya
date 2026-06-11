@@ -1,10 +1,10 @@
 import { storage, now } from "./storage";
 import { readFileSync } from "node:fs";
-import { resolveModelRoute } from "@shared/core/model_router.js";
+import { resolveModelRoute } from "alaya-core/src/llm/model_router.js";
 import { recordTrace } from "./trace";
 import { assertNetworkAllowed, requireCapability } from "./security/capabilities";
 import { redactSensitiveData, redactSensitiveText } from "./security/redact";
-import type { ModelRoute } from "@shared/core/types.js";
+import type { ModelRoute } from "alaya-core/src/core/types.js";
 import { HumanGateService } from "./humanGateService";
 import { createDecisionBrief, withDecisionBriefPayload } from "./decisionBrief";
 

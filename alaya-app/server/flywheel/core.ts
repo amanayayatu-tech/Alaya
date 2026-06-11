@@ -1,6 +1,6 @@
 /**
- * Flywheel engine: ports shared/core/agents_ref.ts logic to a SQLite-backed runner.
- * Reuses the verified pure functions from shared/core (NO algorithm changes).
+ * Flywheel engine: ports alaya-core/src/agents/agents.ts style logic to a SQLite-backed runner.
+ * Reuses the verified pure functions from alaya-core (NO algorithm changes).
  * Sequentially schedules the 5 fixed agents and records every write to eventLog,
  * every LLM call to llmCalls (mock by default, OpenAI when configured).
  */
@@ -13,11 +13,11 @@ import { recordTrace } from "../trace";
 import { recordActionProposal } from "../actionLedger";
 import { HumanGateService } from "../humanGateService";
 import { createDecisionBrief, withDecisionBriefPayload } from "../decisionBrief";
-import { computeClaimError, computeCycleError } from "@shared/core/compute_error.js";
-import { classifyError, routeError } from "@shared/core/classify_error.js";
-import { applyEvidence } from "@shared/core/update_confidence.js";
-import { eligibleForHighRisk, transitionState } from "@shared/core/transition_state.js";
-import { evidenceCount, type Claim, type AttributionContext, type Operator } from "@shared/core/types.js";
+import { computeClaimError, computeCycleError } from "alaya-core/src/core/compute_error.js";
+import { classifyError, routeError } from "alaya-core/src/core/classify_error.js";
+import { applyEvidence } from "alaya-core/src/core/update_confidence.js";
+import { eligibleForHighRisk, transitionState } from "alaya-core/src/core/transition_state.js";
+import { evidenceCount, type Claim, type AttributionContext, type Operator } from "alaya-core/src/core/types.js";
 import type { HumanGateItem, KnowledgeItem } from "@shared/schema";
 import { SCENARIO, scenarioForCycle, type ScenarioRound } from "./scenario";
 

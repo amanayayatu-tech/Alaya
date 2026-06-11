@@ -1,4 +1,4 @@
-type KnowledgeConflictDetector = (projectId: string) => void;
+type KnowledgeConflictDetector = (projectId: string, newItemIds?: string | string[]) => void;
 
 let conflictDetector: KnowledgeConflictDetector | null = null;
 
@@ -6,6 +6,6 @@ export function setKnowledgeConflictDetector(detector: KnowledgeConflictDetector
   conflictDetector = detector;
 }
 
-export function runKnowledgeConflictDetector(projectId: string): void {
-  conflictDetector?.(projectId);
+export function runKnowledgeConflictDetector(projectId: string, newItemIds?: string | string[]): void {
+  conflictDetector?.(projectId, newItemIds);
 }

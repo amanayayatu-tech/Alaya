@@ -7,6 +7,7 @@ import { rm, readFile } from "node:fs/promises";
 const allowlist = [
   "@google/generative-ai",
   "axios",
+  "alaya-core",
   "cors",
   "date-fns",
   "drizzle-orm",

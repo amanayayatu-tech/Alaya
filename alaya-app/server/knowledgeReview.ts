@@ -1,4 +1,4 @@
-import { makeIdempotencyKey } from "@shared/core/action_risk.js";
+import { makeIdempotencyKey } from "alaya-core/src/core/action_risk.js";
 import type { KnowledgeItem, KnowledgeReviewItem } from "@shared/schema";
 import { recordActionProposal } from "./actionLedger";
 import { storage, now } from "./storage";
@@ -15,6 +15,10 @@ export interface ConflictCandidate {
   reason: string;
   evidence: Record<string, unknown>;
   recommendedAction: string;
+}
+
+export interface ConflictDetectionOptions {
+  onCompare?: (leftKnowledgeId: string, rightKnowledgeId: string) => void;
 }
 
 export interface KnowledgeReminderOptions {
@@ -446,6 +450,31 @@ function weakerFirst(a: KnowledgeItem, b: KnowledgeItem): [KnowledgeItem, Knowle
   return a.id < b.id ? [a, b] : [b, a];
 }
 
+function pairKey(a: KnowledgeItem, b: KnowledgeItem): string {
+  return a.id < b.id ? `${a.id}:${b.id}` : `${b.id}:${a.id}`;
+}
+
+function materializeConflict(projectId: string, cycleId: string | null, primary: KnowledgeItem, related: KnowledgeItem, conflict: ConflictCandidate): void {
+  if (primary.status !== "conflict") {
+    storage.updateKnowledge(primary.id, {
+      status: "conflict",
+      notes: `${primary.notes}\nConflict candidate with ${related.id}: ${conflict.reason}`.trim(),
+      actor: "librarian",
+    });
+  }
+  const review = ensureReview({
+    projectId,
+    cycleId,
+    reviewType: "conflict",
+    primaryKnowledgeId: primary.id,
+    relatedKnowledgeId: related.id,
+    reason: conflict.reason,
+    evidence: conflict.evidence,
+    recommendedAction: conflict.recommendedAction,
+  });
+  ensureReviewGate(review, true);
+}
+
 function parseReviewResolution(review: KnowledgeReviewItem): Partial<ResolveKnowledgeReviewInput> {
   if (!review.resolution) return {};
   try {
@@ -505,31 +534,52 @@ export function detectKnowledgeConflicts(projectId: string): ConflictCandidate[]
       const conflict = conflictBetween(primary, related);
       if (!conflict) continue;
       candidates.push(conflict);
-      if (primary.status !== "conflict") {
-        storage.updateKnowledge(primary.id, {
-          status: "conflict",
-          notes: `${primary.notes}\nConflict candidate with ${related.id}: ${conflict.reason}`.trim(),
-          actor: "librarian",
-        });
-      }
-      const review = ensureReview({
-        projectId,
-        cycleId: cycle?.id ?? null,
-        reviewType: "conflict",
-        primaryKnowledgeId: primary.id,
-        relatedKnowledgeId: related.id,
-        reason: conflict.reason,
-        evidence: conflict.evidence,
-        recommendedAction: conflict.recommendedAction,
-      });
-      ensureReviewGate(review, true);
+      materializeConflict(projectId, cycle?.id ?? null, primary, related, conflict);
     }
   }
   return candidates;
 }
 
-setKnowledgeConflictDetector((projectId) => {
-  detectKnowledgeConflicts(projectId);
+function normalizeKnowledgeIds(newItemIds: string | string[]): string[] {
+  return Array.from(new Set((Array.isArray(newItemIds) ? newItemIds : [newItemIds])
+    .filter((id): id is string => typeof id === "string" && id.length > 0)));
+}
+
+export function detectConflictsAgainst(
+  projectId: string,
+  newItemIds: string | string[],
+  options: ConflictDetectionOptions = {},
+): ConflictCandidate[] {
+  const ids = normalizeKnowledgeIds(newItemIds);
+  if (ids.length === 0) return [];
+  const scannable = storage.listKnowledge(projectId).filter(isConflictScannableKnowledge);
+  const byId = new Map(scannable.map((item) => [item.id, item]));
+  const cycle = latestCycle(projectId);
+  const candidates: ConflictCandidate[] = [];
+  const comparedPairs = new Set<string>();
+
+  for (const id of ids) {
+    const item = byId.get(id);
+    if (!item) continue;
+    for (const other of scannable) {
+      if (other.id === item.id) continue;
+      const key = pairKey(item, other);
+      if (comparedPairs.has(key)) continue;
+      comparedPairs.add(key);
+      options.onCompare?.(item.id, other.id);
+      const [primary, related] = weakerFirst(item, other);
+      const conflict = conflictBetween(primary, related);
+      if (!conflict) continue;
+      candidates.push(conflict);
+      materializeConflict(projectId, cycle?.id ?? null, primary, related, conflict);
+    }
+  }
+  return candidates;
+}
+
+setKnowledgeConflictDetector((projectId, newItemIds) => {
+  if (!newItemIds) return;
+  detectConflictsAgainst(projectId, newItemIds);
 });
 
 function lastVerifiedMs(item: KnowledgeItem): number {

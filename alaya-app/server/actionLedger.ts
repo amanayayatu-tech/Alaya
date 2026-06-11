@@ -1,10 +1,10 @@
-import { actionRiskSummary, makeIdempotencyKey } from "@shared/core/action_risk.js";
+import { actionRiskSummary, makeIdempotencyKey } from "alaya-core/src/core/action_risk.js";
 import { storage, now } from "./storage";
 import { recordTrace } from "./trace";
 import { redactSensitiveData } from "./security/redact";
 import { createDecisionBrief, withDecisionBriefPayload } from "./decisionBrief";
 import type { ActionLedgerRow, HumanGateItem } from "@shared/schema";
-import type { RiskLevel } from "@shared/core/types.js";
+import type { RiskLevel } from "alaya-core/src/core/types.js";
 
 interface RecordActionProposalInput {
   projectId: string;

@@ -4,6 +4,12 @@
   "private": true,
   "description": "Alaya M1+M3 内核:四个纯函数 + 5 Agent mock 调度 + 4 轮飞轮数值模拟",
   "type": "module",
+  "exports": {
+    "./src/core/*.js": "./src/core/*.ts",
+    "./src/core/*.ts": "./src/core/*.ts",
+    "./src/llm/*.js": "./src/llm/*.ts",
+    "./src/llm/*.ts": "./src/llm/*.ts"
+  },
   "scripts": {
     "test": "node --import tsx --test tests/*.test.ts",
     "e2e:llm": "node --import tsx src/sim/e2e_llm_provider.ts",

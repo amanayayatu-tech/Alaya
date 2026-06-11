@@ -49,6 +49,7 @@
     "@radix-ui/react-tooltip": "^1.2.0",
     "@tanstack/react-query": "^5.60.5",
     "@tanstack/react-virtual": "^3.14.2",
+    "alaya-core": "file:../alaya-core",
     "better-sqlite3": "^11.7.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

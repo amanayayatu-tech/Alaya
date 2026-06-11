@@ -19,7 +19,7 @@ const {
 const { buildNextGoalInput, runFullCycle, runLibrarian, SCENARIO } = await import("../server/flywheel.ts");
 const { schedulerTickProject } = await import("../server/scheduler.ts");
 const { HumanGateService } = await import("../server/humanGateService.ts");
-const { eligibleForHighRisk } = await import("../shared/core/transition_state.ts");
+const { eligibleForHighRisk } = await import("alaya-core/src/core/transition_state.ts");
 
 function createProject(projectId: string, currentCycleIdx = 1) {
   storage.createProject({

@@ -21,8 +21,9 @@ const PURE_FN_FILES = [
   "update_confidence.ts",
   "transition_state.ts",
 ];
-// 纯函数可能所在的目录（相对项目根）
-const PURE_FN_DIRS = ["shared/core", "src/core"];
+// 纯函数可能所在的目录（相对项目根）。app 不再复制 core；纯函数应来自
+// alaya-core/src/core，旧 shared/core 只在历史夹具中出现。
+const PURE_FN_DIRS = ["src/core"];
 
 // 底线 1：纯函数里禁止出现的 import / 调用（副作用来源）
 const FORBIDDEN_IN_PURE = [
@@ -329,8 +330,7 @@ function checkProject(root) {
   console.log(`\n── 检查项目: ${root} ──`);
   const found = checkPureFunctions(root);
   if (!found) {
-    console.error(`  ! 未在 ${PURE_FN_DIRS.join(" / ")} 找到任何纯函数文件，跳过该根目录`);
-    return;
+    pass("底线1-纯函数", `${relative(resolve(root, ".."), root) || root} 不包含本地 core 复制目录`);
   }
   checkStrongRequiresHuman(root);
   checkAuditBypass(root);
@@ -347,17 +347,23 @@ function detectRoots() {
   // 以脚本自身所在仓库根为锚点，只探测仓库内项目。不要依赖 cwd，也不要向上
   // 跨越仓库根，避免误扫父目录里的旧副本。
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-  const cands = [".", "alaya-app", "alaya-core"].map((c) => join(repoRoot, c));
+  const cands = ["alaya-app", "alaya-core"].map((c) => join(repoRoot, c));
   const roots = [];
   for (const r of cands) {
-    if (PURE_FN_DIRS.some((d) => existsSync(join(r, d)))) roots.push(r);
+    if (
+      PURE_FN_DIRS.some((d) => existsSync(join(r, d))) ||
+      existsSync(join(r, "server")) ||
+      existsSync(join(r, "src"))
+    ) {
+      roots.push(r);
+    }
   }
   return [...new Set(roots)];
 }
 
 const roots = detectRoots();
 if (roots.length === 0) {
-  console.error("未找到含 shared/core 或 src/core 的项目根目录。请显式传入路径。");
+  console.error("未找到含 app/server 或 alaya-core/src/core 的项目根目录。请显式传入路径。");
   process.exit(2);
 }
 for (const r of roots) checkProject(r);

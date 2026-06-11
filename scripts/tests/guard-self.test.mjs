@@ -54,10 +54,10 @@ test("纯函数注入 better-sqlite3 import 触发底线1失败", () => {
       recursive: true,
       filter: (src) => !src.includes("node_modules") && !src.includes(join(repoRoot, ".git")),
     });
-    const target = join(dir, "alaya-app", "shared", "core", "compute_error.ts");
+    const target = join(dir, "alaya-core", "src", "core", "compute_error.ts");
     const orig = readFileSync(target, "utf8");
     writeFileSync(target, `import Database from "better-sqlite3";\n${orig}`);
-    const res = runGuard([join(dir, "alaya-app")], dir);
+    const res = runGuard([join(dir, "alaya-core")], dir);
     assert.equal(res.status, 1, "注入 db import 后应失败");
     assert.match(res.stdout + res.stderr, /底线1-纯函数.*数据库依赖/s);
   } finally {
@@ -122,19 +122,7 @@ test("方法体内 .run({...}) 对象字面量花括号不影响审计检测", (
   const dir = mkdtempSync(join(tmpdir(), "alaya-guard-min-"));
   try {
     const app = join(dir, "alaya-app");
-    mkdirSync(join(app, "shared", "core"), { recursive: true });
     mkdirSync(join(app, "server"), { recursive: true });
-    for (const f of ["compute_error", "classify_error"]) {
-      writeFileSync(join(app, "shared", "core", `${f}.ts`), "export const x = 1;\n");
-    }
-    writeFileSync(
-      join(app, "shared", "core", "transition_state.ts"),
-      '// states: stale quarantined conflict\nexport function t(){ return { nextStatus: "strong", requiresHuman: true }; }\n',
-    );
-    writeFileSync(
-      join(app, "shared", "core", "update_confidence.ts"),
-      "const GRAY_LOW=0.3, GRAY_HIGH=0.7;\nexport function u(a){ a.alpha += 0.5; return a; }\n",
-    );
     const storage = [
       "const rawDb = {} as any;",
       "export class DatabaseStorage {",

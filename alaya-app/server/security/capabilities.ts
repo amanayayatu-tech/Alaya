@@ -1,5 +1,5 @@
-import { makeIdempotencyKey } from "@shared/core/action_risk.js";
-import type { RiskLevel } from "@shared/core/types.js";
+import { makeIdempotencyKey } from "alaya-core/src/core/action_risk.js";
+import type { RiskLevel } from "alaya-core/src/core/types.js";
 import { boolEnv, capabilityEnvName, runModeFromEnv, type RunMode } from "../config/env";
 import { storage, now } from "../storage";
 import { redactSensitiveData } from "./redact";

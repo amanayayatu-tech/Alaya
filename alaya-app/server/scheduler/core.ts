@@ -4,10 +4,10 @@ import { generateNextGoal, type NextGoalDraft } from "../autonomousGoal";
 import { evaluateAutonomousStopRisk } from "../stallGuard";
 import { syncConfiguredFeedbackForProject } from "../externalFeedback";
 import type { ExternalFeedbackSyncResult, SyncGithubIssuesOptions } from "../externalFeedback";
-import { applyTimeDecay } from "@shared/core/update_confidence.js";
+import { applyTimeDecay } from "alaya-core/src/core/update_confidence.js";
 import { recordTrace } from "../trace";
 import { observeSchedulerCycle } from "../observability/metrics";
-import { createKnowledgeReviewReminders, detectKnowledgeConflicts } from "../knowledgeReview";
+import { createKnowledgeReviewReminders, detectConflictsAgainst } from "../knowledgeReview";
 import { isContradiction, semanticSimilarity } from "../knowledgeSimilarity";
 import { claimSchema, type Cycle, type HumanGateItem, type KnowledgeItem, type Task } from "@shared/schema";
 import { emitReviewWindowDigest, emitReviewWindowSummary, emitSchedulerNotifications, getNotificationBus, pendingGateIds } from "./notifications";
@@ -169,6 +169,40 @@ export function decayStaleKnowledge(projectId: string, currentTime = Date.now(),
   }
 
   return { evaluated: eligible.length, decayed, demoted };
+}
+
+function conflictDetectionFingerprint(item: KnowledgeItem): string {
+  return JSON.stringify({
+    status: item.status,
+    supersededBy: item.supersededBy,
+    confidenceScore: item.confidenceScore,
+    title: item.title,
+    content: item.content,
+    sourceType: item.sourceType,
+    sourceRef: item.sourceRef,
+    createdBy: item.createdBy,
+    tags: item.tags,
+    notes: item.notes,
+    semanticKey: item.semanticKey,
+  });
+}
+
+function knowledgeConflictSnapshot(projectId: string): Map<string, string> {
+  return new Map(storage.listKnowledge(projectId).map((item) => [item.id, conflictDetectionFingerprint(item)]));
+}
+
+function changedKnowledgeIdsSince(projectId: string, before: Map<string, string>): string[] {
+  const changed: string[] = [];
+  for (const item of storage.listKnowledge(projectId)) {
+    if (before.get(item.id) !== conflictDetectionFingerprint(item)) changed.push(item.id);
+  }
+  return changed;
+}
+
+function detectConflictsForChangedKnowledge(projectId: string, before: Map<string, string>): string[] {
+  const changedIds = changedKnowledgeIdsSince(projectId, before);
+  if (changedIds.length > 0) detectConflictsAgainst(projectId, changedIds);
+  return changedIds;
 }
 
 function gateResolvedAt(gate: HumanGateItem): string | null {
@@ -1867,8 +1901,9 @@ async function schedulerTickProjectUnlocked(projectId: string, options: Schedule
     };
   }
 
+  const beforeDecayKnowledge = knowledgeConflictSnapshot(projectId);
   decayStaleKnowledge(projectId);
-  detectKnowledgeConflicts(projectId);
+  detectConflictsForChangedKnowledge(projectId, beforeDecayKnowledge);
   createKnowledgeReviewReminders(projectId);
   const initialBudget = executeGateBudget(projectId);
   const humanAttention = enforceHumanAttentionBudget(projectId, initialBudget);
@@ -2129,7 +2164,9 @@ async function schedulerTickProjectUnlocked(projectId: string, options: Schedule
       note: "external feedback source sync failed; waiting for human/toolchain review",
     };
   }
+  const beforeOperationalKnowledge = knowledgeConflictSnapshot(projectId);
   const result = await runOperationalStagesAfterApprovedDirection(projectId, current.id);
+  detectConflictsForChangedKnowledge(projectId, beforeOperationalKnowledge);
   return withSafetyThrottle({
     projectId,
     action: "ran_operational_stages",

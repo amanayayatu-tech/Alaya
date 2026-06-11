@@ -12,6 +12,7 @@ const { storage } = await import("../server/storage.ts");
 const { buildKnowledgeContext } = await import("../server/knowledgeInjection.ts");
 const {
   assertResolvedConflictActiveSurvivors,
+  detectConflictsAgainst,
   detectKnowledgeConflicts,
   createKnowledgeReviewReminders,
   resolveKnowledgeReview,
@@ -106,6 +107,64 @@ function conflictReview(projectId: string, primaryKnowledgeId: string, relatedKn
     resolution: null,
     version: 1,
   });
+}
+
+function seedIncrementalConflictFixture(projectId: string): string[] {
+  const ids = {
+    ppg: `${projectId}_ppg_current`,
+    ecg: `${projectId}_ecg_counter`,
+    checkoutStrong: `${projectId}_checkout_strong`,
+    checkoutWeak: `${projectId}_checkout_weak`,
+    unrelated: `${projectId}_unrelated`,
+  };
+  knowledge(projectId, ids.ppg, {
+    status: "strong",
+    title: "PPG priority decision",
+    semanticKey: "health_signal_priority",
+    tags: ["health_signal", "ppg", "conclusion:ppg_priority"],
+    content: "当前方案应优先 PPG；ppg_priority_score >= 0.7，PPG 对低功耗连续监测更适合。",
+    confidenceScore: 0.91,
+  });
+  knowledge(projectId, ids.ecg, {
+    status: "draft",
+    title: "External ECG counter evidence",
+    semanticKey: "health_signal_priority",
+    sourceType: "feedback",
+    sourceRef: "health_signal_contradiction_runner:sample_incremental",
+    tags: ["meaning_gate", "human_approved", "form_feedback", "health_signal", "ppg"],
+    content: "外部实证反馈：ppg_priority_score <= 0.35。该人群应优先 ECG，置信度 0.66。",
+    confidenceScore: 0.56,
+    createdBy: "human_gate",
+  });
+  knowledge(projectId, ids.checkoutStrong, {
+    status: "strong",
+    title: "Checkout threshold",
+    content: "checkout_success_rate >= 0.8",
+    confidenceScore: 0.9,
+  });
+  knowledge(projectId, ids.checkoutWeak, {
+    status: "active",
+    title: "Checkout threshold",
+    content: "checkout_success_rate <= 0.2",
+    confidenceScore: 0.7,
+  });
+  knowledge(projectId, ids.unrelated, {
+    status: "active",
+    title: "Unrelated retention note",
+    semanticKey: "retention_note",
+    tags: ["retention"],
+    content: "retention_review_rate >= 0.4",
+    confidenceScore: 0.74,
+  });
+  return Object.values(ids);
+}
+
+function canonicalConflicts(projectId: string, conflicts: Array<{ primaryKnowledgeId: string; relatedKnowledgeId: string; reason: string }>) {
+  return conflicts.map((item) => ({
+    primary: item.primaryKnowledgeId.replace(`${projectId}_`, ""),
+    related: item.relatedKnowledgeId.replace(`${projectId}_`, ""),
+    reason: item.reason,
+  })).sort((a, b) => `${a.primary}:${a.related}:${a.reason}`.localeCompare(`${b.primary}:${b.related}:${b.reason}`));
 }
 
 test("detects metric operator conflicts and creates review/gate/audit evidence", () => {
@@ -324,6 +383,102 @@ test("speculative draft knowledge remains isolated from conflict detection and i
   assert.equal(conflicts.length, 0);
   assert.equal(storage.getKnowledge("kb_speculative_ecg_draft")?.status, "draft");
   assert.doesNotMatch(context, /kb_speculative_ecg_draft/);
+});
+
+test("incremental conflict detection matches full scan for the same knowledge set", () => {
+  const fullProjectId = "proj_incremental_equiv_full";
+  project(fullProjectId);
+  seedIncrementalConflictFixture(fullProjectId);
+
+  const incrementalProjectId = "proj_incremental_equiv_inc";
+  project(incrementalProjectId);
+  const incrementalIds = seedIncrementalConflictFixture(incrementalProjectId);
+
+  const fullConflicts = detectKnowledgeConflicts(fullProjectId);
+  const incrementalConflicts = detectConflictsAgainst(incrementalProjectId, incrementalIds);
+
+  assert.deepEqual(
+    canonicalConflicts(incrementalProjectId, incrementalConflicts),
+    canonicalConflicts(fullProjectId, fullConflicts),
+  );
+  assert.deepEqual(
+    canonicalConflicts(incrementalProjectId, storage.listKnowledgeReviews(incrementalProjectId).filter((item) => item.reviewType === "conflict")),
+    canonicalConflicts(fullProjectId, storage.listKnowledgeReviews(fullProjectId).filter((item) => item.reviewType === "conflict")),
+  );
+});
+
+test("single-item incremental detection compares only against the scannable set", () => {
+  const projectId = "proj_incremental_linear";
+  project(projectId);
+  knowledge(projectId, "kb_linear_strong", {
+    status: "strong",
+    title: "Activation threshold",
+    content: "activation_rate >= 0.8",
+    confidenceScore: 0.9,
+  });
+  for (let i = 0; i < 8; i += 1) {
+    knowledge(projectId, `kb_linear_unrelated_${i}`, {
+      status: "active",
+      title: `Unrelated operating note ${i}`,
+      semanticKey: `unrelated_${i}`,
+      tags: ["unrelated"],
+      content: `unrelated_metric_${i} >= 0.5`,
+      confidenceScore: 0.72,
+    });
+  }
+  knowledge(projectId, "kb_linear_new", {
+    status: "active",
+    title: "Activation threshold",
+    content: "activation_rate <= 0.2",
+    confidenceScore: 0.68,
+  });
+
+  const scannableCount = storage.listKnowledge(projectId).filter((item) => ["active", "strong"].includes(item.status)).length;
+  let comparisons = 0;
+  const conflicts = detectConflictsAgainst(projectId, "kb_linear_new", {
+    onCompare: () => {
+      comparisons += 1;
+    },
+  });
+
+  assert.equal(comparisons, scannableCount - 1);
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0].primaryKnowledgeId, "kb_linear_new");
+});
+
+test("incremental conflict detection keeps speculative drafts isolated", () => {
+  const projectId = "proj_incremental_speculative_isolated";
+  project(projectId);
+  knowledge(projectId, "kb_incremental_ppg_active", {
+    status: "active",
+    title: "Health signal priority",
+    semanticKey: "health_signal_priority",
+    tags: ["health_signal", "ppg"],
+    content: "当前健康信号决策应优先 PPG；ppg_priority_score >= 0.7。",
+    confidenceScore: 0.82,
+  });
+  knowledge(projectId, "kb_incremental_speculative_ecg", {
+    status: "draft",
+    title: "Speculative ECG draft",
+    semanticKey: "health_signal_priority",
+    sourceType: "feedback",
+    sourceRef: "cycle_spec_2_proj_cycle_1",
+    tags: ["health_signal", "ecg", "speculative"],
+    content: "推测草稿：ppg_priority_score <= 0.35，因此优先 ECG。",
+    confidenceScore: 0.55,
+    createdBy: "distiller",
+  });
+
+  let comparisons = 0;
+  const conflicts = detectConflictsAgainst(projectId, "kb_incremental_speculative_ecg", {
+    onCompare: () => {
+      comparisons += 1;
+    },
+  });
+
+  assert.equal(conflicts.length, 0);
+  assert.equal(comparisons, 0);
+  assert.equal(storage.getKnowledge("kb_incremental_speculative_ecg")?.status, "draft");
 });
 
 test("creates stale and expiry review reminders without changing active facts", () => {
@@ -623,14 +778,14 @@ test("R2 approving opposing evidence meaning gate succeeds after resolved duplic
   resolveKnowledgeReview(prior.id, {
     action: "approve_as_current",
     actor: "human",
-    rationale: "leave candidate active so a later approved meaning gate can re-run detection",
+    rationale: "leave candidate active; single-write detection should not re-run old pairs",
   });
 
   const imported = await ingestFormFeedback(projectId, {
     sourceName: "form",
     externalId: "duplicate-review-meaning-approval",
     title: "new opposing evidence",
-    text: "operators report explicit conflict with the existing activation threshold",
+    text: "operators report the existing activation threshold now fails: activation_rate <= 0.2",
   });
   assert.equal(imported.gate?.status, "pending");
 
@@ -640,9 +795,12 @@ test("R2 approving opposing evidence meaning gate succeeds after resolved duplic
 
   const created = storage.listKnowledge(projectId).find((item) => item.sourceRef === "duplicate-review-meaning-approval");
   assert.ok(created);
-  assert.ok(["active", "conflict"].includes(created.status), `unexpected created knowledge status ${created.status}`);
-  const reviews = storage.listKnowledgeReviews(projectId)
+  assert.equal(created.status, "conflict");
+  const oldPairReviews = storage.listKnowledgeReviews(projectId)
     .filter((item) => item.primaryKnowledgeId === "kb_gate_dup_candidate" && item.relatedKnowledgeId === "kb_gate_dup_strong");
-  assert.equal(reviews.length, 2);
-  assert.ok(reviews.some((item) => item.id === `${prior.id}__r2` && item.status === "review_required"));
+  assert.equal(oldPairReviews.length, 1);
+  const newReview = storage.listKnowledgeReviews(projectId)
+    .find((item) => item.primaryKnowledgeId === created.id && item.relatedKnowledgeId === "kb_gate_dup_strong");
+  assert.ok(newReview);
+  assert.equal(newReview.status, "review_required");
 });

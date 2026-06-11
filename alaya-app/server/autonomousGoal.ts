@@ -1,7 +1,7 @@
 import { callLlm } from "./llm";
 import { detectGoalRepetition } from "./stallGuard";
 import type { KnowledgeItem } from "@shared/schema";
-import type { Operator } from "@shared/core/types.js";
+import type { Operator } from "alaya-core/src/core/types.js";
 
 type LlmCaller = typeof callLlm;
 

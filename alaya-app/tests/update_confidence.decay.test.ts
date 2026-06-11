@@ -7,7 +7,7 @@ import { join } from "node:path";
 process.env.ALAYA_DB_PATH = join(mkdtempSync(join(tmpdir(), "alaya-decay-test-")), "test.db");
 process.env.ALAYA_LLM_PROVIDER = "mock";
 
-const { applyTimeDecay } = await import("../shared/core/update_confidence.ts");
+const { applyTimeDecay } = await import("alaya-core/src/core/update_confidence.ts");
 const { storage } = await import("../server/storage.ts");
 const { decayStaleKnowledge, schedulerTickProject } = await import("../server/scheduler.ts");
 
