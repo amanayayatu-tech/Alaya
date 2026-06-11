@@ -14,10 +14,16 @@ import { recordActionProposal } from "../actionLedger";
 import { HumanGateService } from "../humanGateService";
 import { createDecisionBrief, withDecisionBriefPayload } from "../decisionBrief";
 import { computeClaimError, computeCycleError } from "alaya-core/src/core/compute_error.js";
-import { classifyError, routeError } from "alaya-core/src/core/classify_error.js";
+import { classifyErrorWithConfidence } from "alaya-core/src/core/classify_error.js";
 import { applyEvidence, GRAY_HIGH, GRAY_LOW } from "alaya-core/src/core/update_confidence.js";
 import { eligibleForHighRisk, transitionState } from "alaya-core/src/core/transition_state.js";
-import { evidenceCount, type Claim, type AttributionContext, type Operator } from "alaya-core/src/core/types.js";
+import { evidenceCount, type Claim, type AttributionContext, type ErrorType, type Operator } from "alaya-core/src/core/types.js";
+import {
+  LOW_ATTRIBUTION_CONFIDENCE_THRESHOLD,
+  recordSensorFirewallError,
+  resolvePendingAttribution,
+  sensorErrorKindFromPayload,
+} from "../sensorFirewall";
 import type { HumanGateItem, KnowledgeItem } from "@shared/schema";
 import { SCENARIO, scenarioForCycle, type ScenarioRound } from "./scenario";
 
@@ -963,6 +969,7 @@ function readDirectionPlan(cycleId: string, sc: ScenarioRound) {
 export async function runSensor(projectId: string, cycleId: string, sc: ScenarioRound) {
   const bugs = sc.feedback.filter((f) => f.category === "bug");
   const unclear = sc.feedback.filter((f) => f.category === "unclear_signal");
+  const sensorDecisions = new Map<string, ReturnType<typeof recordSensorFirewallError>>();
   await callLlm({
     cycleId,
     agent: "sensor",
@@ -997,9 +1004,21 @@ export async function runSensor(projectId: string, cycleId: string, sc: Scenario
       summary: f.text.slice(0, 80),
       externalUpdatedAt: "",
     });
+    const sensorErrorKind = sensorErrorKindFromPayload({}, f.text);
+    if (sensorErrorKind) {
+      sensorDecisions.set(f.id, recordSensorFirewallError({
+        projectId,
+        cycleId,
+        source: "scenario",
+        errorKind: sensorErrorKind,
+        summary: f.text.slice(0, 120),
+        externalId: f.id,
+        sample: { text: f.text, category: f.category, sentiment: f.sentiment },
+      }));
+    }
   }
   // unclear -> meaning gate (merged by topic; single topic here)
-  for (const u of unclear) {
+  for (const u of unclear.filter((item) => !sensorDecisions.has(item.id))) {
     const gateId = `gate_meaning_${sc.index}_${cycleId.slice(-8)}_${u.id}`;
     if (storage.getGate(gateId)) continue;
     const gate = storage.createGate({
@@ -1026,11 +1045,11 @@ export async function runSensor(projectId: string, cycleId: string, sc: Scenario
 
   storage.recordAgentRun({
     cycleId, cycleIdx: sc.index, agent: "sensor", action: "import_and_cluster_feedback",
-    outputSummary: `反馈 ${sc.feedback.length} 条 (bug ${bugs.length}, 模糊 ${unclear.length}),保留原话`,
+    outputSummary: `反馈 ${sc.feedback.length} 条 (bug ${bugs.length}, 模糊 ${unclear.length}, sensor_firewall ${sensorDecisions.size}),保留原话`,
     knowledgeRefsUsed: "[]", ts: now(),
   });
   traceAgentRun(projectId, cycleId, sc.index, "sensor", "import_and_cluster_feedback", []);
-  return { unclear };
+  return { unclear, sensorDecisions: Array.from(sensorDecisions.values()) };
 }
 
 export async function runBuilder(cycleId: string, sc: ScenarioRound, plannedAction = sc.action, refs: string[] = [], llmCaller: LlmCaller = callLlm) {
@@ -1129,6 +1148,13 @@ export function evaluatePrediction(
   };
   claim.error = computeClaimError(claim);
   const cycleErr = computeCycleError([claim]);
+  const attributionContext = {
+    perceptionFailure: !sc.perceptionOk,
+    executionFailure: !sc.buildSuccess,
+    humanFlaggedValueMismatch: sc.humanValueMismatch,
+    isQualitative: false,
+  } as AttributionContext;
+  const attribution = classifyErrorWithConfidence(claim.error, attributionContext);
   const predId = sc.index === 4 ? `pred_c4_rollback_${cycleId.slice(-8)}` : `pred_c${sc.index}_${cycleId.slice(-8)}`;
   const existingPred = storage.getPrediction(predId);
   if (existingPred) {
@@ -1136,15 +1162,10 @@ export function evaluatePrediction(
       eCycle: existingPred.predictionError ?? cycleErr.eCycle,
       worstClaimError: existingPred.worstClaimError ?? cycleErr.worstClaimError,
     });
-    return { pred: existingPred, claimError: claim.error ?? 0 };
+    return { pred: existingPred, claimError: claim.error ?? 0, claim, attribution };
   }
 
-  const errorType = classifyError(claim.error, {
-    perceptionFailure: !sc.perceptionOk,
-    executionFailure: !sc.buildSuccess,
-    humanFlaggedValueMismatch: sc.humanValueMismatch,
-    isQualitative: false,
-  } as AttributionContext);
+  const errorType = attribution.errorType;
   recordTrace({
     projectId,
     cycleId,
@@ -1158,7 +1179,9 @@ export function evaluatePrediction(
       cycleError: cycleErr.eCycle,
       worstClaimError: cycleErr.worstClaimError,
       errorType,
-      updateTarget: routeError(errorType),
+      updateTarget: attribution.route,
+      attributionConfidence: attribution.attributionConfidence,
+      lowConfidenceReasons: attribution.lowConfidenceReasons,
     },
   });
 
@@ -1169,7 +1192,7 @@ export function evaluatePrediction(
     claims: JSON.stringify([claim]),
     observation: `${config.metric} = ${config.observed}`,
     predictionError: cycleErr.eCycle, worstClaimError: cycleErr.worstClaimError,
-    errorType: errorType, updateTarget: routeError(errorType), status: "resolved",
+    errorType: errorType, updateTarget: attribution.route, status: "resolved",
     knowledgeRefs: JSON.stringify(plan.refs),
   });
   const observationId = `obs_c${sc.index}_${cycleId.slice(-8)}`;
@@ -1181,16 +1204,17 @@ export function evaluatePrediction(
   }
   storage.updateCycle(cycleId, { eCycle: cycleErr.eCycle, worstClaimError: cycleErr.worstClaimError });
   logEvent(sc.index, "orchestrator", "predictions", "insert", { predId: pred.id, eCycle: cycleErr.eCycle });
-  return { pred, claimError: claim.error ?? 0 };
+  return { pred, claimError: claim.error ?? 0, claim, attribution };
 }
 
 export async function runDistiller(projectId: string, cycleId: string, sc: ScenarioRound, claimError: number, refs: string[], llmCaller: LlmCaller = callLlm) {
+  const distillerFeedback = sc.feedback.filter((item) => !sensorErrorKindFromPayload({}, item.text));
   const llmData = await llmCaller({
     cycleId,
     agent: "distiller",
     promptName: "distill_knowledge",
     inputSummary: `cycle ${sc.index} error=${claimError.toFixed(2)}`,
-    context: { feedback: sc.feedback, claimError, refs },
+    context: { feedback: distillerFeedback, sensorFilteredCount: sc.feedback.length - distillerFeedback.length, claimError, refs },
     knowledgeSummary: buildKnowledgeContext(
       scenarioKnowledgeQuery(sc, `claim_error=${claimError.toFixed(3)} refs=${refs.join(",")}`),
       projectId,
@@ -1558,9 +1582,61 @@ export async function runOperationalStagesAfterApprovedDirection(projectId: stri
 
   await runSensor(projectId, cycleId, sc);
   await runBuilder(cycleId, sc, directionPlan.action, directionPlan.refs);
-  const { pred, claimError } = evaluatePrediction(projectId, cycleId, sc, directionPlan);
+  const { pred, claimError, claim, attribution } = evaluatePrediction(projectId, cycleId, sc, directionPlan);
   const utilityFeedback = applyCycleUtilityFeedback(projectId, cycleId);
-  await runDistiller(projectId, cycleId, sc, claimError, directionPlan.refs);
+  let shouldRunDistiller = true;
+  let distillerSkipReason = "";
+  if (pred.errorType === "perception") {
+    shouldRunDistiller = false;
+    distillerSkipReason = "sensor_firewall_perception_route";
+  } else if (attribution.route === "distiller_world_model_update" && attribution.attributionConfidence < LOW_ATTRIBUTION_CONFIDENCE_THRESHOLD) {
+    const pendingDecision = resolvePendingAttribution({
+      projectId,
+      cycleId,
+      metric: claim.metric ?? claim.id,
+      errorType: attribution.errorType as ErrorType,
+      claimError,
+      confidence: attribution.attributionConfidence,
+      lowConfidenceReasons: attribution.lowConfidenceReasons,
+      context: {
+        predictionId: pred.id,
+        claimId: claim.id,
+        route: attribution.route,
+        errorType: attribution.errorType,
+      },
+    });
+    shouldRunDistiller = pendingDecision.shouldReleaseDistiller;
+    distillerSkipReason = pendingDecision.shouldReleaseDistiller ? "" : `pending_attribution_${pendingDecision.status}`;
+  }
+  if (shouldRunDistiller) {
+    await runDistiller(projectId, cycleId, sc, claimError, directionPlan.refs);
+  } else {
+    storage.recordAgentRun({
+      cycleId,
+      cycleIdx: sc.index,
+      agent: "distiller",
+      action: "distiller_skipped_by_sensor_firewall",
+      outputSummary: distillerSkipReason,
+      knowledgeRefsUsed: JSON.stringify(directionPlan.refs),
+      ts: now(),
+    });
+    recordTrace({
+      projectId,
+      cycleId,
+      cycleIdx: sc.index,
+      kind: "agent_run",
+      name: "distiller_skipped_by_sensor_firewall",
+      agent: "distiller",
+      attributes: {
+        reason: distillerSkipReason,
+        predictionId: pred.id,
+        errorType: pred.errorType,
+        route: attribution.route,
+        attributionConfidence: attribution.attributionConfidence,
+        lowConfidenceReasons: attribution.lowConfidenceReasons,
+      },
+    });
+  }
   const transitions = await runLibrarian(projectId, cycleId, sc);
 
   const decisionKnowledgeCount = storage.listKnowledge(projectId)

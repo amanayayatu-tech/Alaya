@@ -12,6 +12,16 @@
 import type { AttributionContext, ErrorType } from "./types.js";
 
 export const MODEL_ERROR_THRESHOLD = 0.5;
+export const MODEL_ERROR_THRESHOLD_BOUNDARY_MARGIN = 0.1;
+export const ATTRIBUTION_MULTI_SIGNAL_PENALTY = 0.2;
+export const ATTRIBUTION_THRESHOLD_BOUNDARY_PENALTY = 0.15;
+
+export interface ErrorAttributionWithConfidence {
+  errorType: ErrorType;
+  route: string;
+  attributionConfidence: number;
+  lowConfidenceReasons: string[];
+}
 
 export function classifyError(
   claimError: number | null,
@@ -33,6 +43,40 @@ export function classifyError(
   if (claimError != null && claimError > MODEL_ERROR_THRESHOLD) return "model";
 
   return null;
+}
+
+export function classifyErrorWithConfidence(
+  claimError: number | null,
+  ctx: AttributionContext,
+): ErrorAttributionWithConfidence {
+  const errorType = classifyError(claimError, ctx);
+  const lowConfidenceReasons: string[] = [];
+  let attributionConfidence = 1;
+
+  const attributionSignalCount = [
+    ctx.perceptionFailure,
+    ctx.executionFailure,
+    ctx.humanFlaggedValueMismatch,
+  ].filter(Boolean).length;
+  if (attributionSignalCount > 1) {
+    attributionConfidence -= (attributionSignalCount - 1) * ATTRIBUTION_MULTI_SIGNAL_PENALTY;
+    lowConfidenceReasons.push("multiple_attribution_signals");
+  }
+
+  if (claimError != null && Number.isFinite(claimError)) {
+    const distanceFromThreshold = Math.round(Math.abs(claimError - MODEL_ERROR_THRESHOLD) * 1e12) / 1e12;
+    if (distanceFromThreshold < MODEL_ERROR_THRESHOLD_BOUNDARY_MARGIN) {
+      attributionConfidence -= ATTRIBUTION_THRESHOLD_BOUNDARY_PENALTY;
+      lowConfidenceReasons.push("near_model_error_threshold");
+    }
+  }
+
+  return {
+    errorType,
+    route: routeError(errorType),
+    attributionConfidence: Math.max(0, Math.min(1, Number(attributionConfidence.toFixed(6)))),
+    lowConfidenceReasons,
+  };
 }
 
 /**

@@ -1,3 +1,5 @@
+import { SENSOR_RECURRING_COUNT_THRESHOLD, SENSOR_STRUCTURAL_COUNT_THRESHOLD } from "alaya-core/src/core/sensor_filter.js";
+
 export type RunMode = "development" | "test" | "shadow" | "staging" | "production";
 
 export interface EnvValidationResult {
@@ -133,6 +135,15 @@ export function immediateRiskLevelsFromEnv(env: NodeJS.ProcessEnv = process.env)
   return new Set(raw.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean));
 }
 
+export function sensorStructuralThresholdFromEnv(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.ALAYA_SENSOR_STRUCTURAL_THRESHOLD?.trim();
+  if (!raw) return SENSOR_STRUCTURAL_COUNT_THRESHOLD;
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= SENSOR_RECURRING_COUNT_THRESHOLD
+    ? value
+    : SENSOR_STRUCTURAL_COUNT_THRESHOLD;
+}
+
 function externalNotificationRequested(env: NodeJS.ProcessEnv): boolean {
   const raw = env.ALAYA_CAP_EXTERNAL_NOTIFICATION?.trim().toLowerCase();
   return raw === "true" || raw === "1" || raw === "yes" || raw === "dry_run" || raw === "dry-run" || raw === "audit";
@@ -222,6 +233,14 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): EnvValidation
 
   if (env.ALAYA_IMMEDIATE_RISK_LEVELS?.trim() === "") {
     errors.push("ALAYA_IMMEDIATE_RISK_LEVELS must not be empty when provided");
+  }
+
+  const sensorStructuralThresholdRaw = env.ALAYA_SENSOR_STRUCTURAL_THRESHOLD?.trim();
+  if (sensorStructuralThresholdRaw) {
+    const value = Number(sensorStructuralThresholdRaw);
+    if (!Number.isInteger(value) || value < SENSOR_RECURRING_COUNT_THRESHOLD) {
+      errors.push(`ALAYA_SENSOR_STRUCTURAL_THRESHOLD must be an integer >= ${SENSOR_RECURRING_COUNT_THRESHOLD}`);
+    }
   }
 
   if (externalNotificationRequested(env)) {

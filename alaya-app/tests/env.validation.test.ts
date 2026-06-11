@@ -12,6 +12,7 @@ const {
   reviewTimezoneFromEnv,
   gateEscalationMissedWindowsFromEnv,
   immediateRiskLevelsFromEnv,
+  sensorStructuralThresholdFromEnv,
 } = await import("../server/config/env.ts");
 
 test("production fails fast without a configured database path", () => {
@@ -121,6 +122,7 @@ test("review window env validates windows, timezone, and missed-window threshold
   assert.equal(reviewTimezoneFromEnv({} as NodeJS.ProcessEnv), "Asia/Shanghai");
   assert.equal(gateEscalationMissedWindowsFromEnv({ ALAYA_GATE_ESCALATION_MISSED_WINDOWS: "3" } as NodeJS.ProcessEnv), 3);
   assert.equal(immediateRiskLevelsFromEnv({ ALAYA_IMMEDIATE_RISK_LEVELS: "financial, destructive" } as NodeJS.ProcessEnv).has("destructive"), true);
+  assert.equal(sensorStructuralThresholdFromEnv({ ALAYA_SENSOR_STRUCTURAL_THRESHOLD: "12" } as NodeJS.ProcessEnv), 12);
 
   const invalid = validateEnv({
     ALAYA_MODE: "shadow",
@@ -132,11 +134,13 @@ test("review window env validates windows, timezone, and missed-window threshold
     ALAYA_REVIEW_TIMEZONE: "Not/AZone",
     ALAYA_GATE_ESCALATION_MISSED_WINDOWS: "0",
     ALAYA_SPECULATIVE_BUDGET_RATIO: "1.5",
+    ALAYA_SENSOR_STRUCTURAL_THRESHOLD: "4",
   } as NodeJS.ProcessEnv);
   assert.ok(invalid.errors.some((error) => error.includes("ALAYA_REVIEW_WINDOWS")));
   assert.ok(invalid.errors.some((error) => error.includes("ALAYA_REVIEW_TIMEZONE")));
   assert.ok(invalid.errors.some((error) => error.includes("ALAYA_GATE_ESCALATION_MISSED_WINDOWS")));
   assert.ok(invalid.errors.some((error) => error.includes("ALAYA_SPECULATIVE_BUDGET_RATIO")));
+  assert.ok(invalid.errors.some((error) => error.includes("ALAYA_SENSOR_STRUCTURAL_THRESHOLD")));
 });
 
 test("external notification requires numeric Telegram user id", () => {
