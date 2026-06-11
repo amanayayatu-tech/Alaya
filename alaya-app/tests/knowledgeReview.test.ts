@@ -160,6 +160,81 @@ test("generic contradiction wording in onboarding seed knowledge does not create
   assert.equal(storage.getKnowledge("kb_seed_world_marker")?.status, "active");
 });
 
+test("generic contradiction marker does not pair unrelated decision topics", () => {
+  const projectId = "proj_generic_marker_unrelated";
+  project(projectId);
+  knowledge(projectId, "kb_publish_fear_marker", {
+    title: "Publish button hesitation",
+    semanticKey: "publish_button_fear",
+    tags: ["user_fear"],
+    content: "早期用户不敢使用一键发布功能。",
+    notes: "needs_conflict_review; 与 PPG/ECG 选型决策无直接冲突。",
+  });
+  knowledge(projectId, "kb_ecg_signal_evidence", {
+    title: "ECG signal evidence",
+    semanticKey: "health_signal_priority",
+    tags: ["health_signal", "ecg"],
+    content: "ECG 优先证据：医疗认证与信号可解释性更强。",
+    confidenceScore: 0.7,
+  });
+
+  const conflicts = detectKnowledgeConflicts(projectId);
+
+  assert.equal(conflicts.length, 0);
+  assert.equal(storage.listKnowledgeReviews(projectId).filter((item) => item.reviewType === "conflict").length, 0);
+  assert.equal(storage.getKnowledge("kb_publish_fear_marker")?.status, "active");
+  assert.equal(storage.getKnowledge("kb_ecg_signal_evidence")?.status, "active");
+});
+
+test("generic contradiction marker still creates a conflict within the same topic", () => {
+  const projectId = "proj_generic_marker_same_topic";
+  project(projectId);
+  knowledge(projectId, "kb_ppg_marker", {
+    title: "Health signal priority",
+    semanticKey: "health_signal_priority",
+    tags: ["health_signal", "ppg"],
+    content: "PPG 优先证据：成本与续航匹配。",
+    notes: "needs_conflict_review because current signal priority evidence is inconsistent.",
+  });
+  knowledge(projectId, "kb_ecg_same_topic", {
+    title: "Health signal priority",
+    semanticKey: "health_signal_priority",
+    tags: ["health_signal", "ecg"],
+    content: "ECG 优先证据：医疗认证与信号可解释性更强。",
+    confidenceScore: 0.7,
+  });
+
+  const conflicts = detectKnowledgeConflicts(projectId);
+
+  assert.equal(conflicts.length, 1);
+  assert.ok(storage.listKnowledgeReviews(projectId).some((item) => item.reviewType === "conflict"));
+});
+
+test("targeted contradiction marker still bypasses the topic gate", () => {
+  const projectId = "proj_targeted_marker_unrelated";
+  project(projectId);
+  knowledge(projectId, "kb_publish_targeted_marker", {
+    title: "Publish button hesitation",
+    semanticKey: "publish_button_fear",
+    tags: ["user_fear"],
+    content: "早期用户不敢使用一键发布功能。",
+    notes: "contradicts:kb_ecg_targeted even though the topic differs.",
+  });
+  knowledge(projectId, "kb_ecg_targeted", {
+    title: "ECG signal evidence",
+    semanticKey: "health_signal_priority",
+    tags: ["health_signal", "ecg"],
+    content: "ECG 优先证据：医疗认证与信号可解释性更强。",
+    confidenceScore: 0.7,
+  });
+
+  const conflicts = detectKnowledgeConflicts(projectId);
+
+  assert.equal(conflicts.length, 1);
+  assert.match(conflicts[0].reason, /explicit contradiction marker/);
+  assert.ok(storage.listKnowledgeReviews(projectId).some((item) => item.reviewType === "conflict"));
+});
+
 test("non-speculative external draft evidence creates a topic conflict without runner markers", () => {
   const projectId = "proj_external_draft_topic_conflict";
   project(projectId);

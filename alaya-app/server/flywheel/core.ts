@@ -47,6 +47,25 @@ const PLAN_SCHEMA = {
     knowledgeRefs: { type: "array" },
   },
 };
+const PLAN_OUTPUT_CONTRACT = {
+  prompt: "plan_cycle",
+  requiredKeys: ["summary", "goal", "belief", "prediction", "action", "reasoning", "knowledgeRefs"],
+  rules: [
+    "Return only one JSON object with exactly the required top-level keys.",
+    "Use empty arrays as [] for knowledgeRefs when no safe eligible knowledge exists.",
+    "Keep prediction as a single measurable string, not a nested object.",
+    "Do not wrap JSON in markdown, prose, XML, or thinking blocks.",
+  ],
+  minimalExample: {
+    summary: "goal: validate rollback preview with approved knowledge",
+    goal: "Validate rollback preview before expanding automation",
+    belief: "Approved preview knowledge lowers operator fear.",
+    prediction: "rollback_preview_completion_rate >= 0.45",
+    action: "Run a rollback preview comparison and record audit evidence.",
+    reasoning: "kb_1 supports preview; this plan keeps rollback and audit constraints.",
+    knowledgeRefs: ["kb_1"],
+  },
+};
 const SUMMARY_ARRAY_SCHEMA = {
   type: "object" as const,
   required: ["summary", "items"],
@@ -65,6 +84,22 @@ const BUILD_SCHEMA = {
     buildSuccess: { type: "boolean" },
     diffSummary: { type: "string" },
     testReport: { type: "string" },
+  },
+};
+const BUILD_OUTPUT_CONTRACT = {
+  prompt: "emit_task_spec",
+  requiredKeys: ["summary", "buildSuccess", "diffSummary", "testReport"],
+  rules: [
+    "Return only one JSON object with exactly the required top-level keys.",
+    "buildSuccess must be a boolean, never a string.",
+    "diffSummary and testReport must be strings; use empty arrays as [] only if nested supporting details are needed.",
+    "Do not wrap JSON in markdown, prose, XML, or thinking blocks.",
+  ],
+  minimalExample: {
+    summary: "Task spec prepared for rollback preview implementation.",
+    buildSuccess: false,
+    diffSummary: "Add rollback preview checklist without executing external actions.",
+    testReport: "No tests run by the model; tool result remains authoritative.",
   },
 };
 
@@ -660,6 +695,7 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
       proposedGoal: sc.proposedGoal,
       alternativeGoals: sc.alternativeGoals,
       fallbackPlan: { goal, belief, prediction, action, reasoning, knowledgeRefs: refs },
+      outputContract: PLAN_OUTPUT_CONTRACT,
       activeKnowledge: usableKnowledge.map((k) => ({
         id: k.id,
         title: k.title,
@@ -675,6 +711,8 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
       "Do not promote knowledge to strong; pure transition rules decide that.",
       "Do not propose irreversible high-risk execution without preview, rollback, and audit constraints.",
       "Do not repeat a previously rejected alternative direction.",
+      "Return only one JSON object for plan_cycle with exact keys: summary, goal, belief, prediction, action, reasoning, knowledgeRefs.",
+      "Use empty arrays as [] for knowledgeRefs when no safe eligible knowledge exists.",
     ],
     schema: PLAN_SCHEMA,
     simplifiedSchema: PLAN_SCHEMA,
@@ -927,7 +965,7 @@ export async function runBuilder(cycleId: string, sc: ScenarioRound, plannedActi
     agent: "builder",
     promptName: "emit_task_spec",
     inputSummary: plannedAction,
-    context: { action: plannedAction, rollbackPlan, auditSummary },
+    context: { action: plannedAction, rollbackPlan, auditSummary, outputContract: BUILD_OUTPUT_CONTRACT },
     knowledgeSummary: projectId ? buildKnowledgeContext(
       `${scenarioKnowledgeQuery(sc)}\n${plannedAction}`,
       projectId,
@@ -937,6 +975,8 @@ export async function runBuilder(cycleId: string, sc: ScenarioRound, plannedActi
       "Do not claim tests passed unless the tool-reported build result says so.",
       "Do not remove rollback or audit fields from a high-risk cycle 4 task.",
       "Do not execute external irreversible actions.",
+      "Return only one JSON object for emit_task_spec with exact keys: summary, buildSuccess, diffSummary, testReport.",
+      "Use empty arrays as [] only for nested supporting details; buildSuccess must be boolean.",
     ],
     schema: BUILD_SCHEMA,
     mockOutput: {

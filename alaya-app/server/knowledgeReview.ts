@@ -317,6 +317,8 @@ function sameDecisionTopic(a: KnowledgeItem, b: KnowledgeItem): boolean {
   const leftTags = parseTags(a.tags).map((tag) => tag.toLowerCase());
   const rightTags = parseTags(b.tags).map((tag) => tag.toLowerCase());
   if (leftTags.includes("health_signal") && rightTags.includes("health_signal")) return true;
+  const leftMetrics = new Set(extractMetricClaims(a).map((claim) => claim.metric));
+  if (extractMetricClaims(b).some((claim) => leftMetrics.has(claim.metric))) return true;
   const leftText = knowledgeText(a);
   const rightText = knowledgeText(b);
   return /health_signal|健康信号|wearable|穿戴/i.test(leftText) && /health_signal|健康信号|wearable|穿戴/i.test(rightText);
@@ -364,8 +366,8 @@ function explicitContradictionMarkers(a: KnowledgeItem, b: KnowledgeItem): strin
   const haystack = `${parseTags(a.tags).join(" ")}\n${a.notes}\n${a.sourceRef}\n${a.content}`;
   const reverse = `${parseTags(b.tags).join(" ")}\n${b.notes}\n${b.sourceRef}\n${b.content}`;
   const targeted = [
-    new RegExp(`(?:contradicts|conflicts?[_ -]?with|contradiction[_ -]?with)[:= ]+${b.id}\\b`, "i"),
-    new RegExp(`(?:contradicts|conflicts?[_ -]?with|contradiction[_ -]?with)[:= ]+${a.id}\\b`, "i"),
+    new RegExp(`(?:contradicts(?:[_ -]?strong)?|conflicts?[_ -]?with(?:[_ -]?strong)?|contradiction[_ -]?with)[:= ]+${b.id}\\b`, "i"),
+    new RegExp(`(?:contradicts(?:[_ -]?strong)?|conflicts?[_ -]?with(?:[_ -]?strong)?|contradiction[_ -]?with)[:= ]+${a.id}\\b`, "i"),
   ];
   if (targeted[0].test(haystack)) return "explicit contradiction marker on primary knowledge";
   if (targeted[1].test(reverse)) return "explicit contradiction marker on related knowledge";
@@ -373,6 +375,7 @@ function explicitContradictionMarkers(a: KnowledgeItem, b: KnowledgeItem): strin
   if (isOnboardingSeedKnowledge(a) || isOnboardingSeedKnowledge(b)) return null;
 
   const genericMarker = /contradicts_strong|conflict_with_strong|needs_conflict_review|明确冲突|互相矛盾/i;
+  if (!sameDecisionTopic(a, b)) return null;
   if (genericMarker.test(haystack)) return "explicit contradiction marker on primary knowledge";
   if (genericMarker.test(reverse)) return "explicit contradiction marker on related knowledge";
   return null;

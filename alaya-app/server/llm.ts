@@ -62,7 +62,8 @@ const DEFAULT_SCHEMA: JsonSchema = {
 const DEFAULT_SIMPLIFIED_SCHEMA = DEFAULT_SCHEMA;
 const BASE_SYSTEM_INSTRUCTIONS =
   "You are an Alaya agent. Return concise JSON only. Match the supplied schema exactly, using [] for empty arrays. " +
-  "If draft_output already satisfies the schema, copy its key names exactly and adapt content only when evidence requires it.";
+  "If draft_output already satisfies the schema, copy its key names exactly and adapt content only when evidence requires it. " +
+  "When previous_error is non-empty, fix the listed schema or JSON issue in the next response; do not repeat the same invalid shape.";
 
 export function buildSystemInstructions(input: Pick<LlmCallInput, "knowledgeSummary">): string {
   const priorKnowledge = input.knowledgeSummary?.trim();
