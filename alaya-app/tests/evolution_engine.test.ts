@@ -19,7 +19,7 @@ const {
 const { buildNextGoalInput, runFullCycle, runLibrarian, SCENARIO } = await import("../server/flywheel.ts");
 const { schedulerTickProject } = await import("../server/scheduler.ts");
 const { HumanGateService } = await import("../server/humanGateService.ts");
-const { eligibleForHighRisk } = await import("../shared/core/transition_state.ts");
+const { eligibleForHighRisk } = await import("alaya-core/src/core/transition_state.ts");
 
 function createProject(projectId: string, currentCycleIdx = 1) {
   storage.createProject({
@@ -355,6 +355,56 @@ test("Librarian marks contradiction with strong knowledge as conflict and high-r
   const bad = storage.getKnowledge("kb_bad_preview");
   assert.equal(bad?.status, "conflict");
   assert.equal(eligibleForHighRisk({ ...(bad as any), tags: [] }), false);
+});
+
+test("Librarian does not auto-conflict onboarding seed knowledge", async () => {
+  const projectId = "proj_seed_librarian_conflict_guard";
+  createProject(projectId);
+  const cycle = createCycle(projectId, 5, "running");
+  createKnowledge(projectId, "kb_seed_identity_guard", {
+    type: "identity",
+    title: "种子身份",
+    content: "身份:wearable-health-signal-decision。静息心率监测应该优先选用 PPG 还是 ECG？遇到 PPG vs ECG 选型矛盾必须记录 conflict 并等待人工审核。",
+    sourceType: "human_decision",
+    sourceRef: "onboarding",
+    evidenceAlpha: 4,
+    evidenceBeta: 1,
+    confidenceScore: 0.8,
+    status: "active",
+    humanApprovedCount: 1,
+    tags: JSON.stringify(["identity", "seed"]),
+    semanticKey: "seed|health_sensor_choice",
+    createdBy: "owner",
+  });
+  createKnowledge(projectId, "kb_ppg_strong_guard", {
+    title: "静息心率监测 PPG 优先",
+    content: "静息心率监测应该以 PPG 为主。",
+    status: "strong",
+    evidenceAlpha: 6,
+    evidenceBeta: 1,
+    confidenceScore: 6 / 7,
+    confidenceLevel: "verified",
+    humanApprovedCount: 1,
+    semanticKey: "health_sensor_choice",
+  });
+
+  const transitions = await runLibrarian(projectId, cycle.id, {
+    index: 5,
+    proposedGoal: "seed conflict guard",
+    alternativeGoals: [],
+    belief: "belief",
+    prediction: "activation_rate >= 0.3",
+    action: "action",
+    activationObserved: 0.4,
+    activationTarget: 0.3,
+    feedback: [],
+    buildSuccess: true,
+    perceptionOk: true,
+    humanValueMismatch: false,
+  });
+
+  assert.equal(storage.getKnowledge("kb_seed_identity_guard")?.status, "active");
+  assert.ok(!transitions.some((item: string) => item.includes("kb_seed_identity_guard") && item.includes("->conflict")));
 });
 
 test("scheduler creates autonomous cycle 5 instead of scenario_exhausted", async () => {

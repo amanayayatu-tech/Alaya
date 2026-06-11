@@ -1,5 +1,5 @@
-import { makeIdempotencyKey } from "@shared/core/action_risk.js";
-import { applyEvidence } from "@shared/core/update_confidence.js";
+import { makeIdempotencyKey } from "alaya-core/src/core/action_risk.js";
+import { applyEvidence } from "alaya-core/src/core/update_confidence.js";
 import type { HumanGateItem } from "@shared/schema";
 import { auditCapabilityDecision, evaluateCapability, CapabilityDeniedError } from "./security/capabilities";
 import { redactSensitiveData } from "./security/redact";
@@ -771,7 +771,7 @@ export class HumanGateService {
       ? applyEvidence(base as any, { kind: "prediction", normalizedError }).next as any
       : base;
     const evidence = applyEvidence(withGrayEvidence as any, { kind: "human_approve" }).next as any;
-    this.store.createKnowledge({
+    const created = this.store.createKnowledge({
       ...base,
       evidenceAlpha: evidence.evidenceAlpha,
       evidenceBeta: evidence.evidenceBeta,
@@ -783,6 +783,6 @@ export class HumanGateService {
       tags: JSON.stringify(tags),
       version: 1,
     });
-    runKnowledgeConflictDetector(projectId);
+    runKnowledgeConflictDetector(projectId, created.id);
   }
 }

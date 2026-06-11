@@ -12,10 +12,10 @@ const testDir = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(testDir, "..");
 const repoRoot = resolve(appRoot, "..");
 
-const { computeCycleError } = await import("../shared/core/compute_error.ts");
-const { classifyError } = await import("../shared/core/classify_error.ts");
-const { applyEvidence } = await import("../shared/core/update_confidence.ts");
-const { eligibleForHighRisk, transitionState } = await import("../shared/core/transition_state.ts");
+const { computeCycleError } = await import("alaya-core/src/core/compute_error.ts");
+const { classifyError } = await import("alaya-core/src/core/classify_error.ts");
+const { applyEvidence } = await import("alaya-core/src/core/update_confidence.ts");
+const { eligibleForHighRisk, transitionState } = await import("alaya-core/src/core/transition_state.ts");
 const { storage, rawDb } = await import("../server/storage.ts");
 
 function walk(dir: string, acc: string[] = []): string[] {

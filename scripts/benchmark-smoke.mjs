@@ -19,8 +19,8 @@ const { buildOpsMetrics } = await import("../alaya-app/server/opsMetrics.ts");
 const { buildMetricsSnapshot } = await import("../alaya-app/server/observability/metrics.ts");
 const { importBusinessSignals } = await import("../alaya-app/server/businessSignals.ts");
 const { createOrgModule, convertOrgModuleToKnowledge } = await import("../alaya-app/server/orgModules.ts");
-const { transitionState } = await import("../alaya-app/shared/core/transition_state.ts");
-const { resolveModelRoute } = await import("../alaya-app/shared/core/model_router.ts");
+const { transitionState } = await import("alaya-core/src/core/transition_state.ts");
+const { resolveModelRoute } = await import("alaya-core/src/llm/model_router.ts");
 
 const results = [];
 

@@ -2,7 +2,7 @@ import { sqliteTable, text, integer, real, uniqueIndex } from "drizzle-orm/sqlit
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// NOTE: schema.ts must NOT import shared/core to avoid cycles.
+// NOTE: schema.ts must NOT import alaya-core runtime code to avoid cycles.
 // Core pure functions are only imported on the server.
 
 // ---------------- 1. projects ----------------

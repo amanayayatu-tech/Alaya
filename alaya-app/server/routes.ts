@@ -42,8 +42,8 @@ import {
   parseOrgModule,
   convertOrgModuleToKnowledge,
 } from "./orgModules";
-import { applyEvidence } from "@shared/core/update_confidence.js";
-import { transitionState } from "@shared/core/transition_state.js";
+import { applyEvidence } from "alaya-core/src/core/update_confidence.js";
+import { transitionState } from "alaya-core/src/core/transition_state.js";
 
 function parseJsonFields<T extends Record<string, any>>(obj: T, fields: string[]): T {
   const out: any = { ...obj };

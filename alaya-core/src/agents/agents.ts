@@ -172,6 +172,11 @@ function mergeTags(required: string[], proposed: unknown): string[] {
   return Array.from(new Set([...required, ...stringArray(proposed)]));
 }
 
+function isSeedKnowledge(k: KnowledgeItem): boolean {
+  const tags = k.tags.map((tag) => tag.toLowerCase());
+  return k.id.startsWith("kb_seed_") || k.sourceRef === "onboarding" || tags.includes("seed");
+}
+
 function knowledgeCandidate(llmData: Record<string, unknown>, index: number): Record<string, unknown> {
   const candidates = Array.isArray(llmData.knowledgeCandidates) ? llmData.knowledgeCandidates : [];
   const objects = candidates.filter((item): item is Record<string, unknown> => (
@@ -767,9 +772,10 @@ export async function runLibrarian(store: Store, sc: CycleScenario, llm: LLMProv
     }
   }
 
-  const strongKnowledge = [...store.knowledge.values()].filter((k) => !k.supersededBy && k.status === "strong");
+  const strongKnowledge = [...store.knowledge.values()].filter((k) => !k.supersededBy && k.status === "strong" && !isSeedKnowledge(k));
   for (const k of [...store.knowledge.values()].filter((item) => !item.supersededBy)) {
     const conflictsWithStrong = strongKnowledge.some((strong) => (
+      !isSeedKnowledge(k) &&
       strong.id !== k.id &&
       evidenceCount(k) >= 1 &&
       evidenceCount(strong) >= 1 &&

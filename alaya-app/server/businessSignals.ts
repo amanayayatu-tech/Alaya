@@ -6,7 +6,7 @@ import { storage, now } from "./storage";
 import { recordTrace } from "./trace";
 import { createDecisionBrief, withDecisionBriefPayload } from "./decisionBrief";
 import type { ExternalBusinessSignal } from "@shared/schema";
-import type { RiskLevel } from "@shared/core/types.js";
+import type { RiskLevel } from "alaya-core/src/core/types.js";
 
 export const businessSignalTypeSchema = z.enum([
   "marketing_asset",

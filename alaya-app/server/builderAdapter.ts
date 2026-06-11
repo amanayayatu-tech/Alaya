@@ -1,5 +1,5 @@
-import { makeIdempotencyKey } from "@shared/core/action_risk.js";
-import type { RiskLevel } from "@shared/core/types.js";
+import { makeIdempotencyKey } from "alaya-core/src/core/action_risk.js";
+import type { RiskLevel } from "alaya-core/src/core/types.js";
 import { recordActionProposal } from "./actionLedger";
 import { runModeFromEnv } from "./config/env";
 import { auditCapabilityDecision, evaluateCapability } from "./security/capabilities";
