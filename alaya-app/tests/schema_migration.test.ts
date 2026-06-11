@@ -74,6 +74,57 @@ test("knowledge_items migration adds maturity and injection fields without break
   assert.equal(tables.has("action_ledger"), true, "action_ledger table should exist");
   assert.equal(tables.has("review_sessions"), true, "review_sessions table should exist");
   assert.equal(tables.has("notification_digests"), true, "notification_digests table should exist");
+  assert.equal(tables.has("sensor_error_accumulators"), true, "sensor_error_accumulators table should exist");
+  assert.equal(tables.has("pending_attributions"), true, "pending_attributions table should exist");
+
+  const sensorColumns = new Set(
+    (rawDb.prepare("PRAGMA table_info(sensor_error_accumulators)").all() as Array<{ name: string }>).map((row) => row.name),
+  );
+  for (const name of ["fingerprint", "project_id", "source", "error_kind", "occurrence_count", "event_timestamps_ms", "first_seen_at", "last_seen_at"]) {
+    assert.equal(sensorColumns.has(name), true, `sensor_error_accumulators.${name} should exist`);
+  }
+
+  const pendingColumns = new Set(
+    (rawDb.prepare("PRAGMA table_info(pending_attributions)").all() as Array<{ name: string }>).map((row) => row.name),
+  );
+  for (const name of ["id", "project_id", "fingerprint", "error_type", "claim_error", "context", "confidence", "status", "gate_id", "resolved_at", "created_at"]) {
+    assert.equal(pendingColumns.has(name), true, `pending_attributions.${name} should exist`);
+  }
+
+  const accumulator = storage.upsertSensorErrorAccumulator({
+    fingerprint: "proj_schema:device:data_missing",
+    projectId: "proj_schema",
+    source: "device",
+    errorKind: "data_missing",
+    occurrenceCount: 1,
+    eventTimestampsMs: JSON.stringify([Date.parse("2026-06-11T00:00:00.000Z")]),
+    firstSeenAt: "2026-06-11T00:00:00.000Z",
+    lastSeenAt: "2026-06-11T00:00:00.000Z",
+    version: 1,
+  });
+  assert.equal(accumulator.occurrenceCount, 1);
+  assert.equal(storage.listSensorErrorAccumulators("proj_schema").length, 1);
+
+  const pending = storage.createPendingAttribution({
+    id: "pa_schema_1",
+    projectId: "proj_schema",
+    fingerprint: "proj_schema:activation_rate:model",
+    errorType: "model",
+    claimError: 0.55,
+    context: JSON.stringify({ metric: "activation_rate" }),
+    confidence: 0.65,
+    status: "pending",
+    gateId: null,
+    resolvedAt: null,
+    createdAt: "2026-06-11T00:00:00.000Z",
+    version: 1,
+  });
+  assert.equal(pending.status, "pending");
+  assert.equal(storage.listPendingAttributions("proj_schema", { fingerprint: pending.fingerprint }).length, 1);
+  assert.equal(storage.updatePendingAttribution(pending.id, { status: "released", resolvedAt: "2026-06-11T00:01:00.000Z" })?.status, "released");
+
+  assert.ok(storage.listEvents().find((event) => event.tableName === "sensor_error_accumulators"));
+  assert.ok(storage.listEvents().find((event) => event.tableName === "pending_attributions" && event.op === "update"));
 
   storage.createKnowledge({
     id: "kb_schema_1",

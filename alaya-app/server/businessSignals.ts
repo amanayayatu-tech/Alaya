@@ -5,6 +5,7 @@ import { redactSensitiveData } from "./security/redact";
 import { storage, now } from "./storage";
 import { recordTrace } from "./trace";
 import { createDecisionBrief, withDecisionBriefPayload } from "./decisionBrief";
+import { recordSensorFirewallError, sensorErrorKindFromPayload, type SensorFirewallDecision } from "./sensorFirewall";
 import type { ExternalBusinessSignal } from "@shared/schema";
 import type { RiskLevel } from "alaya-core/src/core/types.js";
 
@@ -164,11 +165,12 @@ export interface BusinessSignalImportResult {
   skipped: number;
   gatesCreated: number;
   signals: ExternalBusinessSignal[];
+  sensorFirewallDecisions: SensorFirewallDecision[];
   errors: string[];
 }
 
 export function importBusinessSignals(rows: Array<Record<string, unknown>>): BusinessSignalImportResult {
-  const result: BusinessSignalImportResult = { imported: 0, skipped: 0, gatesCreated: 0, signals: [], errors: [] };
+  const result: BusinessSignalImportResult = { imported: 0, skipped: 0, gatesCreated: 0, signals: [], sensorFirewallDecisions: [], errors: [] };
   for (const row of rows) {
     try {
       const input = normalizeBusinessSignal(row);
@@ -181,11 +183,26 @@ export function importBusinessSignals(rows: Array<Record<string, unknown>>): Bus
         continue;
       }
 
-	      const redactedPayload = redactBusinessPayload(input.payload, input.sensitivityLevel);
-	      const normalizedRiskLevel = riskForSensitivity(input.sensitivityLevel, input.riskLevel as RiskLevel);
-	      const feedbackId = feedbackIdFor(input);
-	      const gateId = gateIdFor(feedbackId);
-	      const signal: ExternalBusinessSignal = {
+      const redactedPayload = redactBusinessPayload(input.payload, input.sensitivityLevel);
+      const normalizedRiskLevel = riskForSensitivity(input.sensitivityLevel, input.riskLevel as RiskLevel);
+      const feedbackId = feedbackIdFor(input);
+      const sensorErrorKind = sensorErrorKindFromPayload(input.payload, buildFeedbackText(input, redactedPayload));
+      const gatesBeforeSensorFirewall = sensorErrorKind ? storage.listGates(input.projectId).length : 0;
+      const sensorDecision = sensorErrorKind
+        ? recordSensorFirewallError({
+          projectId: input.projectId,
+          cycleId: cycle.id,
+          source: input.source,
+          errorKind: sensorErrorKind,
+          summary: `${input.signalType} ${input.sourceId}`,
+          externalId: `${input.source}:${input.sourceId}`,
+          observedAt: input.observedAt,
+          sample: redactedPayload,
+        })
+        : null;
+      if (sensorDecision) result.sensorFirewallDecisions.push(sensorDecision);
+      const gateId = sensorDecision?.gate?.id ?? gateIdFor(feedbackId);
+      const signal: ExternalBusinessSignal = {
         id: signalIdFor(input),
         source: input.source,
         sourceId: input.sourceId,
@@ -195,9 +212,9 @@ export function importBusinessSignals(rows: Array<Record<string, unknown>>): Bus
         payload: JSON.stringify(redactedPayload),
         sensitivityLevel: input.sensitivityLevel,
         dedupeKey: input.dedupeKey,
-	        riskLevel: normalizedRiskLevel,
+        riskLevel: normalizedRiskLevel,
         feedbackId,
-        gateId,
+        gateId: sensorDecision?.classification === "transient" ? null : gateId,
         createdAt: now(),
         version: 1,
       };
@@ -207,7 +224,7 @@ export function importBusinessSignals(rows: Array<Record<string, unknown>>): Bus
         cycleId: cycle.id,
         actionType: "business_signal.import",
         target: `${input.source}:${input.sourceId}`,
-	        explicitRiskLevel: normalizedRiskLevel,
+        explicitRiskLevel: normalizedRiskLevel,
         payload: {
           source: input.source,
           sourceId: input.sourceId,
@@ -234,7 +251,7 @@ export function importBusinessSignals(rows: Array<Record<string, unknown>>): Bus
         summary: `${input.signalType} from ${input.source}`,
         externalUpdatedAt: input.observedAt,
       });
-      if (!storage.getGate(gateId)) {
+      if (!sensorDecision && !storage.getGate(gateId)) {
         storage.createGate({
           id: gateId,
           cycleId: cycle.id,
@@ -268,13 +285,17 @@ export function importBusinessSignals(rows: Array<Record<string, unknown>>): Bus
           version: 1,
         });
         result.gatesCreated += 1;
+      } else if (sensorDecision?.gate && storage.listGates(input.projectId).length > gatesBeforeSensorFirewall) {
+        result.gatesCreated += 1;
       }
       storage.recordAgentRun({
         cycleId: cycle.id,
         cycleIdx: cycle.idx,
         agent: "sensor",
         action: "import_business_signal",
-        outputSummary: `Business signal ${input.source}/${input.sourceId}: gate=${gateId}`,
+        outputSummary: sensorDecision
+          ? `Business signal ${input.source}/${input.sourceId}: sensor_firewall=${sensorDecision.classification}, gate=${sensorDecision.gate?.id ?? "none"}`
+          : `Business signal ${input.source}/${input.sourceId}: gate=${gateId}`,
         knowledgeRefsUsed: "[]",
         ts: now(),
       });
@@ -288,7 +309,13 @@ export function importBusinessSignals(rows: Array<Record<string, unknown>>): Bus
         attributes: {
           signalId: signal.id,
           feedbackId,
-          gateId,
+          gateId: signal.gateId,
+          sensorFirewall: sensorDecision ? {
+            fingerprint: sensorDecision.fingerprint,
+            classification: sensorDecision.classification,
+            perceptionFailure: sensorDecision.perceptionFailure,
+            route: sensorDecision.route,
+          } : null,
           signalType: input.signalType,
           sensitivityLevel: input.sensitivityLevel,
           payload: redactedPayload,

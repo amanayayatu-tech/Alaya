@@ -331,6 +331,35 @@ export const externalBusinessSignals = sqliteTable("external_business_signals", 
   version: integer("version").notNull().default(1),
 });
 
+// ---------------- sensorErrorAccumulators ----------------
+export const sensorErrorAccumulators = sqliteTable("sensor_error_accumulators", {
+  fingerprint: text("fingerprint").primaryKey(),
+  projectId: text("project_id").notNull(),
+  source: text("source").notNull(),
+  errorKind: text("error_kind").notNull(),
+  occurrenceCount: integer("occurrence_count").notNull().default(0),
+  eventTimestampsMs: text("event_timestamps_ms").notNull().default("[]"),
+  firstSeenAt: text("first_seen_at").notNull(),
+  lastSeenAt: text("last_seen_at").notNull(),
+  version: integer("version").notNull().default(1),
+});
+
+// ---------------- pendingAttributions ----------------
+export const pendingAttributions = sqliteTable("pending_attributions", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull(),
+  fingerprint: text("fingerprint").notNull(),
+  errorType: text("error_type"),
+  claimError: real("claim_error"),
+  context: text("context").notNull().default("{}"),
+  confidence: real("confidence").notNull(),
+  status: text("status").notNull().default("pending"),
+  gateId: text("gate_id"),
+  resolvedAt: text("resolved_at"),
+  createdAt: text("created_at").notNull(),
+  version: integer("version").notNull().default(1),
+});
+
 // ---------------- orgModules ----------------
 export const orgModules = sqliteTable("org_modules", {
   id: text("id").primaryKey(),
@@ -420,6 +449,8 @@ export type AgentRun = typeof agentRuns.$inferSelect;
 export type ExternalFeedbackSource = typeof externalFeedbackSources.$inferSelect;
 export type KnowledgeReviewItem = typeof knowledgeReviewItems.$inferSelect;
 export type ExternalBusinessSignal = typeof externalBusinessSignals.$inferSelect;
+export type SensorErrorAccumulator = typeof sensorErrorAccumulators.$inferSelect;
+export type PendingAttribution = typeof pendingAttributions.$inferSelect;
 export type OrgModule = typeof orgModules.$inferSelect;
 
 export const CLAIM_SCALE_EPS = 1e-6;

@@ -7,6 +7,7 @@ import type {
   KnowledgeItem, HumanGateItem, DecisionLogItem, EventLogItem, LlmCall, AgentRun,
   ExternalFeedbackSource, TraceEventItem, ActionLedgerRow,
   KnowledgeReviewItem, ExternalBusinessSignal, OrgModule, ReviewSessionItem, NotificationDigestItem,
+  SensorErrorAccumulator, PendingAttribution,
 } from "@shared/schema";
 
 assertEnvValid();
@@ -37,6 +38,8 @@ const REQUIRED_TABLES = [
   "action_ledger",
   "knowledge_review_items",
   "external_business_signals",
+  "sensor_error_accumulators",
+  "pending_attributions",
   "org_modules",
 ];
 
@@ -58,6 +61,8 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   trace_events: ["trace_id", "span_id", "attributes"],
   knowledge_review_items: ["status", "resolution"],
   external_business_signals: ["dedupe_key", "risk_level", "gate_id"],
+  sensor_error_accumulators: ["event_timestamps_ms", "last_seen_at"],
+  pending_attributions: ["status", "gate_id", "resolved_at"],
   org_modules: ["version_label", "knowledge_id"],
   human_gate_items: [
     "notify_policy",
@@ -279,6 +284,20 @@ export function runSchemaMigrations() {
     feedback_id TEXT, gate_id TEXT, created_at TEXT NOT NULL,
     version INTEGER NOT NULL DEFAULT 1
   );
+  CREATE TABLE IF NOT EXISTS sensor_error_accumulators (
+    fingerprint TEXT PRIMARY KEY, project_id TEXT NOT NULL, source TEXT NOT NULL,
+    error_kind TEXT NOT NULL, occurrence_count INTEGER NOT NULL DEFAULT 0,
+    event_timestamps_ms TEXT NOT NULL DEFAULT '[]',
+    first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE TABLE IF NOT EXISTS pending_attributions (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
+    error_type TEXT, claim_error REAL, context TEXT NOT NULL DEFAULT '{}',
+    confidence REAL NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+    gate_id TEXT, resolved_at TEXT, created_at TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1
+  );
   CREATE TABLE IF NOT EXISTS org_modules (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL, module_name TEXT NOT NULL,
     problem_solved TEXT NOT NULL DEFAULT '', owner_role TEXT NOT NULL DEFAULT '',
@@ -433,6 +452,8 @@ export function runSchemaMigrations() {
   ) WHERE status = 'review_required';
   CREATE UNIQUE INDEX IF NOT EXISTS idx_business_signals_dedupe ON external_business_signals(project_id, dedupe_key);
   CREATE INDEX IF NOT EXISTS idx_business_signals_project ON external_business_signals(project_id, observed_at);
+  CREATE INDEX IF NOT EXISTS idx_sensor_accumulators_project ON sensor_error_accumulators(project_id, last_seen_at);
+  CREATE INDEX IF NOT EXISTS idx_pending_attributions_fingerprint ON pending_attributions(project_id, fingerprint, status, created_at);
   CREATE INDEX IF NOT EXISTS idx_org_modules_project ON org_modules(project_id, module_name);
   `);
 }
@@ -680,6 +701,21 @@ function rowToExternalBusinessSignal(r: any): ExternalBusinessSignal {
     feedbackId: r.feedback_id, gateId: r.gate_id, createdAt: r.created_at, version: r.version,
   };
 }
+function rowToSensorErrorAccumulator(r: any): SensorErrorAccumulator {
+  return {
+    fingerprint: r.fingerprint, projectId: r.project_id, source: r.source, errorKind: r.error_kind,
+    occurrenceCount: r.occurrence_count, eventTimestampsMs: r.event_timestamps_ms,
+    firstSeenAt: r.first_seen_at, lastSeenAt: r.last_seen_at, version: r.version,
+  };
+}
+function rowToPendingAttribution(r: any): PendingAttribution {
+  return {
+    id: r.id, projectId: r.project_id, fingerprint: r.fingerprint,
+    errorType: r.error_type, claimError: r.claim_error, context: r.context,
+    confidence: r.confidence, status: r.status, gateId: r.gate_id,
+    resolvedAt: r.resolved_at, createdAt: r.created_at, version: r.version,
+  };
+}
 function rowToOrgModule(r: any): OrgModule {
   return {
     id: r.id, projectId: r.project_id, moduleName: r.module_name,
@@ -786,6 +822,15 @@ export interface IStorage {
   getExternalBusinessSignalByDedupe(projectId: string, dedupeKey: string): ExternalBusinessSignal | undefined;
   listExternalBusinessSignals(projectId: string): ExternalBusinessSignal[];
   updateExternalBusinessSignal(id: string, patch: Partial<ExternalBusinessSignal>): ExternalBusinessSignal | undefined;
+  // sensor firewall
+  upsertSensorErrorAccumulator(a: SensorErrorAccumulator): SensorErrorAccumulator;
+  getSensorErrorAccumulator(fingerprint: string): SensorErrorAccumulator | undefined;
+  listSensorErrorAccumulators(projectId: string): SensorErrorAccumulator[];
+  // pending attributions
+  createPendingAttribution(a: PendingAttribution): PendingAttribution;
+  getPendingAttribution(id: string): PendingAttribution | undefined;
+  listPendingAttributions(projectId: string, options?: { fingerprint?: string; since?: string; status?: string }): PendingAttribution[];
+  updatePendingAttribution(id: string, patch: Partial<PendingAttribution>): PendingAttribution | undefined;
   // org modules
   createOrgModule(m: OrgModule): OrgModule;
   getOrgModule(id: string): OrgModule | undefined;
@@ -1455,6 +1500,107 @@ export class DatabaseStorage implements IStorage {
       ...n,
       payload: parseJsonObject(n.payload),
     }, 0);
+    return n;
+  }
+  // ---- sensor firewall ----
+  upsertSensorErrorAccumulator(a: SensorErrorAccumulator): SensorErrorAccumulator {
+    const cur = this.getSensorErrorAccumulator(a.fingerprint);
+    const n = { ...a, version: cur ? cur.version + 1 : a.version };
+    rawDb.prepare(`INSERT INTO sensor_error_accumulators (fingerprint,project_id,source,error_kind,occurrence_count,event_timestamps_ms,first_seen_at,last_seen_at,version)
+      VALUES (@fingerprint,@project_id,@source,@error_kind,@occurrence_count,@event_timestamps_ms,@first_seen_at,@last_seen_at,@version)
+      ON CONFLICT(fingerprint) DO UPDATE SET
+        project_id=excluded.project_id,
+        source=excluded.source,
+        error_kind=excluded.error_kind,
+        occurrence_count=excluded.occurrence_count,
+        event_timestamps_ms=excluded.event_timestamps_ms,
+        first_seen_at=excluded.first_seen_at,
+        last_seen_at=excluded.last_seen_at,
+        version=excluded.version`).run({
+      fingerprint: n.fingerprint,
+      project_id: n.projectId,
+      source: n.source,
+      error_kind: n.errorKind,
+      occurrence_count: n.occurrenceCount,
+      event_timestamps_ms: n.eventTimestampsMs,
+      first_seen_at: n.firstSeenAt,
+      last_seen_at: n.lastSeenAt,
+      version: n.version,
+    });
+    this.auditWrite("sensor", "sensor_error_accumulators", cur ? "update" : "insert", cur ?? null, n, 0);
+    return this.getSensorErrorAccumulator(n.fingerprint) ?? n;
+  }
+  getSensorErrorAccumulator(fingerprint: string): SensorErrorAccumulator | undefined {
+    const r = rawDb.prepare(`SELECT * FROM sensor_error_accumulators WHERE fingerprint=?`).get(fingerprint);
+    return r ? rowToSensorErrorAccumulator(r) : undefined;
+  }
+  listSensorErrorAccumulators(projectId: string): SensorErrorAccumulator[] {
+    return rawDb.prepare(`SELECT * FROM sensor_error_accumulators WHERE project_id=? ORDER BY last_seen_at ASC, fingerprint ASC`)
+      .all(projectId)
+      .map(rowToSensorErrorAccumulator);
+  }
+  // ---- pending attributions ----
+  createPendingAttribution(a: PendingAttribution): PendingAttribution {
+    rawDb.prepare(`INSERT INTO pending_attributions (id,project_id,fingerprint,error_type,claim_error,context,confidence,status,gate_id,resolved_at,created_at,version)
+      VALUES (@id,@project_id,@fingerprint,@error_type,@claim_error,@context,@confidence,@status,@gate_id,@resolved_at,@created_at,@version)`).run({
+      id: a.id,
+      project_id: a.projectId,
+      fingerprint: a.fingerprint,
+      error_type: a.errorType,
+      claim_error: a.claimError,
+      context: a.context,
+      confidence: a.confidence,
+      status: a.status,
+      gate_id: a.gateId,
+      resolved_at: a.resolvedAt,
+      created_at: a.createdAt,
+      version: a.version,
+    });
+    this.auditWrite("sensor", "pending_attributions", "insert", null, a, 0);
+    return a;
+  }
+  getPendingAttribution(id: string): PendingAttribution | undefined {
+    const r = rawDb.prepare(`SELECT * FROM pending_attributions WHERE id=?`).get(id);
+    return r ? rowToPendingAttribution(r) : undefined;
+  }
+  listPendingAttributions(projectId: string, options: { fingerprint?: string; since?: string; status?: string } = {}): PendingAttribution[] {
+    const conditions = ["project_id = ?"];
+    const params: string[] = [projectId];
+    if (options.fingerprint) {
+      conditions.push("fingerprint = ?");
+      params.push(options.fingerprint);
+    }
+    if (options.since) {
+      conditions.push("created_at >= ?");
+      params.push(options.since);
+    }
+    if (options.status) {
+      conditions.push("status = ?");
+      params.push(options.status);
+    }
+    return rawDb.prepare(`SELECT * FROM pending_attributions WHERE ${conditions.join(" AND ")} ORDER BY created_at ASC, id ASC`)
+      .all(...params)
+      .map(rowToPendingAttribution);
+  }
+  updatePendingAttribution(id: string, patch: Partial<PendingAttribution>): PendingAttribution | undefined {
+    const cur = this.getPendingAttribution(id);
+    if (!cur) return undefined;
+    const n = { ...cur, ...patch, version: cur.version + 1 };
+    rawDb.prepare(`UPDATE pending_attributions SET project_id=@project_id,fingerprint=@fingerprint,error_type=@error_type,claim_error=@claim_error,context=@context,confidence=@confidence,status=@status,gate_id=@gate_id,resolved_at=@resolved_at,created_at=@created_at,version=@version WHERE id=@id`).run({
+      id,
+      project_id: n.projectId,
+      fingerprint: n.fingerprint,
+      error_type: n.errorType,
+      claim_error: n.claimError,
+      context: n.context,
+      confidence: n.confidence,
+      status: n.status,
+      gate_id: n.gateId,
+      resolved_at: n.resolvedAt,
+      created_at: n.createdAt,
+      version: n.version,
+    });
+    this.auditWrite("sensor", "pending_attributions", "update", cur, n, 0);
     return n;
   }
   // ---- org modules ----

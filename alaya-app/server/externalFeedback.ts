@@ -4,6 +4,7 @@ import type { Cycle, ExternalFeedbackSource } from "@shared/schema";
 import { readFileSync } from "node:fs";
 import { assertNetworkAllowed } from "./security/capabilities";
 import { createDecisionBrief, withDecisionBriefPayload } from "./decisionBrief";
+import { recordSensorFirewallError, sensorErrorKindFromPayload } from "./sensorFirewall";
 
 const CLASSIFY_SCHEMA = {
   type: "object" as const,
@@ -370,7 +371,20 @@ export async function ingestFormFeedback(projectId: string, input: FormFeedbackI
   });
 
   const gateId = `gate_ext_${feedbackId}`;
-  const gate = storage.createGate({
+  const sensorErrorKind = sensorErrorKindFromPayload({}, text);
+  const sensorDecision = sensorErrorKind
+    ? recordSensorFirewallError({
+      projectId,
+      cycleId: cycle.id,
+      source: sourceName,
+      errorKind: sensorErrorKind,
+      summary: classification.summary,
+      externalId: `${sourceName}:${externalId}`,
+      observedAt: now(),
+      sample: { title: classification.redactedTitle, body: classification.redactedBody, url: normalized.url },
+    })
+    : null;
+  const gate = sensorDecision?.gate ?? (sensorDecision ? null : storage.createGate({
     id: gateId,
     cycleId: cycle.id,
     type: "meaning",
@@ -400,19 +414,21 @@ export async function ingestFormFeedback(projectId: string, input: FormFeedbackI
     estimatedMinutes: classification.category === "bug" ? 6 : 8,
     decision: null,
     version: 1,
-  });
+  }));
   storage.updateExternalFeedbackSource(source.id, { lastSyncedAt: now(), status: "active" });
   storage.recordAgentRun({
     cycleId: cycle.id,
     cycleIdx: cycle.idx,
     agent: "sensor",
     action: "ingest_form_feedback",
-    outputSummary: `Form ${sourceName}: imported=1, gate=${gate.id}`,
+    outputSummary: sensorDecision
+      ? `Form ${sourceName}: imported=1, sensor_firewall=${sensorDecision.classification}, gate=${gate?.id ?? "none"}`
+      : `Form ${sourceName}: imported=1, gate=${gate?.id ?? "none"}`,
     knowledgeRefsUsed: "[]",
     ts: now(),
   });
 
-  return { source, feedback, gate, classification, imported: true, skipped: false };
+  return { source, feedback, gate, classification, sensorFirewall: sensorDecision, imported: true, skipped: false };
 }
 
 export async function syncGithubIssuesForSource(
@@ -480,10 +496,24 @@ export async function syncGithubIssuesForSource(
       });
       result.imported++;
 
-      const gateId = `gate_ext_${feedbackId}`;
-      if (!storage.getGate(gateId)) {
-        storage.createGate({
-          id: gateId,
+	      const gateId = `gate_ext_${feedbackId}`;
+      const sensorErrorKind = sensorErrorKindFromPayload({}, text);
+      const gatesBeforeSensorFirewall = sensorErrorKind ? storage.listGates(source.projectId).length : 0;
+      const sensorDecision = sensorErrorKind
+        ? recordSensorFirewallError({
+          projectId: source.projectId,
+          cycleId,
+          source: `${owner}/${repo}`,
+          errorKind: sensorErrorKind,
+          summary: classification.summary,
+          externalId: `github:${owner}/${repo}#${issue.number}`,
+          observedAt: issue.updated_at ?? now(),
+          sample: { title: classification.redactedTitle, body: classification.redactedBody, url: issue.html_url ?? "" },
+        })
+        : null;
+      if (!sensorDecision && !storage.getGate(gateId)) {
+	        storage.createGate({
+	          id: gateId,
           cycleId,
           type: "meaning",
           blocking: 0,
@@ -511,9 +541,11 @@ export async function syncGithubIssuesForSource(
           estimatedMinutes: classification.category === "bug" ? 6 : 8,
           decision: null,
           version: 1,
-        });
+	        });
+	        result.gatesCreated++;
+      } else if (sensorDecision?.gate && storage.listGates(source.projectId).length > gatesBeforeSensorFirewall) {
         result.gatesCreated++;
-      }
+	      }
     }
 
     storage.updateExternalFeedbackSource(source.id, { lastSyncedAt: now(), status: "active" });
