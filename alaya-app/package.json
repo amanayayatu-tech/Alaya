@@ -12,6 +12,7 @@
     "flywheel:live": "cd .. && npm run e2e:live",
     "e2e:long-evolution": "node --import tsx ../scripts/e2e-long-evolution.mjs",
     "e2e:review-window": "node --import tsx --test tests/review_window_e2e.test.ts",
+    "e2e:knowledge-lifecycle": "node --import tsx --test tests/knowledge_lifecycle_e2e.test.ts",
     "e2e:ui-freeze": "node ../scripts/e2e-ui-freeze-smoke.mjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",

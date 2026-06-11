@@ -1,5 +1,6 @@
 import { claimSchema } from "@shared/schema";
 import { rawDb, storage } from "./storage";
+import type { HumanGateItem } from "@shared/schema";
 
 export function median(values: number[]): number | null {
   const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
@@ -23,6 +24,14 @@ function parseObject(value: string | null | undefined): Record<string, any> {
   } catch {
     return {};
   }
+}
+
+function isActiveGrayStatus(value: Record<string, any>): boolean {
+  return value.status === "active" &&
+    typeof value.confidenceScore === "number" &&
+    value.confidenceScore > 0.3 &&
+    value.confidenceScore < 0.7 &&
+    !value.supersededBy;
 }
 
 function parseClaims(value: string): Record<string, any>[] {
@@ -66,6 +75,24 @@ function gateResolvedAt(gate: ReturnType<typeof storage.listGates>[number]): str
   const payload = parseObject(gate.payload);
   if (typeof payload.resolvedAt === "string") return payload.resolvedAt;
   return eventTsFor("human_gate_items", "update", gate.id);
+}
+
+function weekStartIso(d = new Date()): string {
+  const start = new Date(d);
+  const day = start.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  start.setUTCDate(start.getUTCDate() + diff);
+  start.setUTCHours(0, 0, 0, 0);
+  return start.toISOString();
+}
+
+function consumesHumanMinutes(gate: HumanGateItem): boolean {
+  if (gate.status === "pending") return false;
+  const decision = gate.decision ?? "";
+  if (decision.startsWith("merged_into:")) return false;
+  if (decision.startsWith("auto_approved_repeated_meaning:")) return false;
+  if (decision.startsWith("auto_resolved_")) return false;
+  return true;
 }
 
 export function humanGateResolutionMetrics(projectId: string) {
@@ -164,6 +191,90 @@ export function blockingGateBacklog(projectId: string) {
   };
 }
 
+export function grayActiveStockTrend(projectId: string) {
+  const cycles = storage.listCycles(projectId).sort((a, b) => a.idx - b.idx);
+  const events = rawDb.prepare(`
+    SELECT id, cycle_idx, before, after FROM event_log
+    WHERE table_name='knowledge_items'
+      AND op IN ('insert','update')
+      AND (before LIKE ? OR after LIKE ?)
+    ORDER BY id ASC
+  `).all(`%"projectId":"${projectId}"%`, `%"projectId":"${projectId}"%`) as Array<{
+    id: number;
+    cycle_idx: number;
+    before: string | null;
+    after: string | null;
+  }>;
+  const activeGrayIds = new Set<string>();
+  const eventPoints = new Map<number, number>();
+
+  for (const event of events) {
+    const after = parseObject(event.after);
+    const before = parseObject(event.before);
+    const id = typeof after.id === "string" ? after.id : typeof before.id === "string" ? before.id : "";
+    if (!id) continue;
+    if (isActiveGrayStatus(after)) activeGrayIds.add(id);
+    else activeGrayIds.delete(id);
+    eventPoints.set(event.cycle_idx, activeGrayIds.size);
+  }
+
+  let lastCount = 0;
+  const points = cycles.length
+    ? cycles.map((cycle) => {
+      if (eventPoints.has(cycle.idx)) lastCount = eventPoints.get(cycle.idx) ?? lastCount;
+      return { cycleIdx: cycle.idx, grayActiveCount: lastCount };
+    })
+    : [{ cycleIdx: 0, grayActiveCount: storage.listKnowledge(projectId).filter((item) => isActiveGrayStatus(item as any)).length }];
+
+  const increases = [];
+  for (let i = 1; i < points.length; i += 1) {
+    const previous = points[i - 1];
+    const current = points[i];
+    if (current.grayActiveCount > previous.grayActiveCount) {
+      increases.push({
+        fromCycleIdx: previous.cycleIdx,
+        toCycleIdx: current.cycleIdx,
+        delta: current.grayActiveCount - previous.grayActiveCount,
+      });
+    }
+  }
+
+  return {
+    current: points.at(-1)?.grayActiveCount ?? 0,
+    points,
+    monotonicNonIncreasing: increases.length === 0,
+    warning: increases.length > 0,
+    increases,
+  };
+}
+
+export function meaningGateBudgetPressure(projectId: string, at = new Date()) {
+  const project = storage.getProject(projectId);
+  const budget = project?.weeklyHumanMinutes ?? 150;
+  const weekStartMs = Date.parse(weekStartIso(at));
+  const meaningGates = storage.listGates(projectId).filter((gate) => gate.type === "meaning");
+  const usedMinutes = meaningGates
+    .filter(consumesHumanMinutes)
+    .filter((gate) => {
+      const resolvedAt = Date.parse(gateResolvedAt(gate) ?? "");
+      return Number.isFinite(resolvedAt) && resolvedAt >= weekStartMs;
+    })
+    .reduce((sum, gate) => sum + gate.estimatedMinutes, 0);
+  const pendingEstimatedMinutes = meaningGates
+    .filter((gate) => gate.status === "pending")
+    .reduce((sum, gate) => sum + gate.estimatedMinutes, 0);
+  const projectedMinutes = usedMinutes + pendingEstimatedMinutes;
+  return {
+    budget,
+    weekStart: new Date(weekStartMs).toISOString(),
+    usedMinutes,
+    pendingEstimatedMinutes,
+    projectedMinutes,
+    pendingMeaningGates: meaningGates.filter((gate) => gate.status === "pending").length,
+    overBudget: projectedMinutes > budget,
+  };
+}
+
 function injectionCountByCycle(cycleId: string): number {
   const rows = rawDb.prepare(`
     SELECT COUNT(*) AS count FROM trace_events
@@ -197,6 +308,8 @@ export function compoundingGainProxyPerCycle(projectId: string) {
 }
 
 export function buildOpsMetrics(projectId: string) {
+  const grayTrend = grayActiveStockTrend(projectId);
+  const meaningBudget = meaningGateBudgetPressure(projectId);
   return {
     projectId,
     generatedAt: new Date().toISOString(),
@@ -210,6 +323,8 @@ export function buildOpsMetrics(projectId: string) {
     measurableClaimRatio: measurableClaimRatio(projectId),
     knowledgeReuseRate: knowledgeReuseRate(projectId),
     blockingGateBacklog: blockingGateBacklog(projectId),
+    grayActiveStockTrend: grayTrend,
+    meaningGateBudget: meaningBudget,
     compoundingGainProxyPerCycle: compoundingGainProxyPerCycle(projectId),
     sources: {
       humanGateResolution: ["human_gate_items.payload.createdAt/resolvedAt", "event_log"],
@@ -218,7 +333,24 @@ export function buildOpsMetrics(projectId: string) {
       measurableClaimRatio: ["predictions.claims"],
       knowledgeReuseRate: ["knowledge_items.usage_count", "event_log actor=knowledge_injection"],
       blockingGateBacklog: ["human_gate_items"],
+      grayActiveStockTrend: ["event_log table=knowledge_items", "cycles"],
+      meaningGateBudget: ["human_gate_items", "projects.weekly_human_minutes", "event_log"],
       compoundingGainProxyPerCycle: ["cycles.e_cycle", "trace_events.kind=knowledge_injection", "knowledge_items.status"],
     },
   };
+}
+
+export function opsMetricsDigestLines(projectId: string): string[] {
+  const metrics = buildOpsMetrics(projectId);
+  const lines: string[] = [];
+  if (metrics.grayActiveStockTrend.warning) {
+    const increases = metrics.grayActiveStockTrend.increases
+      .map((item) => `${item.fromCycleIdx}->${item.toCycleIdx} +${item.delta}`)
+      .join(", ");
+    lines.push(`灰区存量趋势告警：未单调下降（${increases}）`);
+  }
+  if (metrics.meaningGateBudget.overBudget) {
+    lines.push(`意义闸预算告警：预计 ${metrics.meaningGateBudget.projectedMinutes}/${metrics.meaningGateBudget.budget} 分钟（pending ${metrics.meaningGateBudget.pendingEstimatedMinutes}）。`);
+  }
+  return lines;
 }

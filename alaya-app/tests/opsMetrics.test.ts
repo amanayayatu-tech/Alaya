@@ -13,17 +13,28 @@ process.env.ALAYA_LLM_PROVIDER = "mock";
 
 const { storage } = await import("../server/storage.ts");
 const { recordTrace } = await import("../server/trace.ts");
-const { buildOpsMetrics, median, percentile, measurableClaimRatio, knowledgeReuseRate } = await import("../server/opsMetrics.ts");
+const {
+  buildOpsMetrics,
+  grayActiveStockTrend,
+  meaningGateBudgetPressure,
+  median,
+  opsMetricsDigestLines,
+  percentile,
+  measurableClaimRatio,
+  knowledgeReuseRate,
+} = await import("../server/opsMetrics.ts");
 const { registerRoutes } = await import("../server/routes.ts");
+const { NotificationBus } = await import("../server/notifications/bus.ts");
+const { emitReviewWindowDigest } = await import("../server/scheduler/notifications.ts");
 
-function createProject(projectId: string) {
+function createProject(projectId: string, weeklyHumanMinutes = 150) {
   storage.createProject({
     id: projectId,
     name: projectId,
     direction: "ops metrics",
     targetUser: "operators",
     redlines: "[]",
-    weeklyHumanMinutes: 150,
+    weeklyHumanMinutes,
     weeklyLlmBudgetCents: 100,
     firstClaimMetric: "activation_rate",
     firstClaimOperator: ">=",
@@ -47,6 +58,60 @@ function createCycle(projectId: string, idx: number, eCycle: number | null) {
     reasoning: "",
     version: 1,
   });
+}
+
+function createGrayKnowledge(projectId: string, id: string, cycleIdx: number, score = 0.55) {
+  storage.createKnowledge({
+    id,
+    projectId,
+    type: "principle",
+    title: id,
+    content: "gray knowledge",
+    sourceType: "metric",
+    sourceRef: "ops",
+    evidenceAlpha: 2,
+    evidenceBeta: 2,
+    confidenceScore: score,
+    confidenceLevel: "low",
+    status: "active",
+    humanApprovedCount: 0,
+    externalVerifiedCount: 0,
+    validFrom: "2026-06-01",
+    validUntil: null,
+    lastValidatedCycle: cycleIdx,
+    createdByCycle: cycleIdx,
+    createdBy: "test",
+    approvedBy: null,
+    usageCount: 0,
+    lastInjectedAt: null,
+    lastVerifiedAt: null,
+    lastDecayedAt: null,
+    grayStreak: 1,
+    storageStrength: 1,
+    noveltyScore: null,
+    sourceRound: cycleIdx,
+    tags: "[]",
+    notes: "",
+    supersededBy: null,
+    semanticKey: "",
+    version: 1,
+  });
+}
+
+class FakePlatform {
+  sentCards: Array<{ chatId: string; card: any }> = [];
+  sentTexts: Array<{ chatId: string; text: string }> = [];
+  name() { return "fake"; }
+  async sendText(chatId: string, text: string) { this.sentTexts.push({ chatId, text }); }
+  async sendCard(chatId: string, card: any) {
+    this.sentCards.push({ chatId, card });
+    return { chatId, messageId: this.sentCards.length };
+  }
+  async editCard() {}
+  async answerCallback() {}
+  onCallbackQuery() {}
+  async start() {}
+  async stop() {}
 }
 
 test("metric formula helpers handle empty and percentile cases", () => {
@@ -176,6 +241,91 @@ test("ops metrics aggregate seeded SQLite rows and cross-check raw counts", () =
   assert.equal(metrics.blockingGateBacklog.count, 1);
   assert.equal(metrics.compoundingGainProxyPerCycle[1].errorImprovement, 0.2);
   assert.equal(metrics.llmCostPerCycle.byCycle.reduce((sum, row) => sum + row.callCount, 0), storage.listLlmCalls().length);
+});
+
+test("gray active stock trend warns on growth and stays quiet at steady decline", () => {
+  const growingProjectId = "proj_ops_gray_growing";
+  createProject(growingProjectId);
+  createCycle(growingProjectId, 1, null);
+  createCycle(growingProjectId, 2, null);
+  createCycle(growingProjectId, 3, null);
+  createGrayKnowledge(growingProjectId, "kb_gray_growing_1", 1);
+  createGrayKnowledge(growingProjectId, "kb_gray_growing_2", 2);
+
+  const growing = grayActiveStockTrend(growingProjectId);
+  assert.equal(growing.warning, true);
+  assert.deepEqual(growing.points.map((point) => point.grayActiveCount), [1, 2, 2]);
+  assert.deepEqual(opsMetricsDigestLines(growingProjectId), ["灰区存量趋势告警：未单调下降（1->2 +1）"]);
+
+  const decliningProjectId = "proj_ops_gray_declining";
+  createProject(decliningProjectId);
+  createCycle(decliningProjectId, 1, null);
+  createCycle(decliningProjectId, 2, null);
+  createCycle(decliningProjectId, 3, null);
+  createGrayKnowledge(decliningProjectId, "kb_gray_declining_1", 1);
+  createGrayKnowledge(decliningProjectId, "kb_gray_declining_2", 1);
+  storage.updateKnowledge("kb_gray_declining_2", {
+    status: "stale",
+    confidenceScore: 0.4,
+    lastValidatedCycle: 2,
+    actor: "test",
+  });
+
+  const declining = grayActiveStockTrend(decliningProjectId);
+  assert.equal(declining.warning, false);
+  assert.deepEqual(declining.points.map((point) => point.grayActiveCount), [2, 1, 1]);
+  assert.deepEqual(opsMetricsDigestLines(decliningProjectId), []);
+});
+
+test("meaning gate budget pressure appears in review digest without direct push", async () => {
+  const projectId = "proj_ops_digest_budget";
+  createProject(projectId, 10);
+  createCycle(projectId, 1, null);
+  createGrayKnowledge(projectId, "kb_ops_digest_gray_1", 1);
+  createGrayKnowledge(projectId, "kb_ops_digest_gray_2", 1);
+  storage.createGate({
+    id: "gate_ops_digest_meaning_a",
+    cycleId: `cycle_${projectId}_1`,
+    type: "meaning",
+    blocking: 0,
+    title: "Meaning A",
+    payload: JSON.stringify({ createdAt: "2026-06-11T00:00:00.000Z", summary: "a" }),
+    status: "pending",
+    estimatedMinutes: 6,
+    decision: null,
+    notifyPolicy: "next_window",
+    version: 1,
+  });
+  storage.createGate({
+    id: "gate_ops_digest_meaning_b",
+    cycleId: `cycle_${projectId}_1`,
+    type: "meaning",
+    blocking: 0,
+    title: "Meaning B",
+    payload: JSON.stringify({ createdAt: "2026-06-11T00:00:00.000Z", summary: "b" }),
+    status: "pending",
+    estimatedMinutes: 6,
+    decision: null,
+    notifyPolicy: "next_window",
+    version: 1,
+  });
+
+  const pressure = meaningGateBudgetPressure(projectId, new Date("2026-06-11T00:00:00.000Z"));
+  assert.equal(pressure.overBudget, true);
+  assert.equal(pressure.projectedMinutes, 12);
+
+  const platform = new FakePlatform();
+  const bus = new NotificationBus().addAdapter(platform, ["42"]);
+  await emitReviewWindowDigest(bus, projectId, {
+    inWindow: true,
+    timezone: "Asia/Shanghai",
+    windowDate: "2026-06-11",
+    windowLabel: "15:30-16:00",
+    currentMinutes: 930,
+  });
+
+  assert.equal(platform.sentCards.length, 1);
+  assert.match(platform.sentCards[0].card.body, /意义闸预算告警：预计 12\/10 分钟/);
 });
 
 test("ops metrics API returns safe nulls and zeros for empty datasets", async () => {
