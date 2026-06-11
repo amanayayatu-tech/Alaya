@@ -233,6 +233,7 @@ const requestedPort = launchGuard.config.port;
 const logDir = resolve(args["log-dir"] || join(ROOT, "validation-logs", `health-signal-${durationLabel}_${timestampForPath()}`));
 const decisionVia = args["decision-via"] || "local_api_human_proxy";
 const approveMeaning = boolArg("approve-meaning-gates", true);
+const holdReviewRequiredMeaning = boolArg("hold-review-required-meaning-gates", true);
 const holdEveryMeaning = Math.max(0, Math.trunc(numArg("hold-every-meaning", 10)));
 const resolveConflictReviewsTarget = Math.max(0, Math.trunc(numArg("resolve-conflict-reviews", 9999)));
 const injectEverySamples = Math.max(1, Math.trunc(numArg("inject-every-samples", 1)));
@@ -665,7 +666,7 @@ function shouldHoldMeaningGate(gate, approvedMeaningCount) {
   if (!approveMeaning) return true;
   const payload = parsePayload(gate);
   if (payload.riskKey === "knowledge_review_reminder") return true;
-  if (meaningGateRequiresHumanReview(gate)) return true;
+  if (holdReviewRequiredMeaning && meaningGateRequiresHumanReview(gate)) return true;
   if (holdEveryMeaning > 0 && (approvedMeaningCount + 1) % holdEveryMeaning === 0) return true;
   return false;
 }
@@ -1149,6 +1150,10 @@ async function main() {
     sampleMinutes: +(sampleMs / 60_000).toFixed(3),
     maxSamples,
     progressTicksPerSample,
+    approveMeaning,
+    holdReviewRequiredMeaning,
+    holdEveryMeaning,
+    resolveConflictReviewsTarget,
     firstSample,
     firstRecordedIso,
     validationStartedAtIso: new Date(validationStartedAt).toISOString(),

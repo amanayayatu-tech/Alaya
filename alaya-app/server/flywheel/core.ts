@@ -124,6 +124,11 @@ function parseTags(k: KnowledgeItem): string[] {
   try { return JSON.parse(k.tags) as string[]; } catch { return []; }
 }
 
+function isSeedKnowledge(k: KnowledgeItem): boolean {
+  const tags = parseTags(k).map((tag) => tag.toLowerCase());
+  return k.id.startsWith("kb_seed_") || k.sourceRef === "onboarding" || tags.includes("seed");
+}
+
 let kbCounter = 0;
 function nextKbId(projectId: string): string {
   // Keep IDs stable within a project and unique across projects/restarts.
@@ -1398,8 +1403,9 @@ export async function runLibrarian(projectId: string, cycleId: string, sc: Scena
   }
 
   const strongKnowledge = storage.listKnowledge(projectId)
-    .filter((k) => !k.supersededBy && k.status === "strong");
+    .filter((k) => !k.supersededBy && k.status === "strong" && !isSeedKnowledge(k));
   const comparableConflict = (candidate: KnowledgeItem) => strongKnowledge.some((strong) => {
+    if (isSeedKnowledge(candidate)) return false;
     if (strong.id === candidate.id) return false;
     const candidateEv = evidenceCount(coreFromDb(candidate));
     const strongEv = evidenceCount(coreFromDb(strong));
