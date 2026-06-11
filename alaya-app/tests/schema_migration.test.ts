@@ -76,6 +76,8 @@ test("knowledge_items migration adds maturity and injection fields without break
   assert.equal(tables.has("notification_digests"), true, "notification_digests table should exist");
   assert.equal(tables.has("sensor_error_accumulators"), true, "sensor_error_accumulators table should exist");
   assert.equal(tables.has("pending_attributions"), true, "pending_attributions table should exist");
+  assert.equal(tables.has("distiller_proposals"), true, "distiller_proposals table should exist");
+  assert.equal(tables.has("gold_cases"), true, "gold_cases table should exist");
 
   const sensorColumns = new Set(
     (rawDb.prepare("PRAGMA table_info(sensor_error_accumulators)").all() as Array<{ name: string }>).map((row) => row.name),
@@ -89,6 +91,20 @@ test("knowledge_items migration adds maturity and injection fields without break
   );
   for (const name of ["id", "project_id", "fingerprint", "error_type", "claim_error", "context", "confidence", "status", "gate_id", "resolved_at", "created_at"]) {
     assert.equal(pendingColumns.has(name), true, `pending_attributions.${name} should exist`);
+  }
+
+  const proposalColumns = new Set(
+    (rawDb.prepare("PRAGMA table_info(distiller_proposals)").all() as Array<{ name: string }>).map((row) => row.name),
+  );
+  for (const name of ["id", "project_id", "cycle_id", "proposal_type", "target_knowledge_id", "proposed_content", "attribution_basis", "regression_status", "regression_failed_cases", "gate_id", "status", "created_at"]) {
+    assert.equal(proposalColumns.has(name), true, `distiller_proposals.${name} should exist`);
+  }
+
+  const goldColumns = new Set(
+    (rawDb.prepare("PRAGMA table_info(gold_cases)").all() as Array<{ name: string }>).map((row) => row.name),
+  );
+  for (const name of ["id", "project_id", "fingerprint", "input", "expected_error_type", "expected_route", "active", "retired_reason", "last_confirmed_at", "source_proposal_id", "created_at"]) {
+    assert.equal(goldColumns.has(name), true, `gold_cases.${name} should exist`);
   }
 
   const accumulator = storage.upsertSensorErrorAccumulator({
@@ -123,8 +139,54 @@ test("knowledge_items migration adds maturity and injection fields without break
   assert.equal(storage.listPendingAttributions("proj_schema", { fingerprint: pending.fingerprint }).length, 1);
   assert.equal(storage.updatePendingAttribution(pending.id, { status: "released", resolvedAt: "2026-06-11T00:01:00.000Z" })?.status, "released");
 
+  storage.createCycle({
+    id: "cycle_schema",
+    projectId: "proj_schema",
+    idx: 1,
+    goal: "schema",
+    status: "planning",
+    eCycle: null,
+    worstClaimError: null,
+    reasoning: "",
+    version: 1,
+  });
+  const proposal = storage.createDistillerProposal({
+    id: "dp_schema_1",
+    projectId: "proj_schema",
+    cycleId: "cycle_schema",
+    proposalType: "create",
+    targetKnowledgeId: null,
+    proposedContent: JSON.stringify({ title: "schema proposal" }),
+    attributionBasis: JSON.stringify({ attributionConfidence: 1 }),
+    regressionStatus: "pending",
+    regressionFailedCases: null,
+    gateId: null,
+    status: "proposed",
+    createdAt: "2026-06-11T00:00:00.000Z",
+  });
+  assert.equal(proposal.status, "proposed");
+  assert.equal(storage.updateDistillerProposal(proposal.id, { regressionStatus: "passed", status: "gated" })?.status, "gated");
+
+  const gold = storage.createGoldCase({
+    id: "gold_schema_1",
+    projectId: "proj_schema",
+    fingerprint: "proj_schema:activation_rate:model",
+    input: JSON.stringify({ claimError: 0.8, context: {} }),
+    expectedErrorType: "model",
+    expectedRoute: "distiller_world_model_update",
+    active: 1,
+    retiredReason: null,
+    lastConfirmedAt: null,
+    sourceProposalId: null,
+    createdAt: "2026-06-11T00:00:00.000Z",
+  });
+  assert.equal(gold.active, 1);
+  assert.equal(storage.updateGoldCase(gold.id, { active: 0, retiredReason: "schema retirement" })?.active, 0);
+
   assert.ok(storage.listEvents().find((event) => event.tableName === "sensor_error_accumulators"));
   assert.ok(storage.listEvents().find((event) => event.tableName === "pending_attributions" && event.op === "update"));
+  assert.ok(storage.listEvents().find((event) => event.tableName === "distiller_proposals" && event.op === "update"));
+  assert.ok(storage.listEvents().find((event) => event.tableName === "gold_cases" && event.op === "update"));
 
   storage.createKnowledge({
     id: "kb_schema_1",

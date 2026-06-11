@@ -1,6 +1,7 @@
 import { storage, now } from "../storage";
 import { recordTrace } from "../trace";
 import { HumanGateService } from "../humanGateService";
+import { distillerProposalDigestLines } from "../distillerProposal";
 import type { HumanGateItem } from "@shared/schema";
 import { NotificationBus, type NotificationEmitFailure } from "../notifications/bus";
 import { formatGateDecisionReceiptText, knowledgeIdForMeaningGate } from "../notifications/gateNarrative";
@@ -292,6 +293,7 @@ export async function emitReviewWindowDigest(
     body: [
       `窗口：${state.windowDate} ${state.windowLabel}（${state.timezone}）`,
       summarizeGates(gates),
+      ...distillerProposalDigestLines(projectId),
       "请进入审批会话批量处理；非 immediate 闸门不会单独打扰。",
     ].join("\n"),
     actionUrl: gateWebUrl(notificationBaseUrl(), projectId),

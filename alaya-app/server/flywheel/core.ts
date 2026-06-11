@@ -13,6 +13,7 @@ import { recordTrace } from "../trace";
 import { recordActionProposal } from "../actionLedger";
 import { HumanGateService } from "../humanGateService";
 import { createDecisionBrief, withDecisionBriefPayload } from "../decisionBrief";
+import { auditGoldCaseHealth, proposeDistillerKnowledge, type AttributionBasis } from "../distillerProposal";
 import { computeClaimError, computeCycleError } from "alaya-core/src/core/compute_error.js";
 import { classifyErrorWithConfidence } from "alaya-core/src/core/classify_error.js";
 import { applyEvidence, GRAY_HIGH, GRAY_LOW } from "alaya-core/src/core/update_confidence.js";
@@ -1207,7 +1208,31 @@ export function evaluatePrediction(
   return { pred, claimError: claim.error ?? 0, claim, attribution };
 }
 
-export async function runDistiller(projectId: string, cycleId: string, sc: ScenarioRound, claimError: number, refs: string[], llmCaller: LlmCaller = callLlm) {
+function defaultAttributionBasis(claimError: number): AttributionBasis {
+  return {
+    errorType: "model",
+    claimError,
+    contextSnapshot: {
+      perceptionFailure: false,
+      executionFailure: false,
+      humanFlaggedValueMismatch: false,
+      isQualitative: false,
+    },
+    attributionConfidence: 1,
+    route: "distiller_world_model_update",
+    sampleFingerprints: [],
+  };
+}
+
+export async function runDistiller(
+  projectId: string,
+  cycleId: string,
+  sc: ScenarioRound,
+  claimError: number,
+  refs: string[],
+  llmCaller: LlmCaller = callLlm,
+  attributionBasis: AttributionBasis = defaultAttributionBasis(claimError),
+) {
   const distillerFeedback = sc.feedback.filter((item) => !sensorErrorKindFromPayload({}, item.text));
   const llmData = await llmCaller({
     cycleId,
@@ -1240,9 +1265,14 @@ export async function runDistiller(projectId: string, cycleId: string, sc: Scena
       notes: nonEmptyString(candidate.notes, "由第1轮预测失败 + 两条负面反馈提炼"), version: 1,
     };
     const next = applyEvidenceDb(base, { kind: "prediction", normalizedError: claimError });
-    const saved = storage.createKnowledge({ ...base, evidenceAlpha: next.evidenceAlpha, evidenceBeta: next.evidenceBeta, confidenceScore: next.confidenceScore, confidenceLevel: next.confidenceLevel, grayStreak: next.grayStreak });
-    created.push(saved.id);
-    logEvent(1, "distiller", "knowledge_items", "insert", { id: saved.id });
+    const proposed = proposeDistillerKnowledge({
+      projectId,
+      cycleId,
+      proposedContent: { ...base, evidenceAlpha: next.evidenceAlpha, evidenceBeta: next.evidenceBeta, confidenceScore: next.confidenceScore, confidenceLevel: next.confidenceLevel, grayStreak: next.grayStreak },
+      attributionBasis,
+    });
+    created.push(proposed.proposal.id);
+    logEvent(1, "distiller", "distiller_proposals", "insert", { id: proposed.proposal.id, gateId: proposed.gate?.id ?? null });
   }
 
   if (sc.index === 2) {
@@ -1270,9 +1300,14 @@ export async function runDistiller(projectId: string, cycleId: string, sc: Scena
       notes: nonEmptyString(candidate.notes, "由第2轮预测成功 + 正面反馈提炼"), version: 1,
     };
     const next = applyEvidenceDb(base, { kind: "prediction", normalizedError: claimError });
-    const saved = storage.createKnowledge({ ...base, evidenceAlpha: next.evidenceAlpha, evidenceBeta: next.evidenceBeta, confidenceScore: next.confidenceScore, confidenceLevel: next.confidenceLevel, grayStreak: next.grayStreak });
-    created.push(saved.id);
-    logEvent(2, "distiller", "knowledge_items", "insert", { id: saved.id });
+    const proposed = proposeDistillerKnowledge({
+      projectId,
+      cycleId,
+      proposedContent: { ...base, evidenceAlpha: next.evidenceAlpha, evidenceBeta: next.evidenceBeta, confidenceScore: next.confidenceScore, confidenceLevel: next.confidenceLevel, grayStreak: next.grayStreak },
+      attributionBasis,
+    });
+    created.push(proposed.proposal.id);
+    logEvent(2, "distiller", "distiller_proposals", "insert", { id: proposed.proposal.id, gateId: proposed.gate?.id ?? null });
   }
 
   if (sc.index === 3) {
@@ -1329,17 +1364,22 @@ export async function runDistiller(projectId: string, cycleId: string, sc: Scena
     };
     let next = applyEvidenceDb(base, { kind: "prediction", normalizedError: claimError });
     next = applyEvidence(coreFromDb({ ...base, ...next } as any), { kind: "external_verify" }).next as any;
-    const saved = storage.createKnowledge({
-      ...base,
-      evidenceAlpha: next.evidenceAlpha,
-      evidenceBeta: next.evidenceBeta,
-      confidenceScore: next.confidenceScore,
-      confidenceLevel: next.confidenceLevel,
-      grayStreak: next.grayStreak,
-      externalVerifiedCount: next.externalVerifiedCount,
+    const proposed = proposeDistillerKnowledge({
+      projectId,
+      cycleId,
+      proposedContent: {
+        ...base,
+        evidenceAlpha: next.evidenceAlpha,
+        evidenceBeta: next.evidenceBeta,
+        confidenceScore: next.confidenceScore,
+        confidenceLevel: next.confidenceLevel,
+        grayStreak: next.grayStreak,
+        externalVerifiedCount: next.externalVerifiedCount,
+      },
+      attributionBasis,
     });
-    created.push(saved.id);
-    logEvent(4, "distiller", "knowledge_items", "insert", { id: saved.id });
+    created.push(proposed.proposal.id);
+    logEvent(4, "distiller", "distiller_proposals", "insert", { id: proposed.proposal.id, gateId: proposed.gate?.id ?? null });
   }
 
   if (sc.index > SCENARIO.length) {
@@ -1378,22 +1418,27 @@ export async function runDistiller(projectId: string, cycleId: string, sc: Scena
         version: 1,
       };
       const next = applyEvidenceDb(base, { kind: "prediction", normalizedError: claimError });
-      const saved = storage.createKnowledge({
-        ...base,
-        evidenceAlpha: next.evidenceAlpha,
-        evidenceBeta: next.evidenceBeta,
-        confidenceScore: next.confidenceScore,
-        confidenceLevel: next.confidenceLevel,
-        grayStreak: next.grayStreak,
+      const proposed = proposeDistillerKnowledge({
+        projectId,
+        cycleId,
+        proposedContent: {
+          ...base,
+          evidenceAlpha: next.evidenceAlpha,
+          evidenceBeta: next.evidenceBeta,
+          confidenceScore: next.confidenceScore,
+          confidenceLevel: next.confidenceLevel,
+          grayStreak: next.grayStreak,
+        },
+        attributionBasis,
       });
-      created.push(saved.id);
-      logEvent(sc.index, "distiller", "knowledge_items", "insert", { id: saved.id, candidateForMergeWith: anchor.id });
+      created.push(proposed.proposal.id);
+      logEvent(sc.index, "distiller", "distiller_proposals", "insert", { id: proposed.proposal.id, gateId: proposed.gate?.id ?? null, candidateForMergeWith: anchor.id });
     }
   }
 
   storage.recordAgentRun({
     cycleId, cycleIdx: sc.index, agent: "distiller", action: "distill_knowledge_candidates",
-    outputSummary: created.length ? `生成知识候选: ${created.join(",")}` : "强化既有知识证据",
+    outputSummary: created.length ? `生成知识提案: ${created.join(",")}` : "强化既有知识证据",
     knowledgeRefsUsed: JSON.stringify(refs), ts: now(),
   });
   traceAgentRun(projectId, cycleId, sc.index, "distiller", "distill_knowledge_candidates", refs);
@@ -1565,6 +1610,10 @@ export async function runLibrarian(projectId: string, cycleId: string, sc: Scena
       });
     }
   }
+  const goldHealth = auditGoldCaseHealth(projectId);
+  if (goldHealth.issueCount > 0) {
+    transitions.push(`金集健康：${goldHealth.issueCount} 项待复核`);
+  }
   storage.recordAgentRun({
     cycleId, cycleIdx: sc.index, agent: "librarian", action: "audit_merge_transition",
     outputSummary: transitions.length ? transitions.join(" | ") : "无状态迁移",
@@ -1586,6 +1635,23 @@ export async function runOperationalStagesAfterApprovedDirection(projectId: stri
   const utilityFeedback = applyCycleUtilityFeedback(projectId, cycleId);
   let shouldRunDistiller = true;
   let distillerSkipReason = "";
+  let distillerAttributionBasis: AttributionBasis = {
+    errorType: attribution.errorType,
+    claimError,
+    contextSnapshot: {
+      predictionId: pred.id,
+      claimId: claim.id,
+      metric: claim.metric ?? claim.id,
+      perceptionFailure: !sc.perceptionOk,
+      executionFailure: !sc.buildSuccess,
+      humanFlaggedValueMismatch: sc.humanValueMismatch,
+      isQualitative: false,
+    },
+    attributionConfidence: attribution.attributionConfidence,
+    route: attribution.route,
+    lowConfidenceReasons: attribution.lowConfidenceReasons,
+    sampleFingerprints: [`${projectId}:${claim.metric ?? claim.id}:${attribution.errorType ?? "none"}`],
+  };
   if (pred.errorType === "perception") {
     shouldRunDistiller = false;
     distillerSkipReason = "sensor_firewall_perception_route";
@@ -1607,9 +1673,25 @@ export async function runOperationalStagesAfterApprovedDirection(projectId: stri
     });
     shouldRunDistiller = pendingDecision.shouldReleaseDistiller;
     distillerSkipReason = pendingDecision.shouldReleaseDistiller ? "" : `pending_attribution_${pendingDecision.status}`;
+    if (pendingDecision.shouldReleaseDistiller) {
+      const releasedSamples = storage.listPendingAttributions(projectId, {
+        fingerprint: pendingDecision.fingerprint,
+        status: "released",
+      });
+      distillerAttributionBasis = {
+        ...distillerAttributionBasis,
+        sampleFingerprints: [pendingDecision.fingerprint],
+        pendingAttributionIds: releasedSamples.map((sample) => sample.id),
+        contextSnapshot: {
+          ...distillerAttributionBasis.contextSnapshot,
+          pendingAttributionStatus: pendingDecision.status,
+          releasedSampleCount: releasedSamples.length,
+        },
+      };
+    }
   }
   if (shouldRunDistiller) {
-    await runDistiller(projectId, cycleId, sc, claimError, directionPlan.refs);
+    await runDistiller(projectId, cycleId, sc, claimError, directionPlan.refs, callLlm, distillerAttributionBasis);
   } else {
     storage.recordAgentRun({
       cycleId,

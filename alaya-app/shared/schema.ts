@@ -360,6 +360,37 @@ export const pendingAttributions = sqliteTable("pending_attributions", {
   version: integer("version").notNull().default(1),
 });
 
+// ---------------- distillerProposals ----------------
+export const distillerProposals = sqliteTable("distiller_proposals", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull(),
+  cycleId: text("cycle_id").notNull(),
+  proposalType: text("proposal_type").notNull(),
+  targetKnowledgeId: text("target_knowledge_id"),
+  proposedContent: text("proposed_content").notNull().default("{}"),
+  attributionBasis: text("attribution_basis").notNull().default("{}"),
+  regressionStatus: text("regression_status").notNull().default("pending"),
+  regressionFailedCases: text("regression_failed_cases"),
+  gateId: text("gate_id"),
+  status: text("status").notNull().default("proposed"),
+  createdAt: text("created_at").notNull(),
+});
+
+// ---------------- goldCases ----------------
+export const goldCases = sqliteTable("gold_cases", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull(),
+  fingerprint: text("fingerprint").notNull(),
+  input: text("input").notNull().default("{}"),
+  expectedErrorType: text("expected_error_type"),
+  expectedRoute: text("expected_route").notNull(),
+  active: integer("active").notNull().default(1),
+  retiredReason: text("retired_reason"),
+  lastConfirmedAt: text("last_confirmed_at"),
+  sourceProposalId: text("source_proposal_id"),
+  createdAt: text("created_at").notNull(),
+});
+
 // ---------------- orgModules ----------------
 export const orgModules = sqliteTable("org_modules", {
   id: text("id").primaryKey(),
@@ -451,6 +482,8 @@ export type KnowledgeReviewItem = typeof knowledgeReviewItems.$inferSelect;
 export type ExternalBusinessSignal = typeof externalBusinessSignals.$inferSelect;
 export type SensorErrorAccumulator = typeof sensorErrorAccumulators.$inferSelect;
 export type PendingAttribution = typeof pendingAttributions.$inferSelect;
+export type DistillerProposal = typeof distillerProposals.$inferSelect;
+export type GoldCase = typeof goldCases.$inferSelect;
 export type OrgModule = typeof orgModules.$inferSelect;
 
 export const CLAIM_SCALE_EPS = 1e-6;

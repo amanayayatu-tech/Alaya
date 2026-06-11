@@ -9,6 +9,9 @@ process.env.ALAYA_LLM_PROVIDER = "mock";
 
 const { storage } = await import("../server/storage.ts");
 const { runFullCycle, resolveCycleStimulus, scenarioForCycle } = await import("../server/flywheel.ts");
+const { HumanGateService } = await import("../server/humanGateService.ts");
+
+const gateService = new HumanGateService(storage);
 
 function createProject(projectId: string) {
   storage.createProject({
@@ -44,6 +47,14 @@ function createCycle(projectId: string, idx: number) {
   });
 }
 
+function approveDistillerProposalGates(projectId: string, cycleId: string) {
+  for (const gate of storage.listGates(projectId).filter((item) => item.cycleId === cycleId && item.status === "pending" && item.type === "meaning")) {
+    const payload = JSON.parse(gate.payload);
+    if (payload.source !== "distiller_proposal") continue;
+    gateService.approve(gate.id, { actor: "test", via: "test" });
+  }
+}
+
 test("cycle 4 scenario is independent from cycle 3", () => {
   const cycle3 = scenarioForCycle(3);
   const cycle4 = scenarioForCycle(4);
@@ -62,11 +73,13 @@ test("cycle 4 execution creates at least one new principle for that round", asyn
   for (let idx = 1; idx <= 3; idx += 1) {
     const cycle = createCycle(projectId, idx);
     await runFullCycle(projectId, cycle.id);
+    approveDistillerProposalGates(projectId, cycle.id);
   }
 
   const beforeRound4 = new Set(storage.listKnowledge(projectId).map((item) => item.id));
   const cycle4 = createCycle(projectId, 4);
   await runFullCycle(projectId, cycle4.id);
+  approveDistillerProposalGates(projectId, cycle4.id);
 
   const newRound4Principles = storage.listKnowledge(projectId).filter((item) => (
     !beforeRound4.has(item.id) &&
@@ -85,6 +98,7 @@ test("cycle numbers above 3 do not reuse cycle 3 or emit a scenario reuse warnin
   for (let idx = 1; idx <= 4; idx += 1) {
     const cycle = createCycle(projectId, idx);
     await runFullCycle(projectId, cycle.id);
+    approveDistillerProposalGates(projectId, cycle.id);
   }
 
   const cycle3 = scenarioForCycle(3);

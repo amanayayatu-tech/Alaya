@@ -26,6 +26,14 @@ function approveGate(gateId: string, decision = "approve") {
   });
 }
 
+function approveDistillerProposalGates(projectId: string, cycleId: string) {
+  for (const gate of storage.listGates(projectId).filter((item) => item.cycleId === cycleId && item.status === "pending" && item.type === "meaning")) {
+    const payload = JSON.parse(gate.payload);
+    if (payload.source !== "distiller_proposal") continue;
+    gateService.approve(gate.id, { actor: "test", via: "test" });
+  }
+}
+
 function createProject(projectId: string) {
   storage.createProject({
     id: projectId,
@@ -250,6 +258,7 @@ test("round 4 emits trace evidence, rollback package, and approved action ledger
   for (let idx = 1; idx <= 4; idx += 1) {
     const cycle = createCycle(projectId, idx);
     await runFullCycle(projectId, cycle.id);
+    approveDistillerProposalGates(projectId, cycle.id);
   }
 
   const cycle4 = storage.listCycles(projectId).find((cycle) => cycle.idx === 4);

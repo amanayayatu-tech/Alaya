@@ -19,10 +19,12 @@ const { buildOpsMetrics } = await import("../alaya-app/server/opsMetrics.ts");
 const { buildMetricsSnapshot } = await import("../alaya-app/server/observability/metrics.ts");
 const { importBusinessSignals } = await import("../alaya-app/server/businessSignals.ts");
 const { createOrgModule, convertOrgModuleToKnowledge } = await import("../alaya-app/server/orgModules.ts");
+const { HumanGateService } = await import("../alaya-app/server/humanGateService.ts");
 const { transitionState } = await import("alaya-core/src/core/transition_state.ts");
 const { resolveModelRoute } = await import("alaya-core/src/llm/model_router.ts");
 
 const results = [];
+const gateService = new HumanGateService(storage);
 
 function createProject(projectId) {
   storage.createProject({
@@ -56,6 +58,15 @@ function createCycle(projectId, idx) {
     reasoning: "",
     version: 1,
   });
+}
+
+function approveDistillerProposalGates(projectId, cycleId) {
+  for (const gate of storage.listGates(projectId)) {
+    if (gate.cycleId !== cycleId || gate.status !== "pending" || gate.type !== "meaning") continue;
+    const payload = JSON.parse(gate.payload);
+    if (payload.source !== "distiller_proposal") continue;
+    gateService.approve(gate.id, { actor: "benchmark", via: "benchmark" });
+  }
 }
 
 function createKnowledge(projectId, id, patch = {}) {
@@ -139,7 +150,11 @@ await runCase("round4_regression", () => {
 await runCase("trace_completeness_and_rollback_package", async () => {
   const projectId = "bench_trace_round4";
   createProject(projectId);
-  for (let idx = 1; idx <= 4; idx += 1) await runFullCycle(projectId, createCycle(projectId, idx).id);
+  for (let idx = 1; idx <= 4; idx += 1) {
+    const cycle = createCycle(projectId, idx);
+    await runFullCycle(projectId, cycle.id);
+    approveDistillerProposalGates(projectId, cycle.id);
+  }
   const cycle4 = storage.listCycles(projectId).find((cycle) => cycle.idx === 4);
   assert.ok(cycle4);
   const traces = storage.listTraceEventsByCycle(cycle4.id).map(parseTraceEvent);
