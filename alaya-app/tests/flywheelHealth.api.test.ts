@@ -13,6 +13,9 @@ process.env.ALAYA_LLM_PROVIDER = "mock";
 const { rawDb, storage } = await import("../server/storage.ts");
 const { registerRoutes } = await import("../server/routes.ts");
 const { runFullCycle, scenarioForCycle } = await import("../server/flywheel.ts");
+const { HumanGateService } = await import("../server/humanGateService.ts");
+
+const gateService = new HumanGateService(storage);
 
 const app = express();
 app.use(express.json());
@@ -94,6 +97,14 @@ function createKnowledge(projectId: string, id: string, createdByCycle: number, 
   });
 }
 
+function approveDistillerProposalGates(projectId: string, cycleId: string) {
+  for (const gate of storage.listGates(projectId).filter((item) => item.cycleId === cycleId && item.status === "pending" && item.type === "meaning")) {
+    const payload = JSON.parse(gate.payload);
+    if (payload.source !== "distiller_proposal") continue;
+    gateService.approve(gate.id, { actor: "test", via: "test" });
+  }
+}
+
 const projectId = "proj_health_four_rounds";
 
 test.before(async () => {
@@ -101,6 +112,7 @@ test.before(async () => {
   for (let idx = 1; idx <= 4; idx += 1) {
     const cycle = createCycle(projectId, idx);
     await runFullCycle(projectId, cycle.id);
+    approveDistillerProposalGates(projectId, cycle.id);
   }
 });
 

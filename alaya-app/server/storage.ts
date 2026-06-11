@@ -7,7 +7,7 @@ import type {
   KnowledgeItem, HumanGateItem, DecisionLogItem, EventLogItem, LlmCall, AgentRun,
   ExternalFeedbackSource, TraceEventItem, ActionLedgerRow,
   KnowledgeReviewItem, ExternalBusinessSignal, OrgModule, ReviewSessionItem, NotificationDigestItem,
-  SensorErrorAccumulator, PendingAttribution,
+  SensorErrorAccumulator, PendingAttribution, DistillerProposal, GoldCase,
 } from "@shared/schema";
 
 assertEnvValid();
@@ -40,6 +40,8 @@ const REQUIRED_TABLES = [
   "external_business_signals",
   "sensor_error_accumulators",
   "pending_attributions",
+  "distiller_proposals",
+  "gold_cases",
   "org_modules",
 ];
 
@@ -63,6 +65,8 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   external_business_signals: ["dedupe_key", "risk_level", "gate_id"],
   sensor_error_accumulators: ["event_timestamps_ms", "last_seen_at"],
   pending_attributions: ["status", "gate_id", "resolved_at"],
+  distiller_proposals: ["regression_status", "regression_failed_cases", "gate_id", "status"],
+  gold_cases: ["project_id", "active", "retired_reason", "last_confirmed_at", "source_proposal_id"],
   org_modules: ["version_label", "knowledge_id"],
   human_gate_items: [
     "notify_policy",
@@ -298,6 +302,28 @@ export function runSchemaMigrations() {
     gate_id TEXT, resolved_at TEXT, created_at TEXT NOT NULL,
     version INTEGER NOT NULL DEFAULT 1
   );
+  CREATE TABLE IF NOT EXISTS distiller_proposals (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, cycle_id TEXT NOT NULL,
+    proposal_type TEXT NOT NULL, target_knowledge_id TEXT,
+    proposed_content TEXT NOT NULL DEFAULT '{}',
+    attribution_basis TEXT NOT NULL DEFAULT '{}',
+    regression_status TEXT NOT NULL DEFAULT 'pending',
+    regression_failed_cases TEXT,
+    gate_id TEXT,
+    status TEXT NOT NULL DEFAULT 'proposed',
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS gold_cases (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
+    input TEXT NOT NULL DEFAULT '{}',
+    expected_error_type TEXT,
+    expected_route TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    retired_reason TEXT,
+    last_confirmed_at TEXT,
+    source_proposal_id TEXT,
+    created_at TEXT NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS org_modules (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL, module_name TEXT NOT NULL,
     problem_solved TEXT NOT NULL DEFAULT '', owner_role TEXT NOT NULL DEFAULT '',
@@ -405,6 +431,29 @@ export function runSchemaMigrations() {
     WHERE input_token_count = 0 AND output_token_count = 0 AND token_count > 0;
   `);
 
+  const proposalColumns = tableColumns("distiller_proposals");
+  const proposalColumnSpecs: Array<[string, string]> = [
+    ["regression_status", "TEXT NOT NULL DEFAULT 'pending'"],
+    ["regression_failed_cases", "TEXT"],
+    ["gate_id", "TEXT"],
+    ["status", "TEXT NOT NULL DEFAULT 'proposed'"],
+  ];
+  for (const [name, spec] of proposalColumnSpecs) {
+    if (!proposalColumns.has(name)) sqlite.exec(`ALTER TABLE distiller_proposals ADD COLUMN ${name} ${spec}`);
+  }
+
+  const goldColumns = tableColumns("gold_cases");
+  const goldColumnSpecs: Array<[string, string]> = [
+    ["project_id", "TEXT NOT NULL DEFAULT 'system'"],
+    ["active", "INTEGER NOT NULL DEFAULT 1"],
+    ["retired_reason", "TEXT"],
+    ["last_confirmed_at", "TEXT"],
+    ["source_proposal_id", "TEXT"],
+  ];
+  for (const [name, spec] of goldColumnSpecs) {
+    if (!goldColumns.has(name)) sqlite.exec(`ALTER TABLE gold_cases ADD COLUMN ${name} ${spec}`);
+  }
+
   // FTS5 virtual table mirroring knowledge_items + sync triggers
   sqlite.exec(`
   CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
@@ -454,6 +503,10 @@ export function runSchemaMigrations() {
   CREATE INDEX IF NOT EXISTS idx_business_signals_project ON external_business_signals(project_id, observed_at);
   CREATE INDEX IF NOT EXISTS idx_sensor_accumulators_project ON sensor_error_accumulators(project_id, last_seen_at);
   CREATE INDEX IF NOT EXISTS idx_pending_attributions_fingerprint ON pending_attributions(project_id, fingerprint, status, created_at);
+  CREATE INDEX IF NOT EXISTS idx_distiller_proposals_project_status ON distiller_proposals(project_id, status, created_at);
+  CREATE INDEX IF NOT EXISTS idx_distiller_proposals_gate ON distiller_proposals(gate_id);
+  CREATE INDEX IF NOT EXISTS idx_gold_cases_project_active ON gold_cases(project_id, active, created_at);
+  CREATE INDEX IF NOT EXISTS idx_gold_cases_fingerprint ON gold_cases(project_id, fingerprint);
   CREATE INDEX IF NOT EXISTS idx_org_modules_project ON org_modules(project_id, module_name);
   `);
 }
@@ -716,6 +769,37 @@ function rowToPendingAttribution(r: any): PendingAttribution {
     resolvedAt: r.resolved_at, createdAt: r.created_at, version: r.version,
   };
 }
+function rowToDistillerProposal(r: any): DistillerProposal {
+  return {
+    id: r.id,
+    projectId: r.project_id,
+    cycleId: r.cycle_id,
+    proposalType: r.proposal_type,
+    targetKnowledgeId: r.target_knowledge_id,
+    proposedContent: r.proposed_content,
+    attributionBasis: r.attribution_basis,
+    regressionStatus: r.regression_status,
+    regressionFailedCases: r.regression_failed_cases,
+    gateId: r.gate_id,
+    status: r.status,
+    createdAt: r.created_at,
+  };
+}
+function rowToGoldCase(r: any): GoldCase {
+  return {
+    id: r.id,
+    projectId: r.project_id,
+    fingerprint: r.fingerprint,
+    input: r.input,
+    expectedErrorType: r.expected_error_type,
+    expectedRoute: r.expected_route,
+    active: r.active,
+    retiredReason: r.retired_reason,
+    lastConfirmedAt: r.last_confirmed_at,
+    sourceProposalId: r.source_proposal_id,
+    createdAt: r.created_at,
+  };
+}
 function rowToOrgModule(r: any): OrgModule {
   return {
     id: r.id, projectId: r.project_id, moduleName: r.module_name,
@@ -831,6 +915,17 @@ export interface IStorage {
   getPendingAttribution(id: string): PendingAttribution | undefined;
   listPendingAttributions(projectId: string, options?: { fingerprint?: string; since?: string; status?: string }): PendingAttribution[];
   updatePendingAttribution(id: string, patch: Partial<PendingAttribution>): PendingAttribution | undefined;
+  // distiller proposals
+  createDistillerProposal(p: DistillerProposal): DistillerProposal;
+  getDistillerProposal(id: string): DistillerProposal | undefined;
+  getDistillerProposalByGate(gateId: string): DistillerProposal | undefined;
+  listDistillerProposals(projectId?: string, options?: { status?: string; gateId?: string }): DistillerProposal[];
+  updateDistillerProposal(id: string, patch: Partial<DistillerProposal>): DistillerProposal | undefined;
+  // gold cases
+  createGoldCase(c: GoldCase): GoldCase;
+  getGoldCase(id: string): GoldCase | undefined;
+  listGoldCases(projectId?: string, options?: { active?: boolean; sourceProposalId?: string }): GoldCase[];
+  updateGoldCase(id: string, patch: Partial<GoldCase>): GoldCase | undefined;
   // org modules
   createOrgModule(m: OrgModule): OrgModule;
   getOrgModule(id: string): OrgModule | undefined;
@@ -1601,6 +1696,138 @@ export class DatabaseStorage implements IStorage {
       version: n.version,
     });
     this.auditWrite("sensor", "pending_attributions", "update", cur, n, 0);
+    return n;
+  }
+  // ---- distiller proposals ----
+  createDistillerProposal(p: DistillerProposal): DistillerProposal {
+    rawDb.prepare(`INSERT INTO distiller_proposals (id,project_id,cycle_id,proposal_type,target_knowledge_id,proposed_content,attribution_basis,regression_status,regression_failed_cases,gate_id,status,created_at)
+      VALUES (@id,@project_id,@cycle_id,@proposal_type,@target_knowledge_id,@proposed_content,@attribution_basis,@regression_status,@regression_failed_cases,@gate_id,@status,@created_at)`).run({
+      id: p.id,
+      project_id: p.projectId,
+      cycle_id: p.cycleId,
+      proposal_type: p.proposalType,
+      target_knowledge_id: p.targetKnowledgeId,
+      proposed_content: p.proposedContent,
+      attribution_basis: p.attributionBasis,
+      regression_status: p.regressionStatus,
+      regression_failed_cases: p.regressionFailedCases,
+      gate_id: p.gateId,
+      status: p.status,
+      created_at: p.createdAt,
+    });
+    this.auditWrite("distiller", "distiller_proposals", "insert", null, p, this.cycleIdxFor(p.cycleId));
+    return p;
+  }
+  getDistillerProposal(id: string): DistillerProposal | undefined {
+    const r = rawDb.prepare(`SELECT * FROM distiller_proposals WHERE id=?`).get(id);
+    return r ? rowToDistillerProposal(r) : undefined;
+  }
+  getDistillerProposalByGate(gateId: string): DistillerProposal | undefined {
+    const r = rawDb.prepare(`SELECT * FROM distiller_proposals WHERE gate_id=? ORDER BY created_at DESC LIMIT 1`).get(gateId);
+    return r ? rowToDistillerProposal(r) : undefined;
+  }
+  listDistillerProposals(projectId?: string, options: { status?: string; gateId?: string } = {}): DistillerProposal[] {
+    const conditions: string[] = [];
+    const params: string[] = [];
+    if (projectId) {
+      conditions.push("project_id = ?");
+      params.push(projectId);
+    }
+    if (options.status) {
+      conditions.push("status = ?");
+      params.push(options.status);
+    }
+    if (options.gateId) {
+      conditions.push("gate_id = ?");
+      params.push(options.gateId);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    return rawDb.prepare(`SELECT * FROM distiller_proposals ${where} ORDER BY created_at ASC, id ASC`)
+      .all(...params)
+      .map(rowToDistillerProposal);
+  }
+  updateDistillerProposal(id: string, patch: Partial<DistillerProposal>): DistillerProposal | undefined {
+    const cur = this.getDistillerProposal(id);
+    if (!cur) return undefined;
+    const n = { ...cur, ...patch };
+    rawDb.prepare(`UPDATE distiller_proposals SET project_id=@project_id,cycle_id=@cycle_id,proposal_type=@proposal_type,target_knowledge_id=@target_knowledge_id,proposed_content=@proposed_content,attribution_basis=@attribution_basis,regression_status=@regression_status,regression_failed_cases=@regression_failed_cases,gate_id=@gate_id,status=@status,created_at=@created_at WHERE id=@id`).run({
+      id,
+      project_id: n.projectId,
+      cycle_id: n.cycleId,
+      proposal_type: n.proposalType,
+      target_knowledge_id: n.targetKnowledgeId,
+      proposed_content: n.proposedContent,
+      attribution_basis: n.attributionBasis,
+      regression_status: n.regressionStatus,
+      regression_failed_cases: n.regressionFailedCases,
+      gate_id: n.gateId,
+      status: n.status,
+      created_at: n.createdAt,
+    });
+    this.auditWrite("distiller", "distiller_proposals", "update", cur, n, this.cycleIdxFor(n.cycleId));
+    return n;
+  }
+  // ---- gold cases ----
+  createGoldCase(c: GoldCase): GoldCase {
+    rawDb.prepare(`INSERT INTO gold_cases (id,project_id,fingerprint,input,expected_error_type,expected_route,active,retired_reason,last_confirmed_at,source_proposal_id,created_at)
+      VALUES (@id,@project_id,@fingerprint,@input,@expected_error_type,@expected_route,@active,@retired_reason,@last_confirmed_at,@source_proposal_id,@created_at)`).run({
+      id: c.id,
+      project_id: c.projectId,
+      fingerprint: c.fingerprint,
+      input: c.input,
+      expected_error_type: c.expectedErrorType,
+      expected_route: c.expectedRoute,
+      active: c.active,
+      retired_reason: c.retiredReason,
+      last_confirmed_at: c.lastConfirmedAt,
+      source_proposal_id: c.sourceProposalId,
+      created_at: c.createdAt,
+    });
+    this.auditWrite("librarian", "gold_cases", "insert", null, c, 0);
+    return c;
+  }
+  getGoldCase(id: string): GoldCase | undefined {
+    const r = rawDb.prepare(`SELECT * FROM gold_cases WHERE id=?`).get(id);
+    return r ? rowToGoldCase(r) : undefined;
+  }
+  listGoldCases(projectId?: string, options: { active?: boolean; sourceProposalId?: string } = {}): GoldCase[] {
+    const conditions: string[] = [];
+    const params: Array<string | number> = [];
+    if (projectId) {
+      conditions.push("project_id = ?");
+      params.push(projectId);
+    }
+    if (typeof options.active === "boolean") {
+      conditions.push("active = ?");
+      params.push(options.active ? 1 : 0);
+    }
+    if (options.sourceProposalId) {
+      conditions.push("source_proposal_id = ?");
+      params.push(options.sourceProposalId);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    return rawDb.prepare(`SELECT * FROM gold_cases ${where} ORDER BY created_at ASC, id ASC`)
+      .all(...params)
+      .map(rowToGoldCase);
+  }
+  updateGoldCase(id: string, patch: Partial<GoldCase>): GoldCase | undefined {
+    const cur = this.getGoldCase(id);
+    if (!cur) return undefined;
+    const n = { ...cur, ...patch };
+    rawDb.prepare(`UPDATE gold_cases SET project_id=@project_id,fingerprint=@fingerprint,input=@input,expected_error_type=@expected_error_type,expected_route=@expected_route,active=@active,retired_reason=@retired_reason,last_confirmed_at=@last_confirmed_at,source_proposal_id=@source_proposal_id,created_at=@created_at WHERE id=@id`).run({
+      id,
+      project_id: n.projectId,
+      fingerprint: n.fingerprint,
+      input: n.input,
+      expected_error_type: n.expectedErrorType,
+      expected_route: n.expectedRoute,
+      active: n.active,
+      retired_reason: n.retiredReason,
+      last_confirmed_at: n.lastConfirmedAt,
+      source_proposal_id: n.sourceProposalId,
+      created_at: n.createdAt,
+    });
+    this.auditWrite("librarian", "gold_cases", "update", cur, n, 0);
     return n;
   }
   // ---- org modules ----

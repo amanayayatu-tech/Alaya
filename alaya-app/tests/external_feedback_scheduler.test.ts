@@ -2261,6 +2261,13 @@ test("scheduler can compound through four flywheel cycles without duplicating ga
     const ran = await schedulerTickProject(projectId);
     assert.equal(ran.action, "ran_operational_stages");
     assert.equal(storage.getCycle(cycle.id)?.status, "closed");
+    for (const proposalGate of storage.listGates(projectId).filter((g) => {
+      if (g.cycleId !== cycle.id || g.status !== "pending" || g.type !== "meaning") return false;
+      const payload = JSON.parse(g.payload);
+      return payload.source === "distiller_proposal";
+    })) {
+      new HumanGateService(storage).approve(proposalGate.id, { actor: "human", via: "test" });
+    }
 
     if (idx < 4) {
       const created = await schedulerTickProject(projectId);
@@ -2417,13 +2424,19 @@ test("flywheel plan and task spec consume LLM output while preserving audit guar
   const { claimError } = evaluatePrediction(projectId, cycle.id, scenario, plan);
   const created = await runDistiller(projectId, cycle.id, scenario, claimError, plan.refs, fakeLlm);
   assert.equal(created.length, 1);
-  const knowledge = storage.getKnowledge(created[0]);
+  const proposal = storage.getDistillerProposal(created[0]);
+  assert.equal(proposal?.status, "gated");
+  assert.equal(storage.listKnowledge(projectId).filter((item) => item.sourceRef === "llm:f1,f2").length, 0);
+  const gateId = proposal?.gateId;
+  assert.ok(gateId);
+  new HumanGateService(storage).approve(gateId, { actor: "human", via: "test" });
+  const knowledge = storage.getKnowledge(JSON.parse(proposal?.proposedContent ?? "{}").id);
   assert.ok(knowledge);
   assert.equal(knowledge.title, "LLM K1: operators need visible change boundaries");
   assert.equal(knowledge.content, "LLM content: operators hesitate when automation cannot show the exact change boundary.");
   assert.equal(knowledge.sourceRef, "llm:f1,f2");
   assert.equal(knowledge.notes, "LLM candidate rationale should survive into notes.");
   assert.deepEqual(JSON.parse(knowledge.tags).sort(), ["adoption", "llm_generated", "user_fear"]);
-  assert.equal(knowledge.createdBy, "distiller");
-  assert.equal(knowledge.status, "draft");
+  assert.equal(knowledge.createdBy, "distiller_proposal");
+  assert.equal(knowledge.status, "active");
 });

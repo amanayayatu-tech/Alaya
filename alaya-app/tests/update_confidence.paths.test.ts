@@ -97,7 +97,13 @@ test("Distiller new-knowledge path preserves gray-zone weak alpha increment", as
 
   const created = await runDistiller(projectId, cycle.id, scenario(1), 0.4, []);
   assert.equal(created.length, 1);
-  const item = storage.getKnowledge(created[0]);
+  assert.equal(storage.listKnowledge(projectId).length, 0);
+  const proposal = storage.getDistillerProposal(created[0]);
+  assert.equal(proposal?.status, "gated");
+  const gate = proposal?.gateId ? storage.getGate(proposal.gateId) : undefined;
+  assert.ok(gate);
+  new HumanGateService().approve(gate.id, { actor: "tester", via: "unit" });
+  const item = storage.getKnowledge(JSON.parse(proposal?.proposedContent ?? "{}").id);
   assert.equal(item?.evidenceAlpha, 1.5);
   assert.equal(item?.evidenceBeta, 1);
 });

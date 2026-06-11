@@ -7,6 +7,7 @@ import { storage, now, type IStorage } from "./storage";
 import { recordTrace } from "./trace";
 import { runKnowledgeConflictDetector } from "./knowledgeConflictHooks";
 import { nextReviewWindowStartIso } from "./reviewWindow";
+import { applyApprovedDistillerProposalFromGate, rejectDistillerProposalFromGate } from "./distillerProposal";
 
 export type GateDecisionAction = "approve" | "reject" | "modify";
 export type RejectReasonCode = "wrong_direction" | "weak_evidence" | "not_now" | "too_risky";
@@ -546,6 +547,9 @@ export class HumanGateService {
       if (action === "approve" && gate.type === "meaning") {
         this.createKnowledgeFromApprovedMeaningGate(updated ?? gate, input);
       }
+      if (action === "reject" && gate.type === "meaning") {
+        rejectDistillerProposalFromGate(updated ?? gate, this.store);
+      }
       this.updateSpeculativeDraftFromGate(updated ?? gate, action, nextStatus);
       if (action === "reject" && reasonCode) {
         this.cascadeSpeculativeReject(updated ?? gate, reasonCode, input.actor ?? "human");
@@ -741,6 +745,7 @@ export class HumanGateService {
   }
 
   private createKnowledgeFromApprovedMeaningGate(gate: HumanGateItem, input: ResolveGateInput) {
+    if (applyApprovedDistillerProposalFromGate(gate, input, this.store)) return;
     const projectId = projectIdForGate(this.store, gate);
     if (projectId === "system") return;
     const existingId = knowledgeIdForMeaningGate(gate.id);

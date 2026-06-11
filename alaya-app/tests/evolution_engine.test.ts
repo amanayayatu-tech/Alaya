@@ -21,6 +21,8 @@ const { schedulerTickProject } = await import("../server/scheduler.ts");
 const { HumanGateService } = await import("../server/humanGateService.ts");
 const { eligibleForHighRisk } = await import("alaya-core/src/core/transition_state.ts");
 
+const gateService = new HumanGateService(storage);
+
 function createProject(projectId: string, currentCycleIdx = 1) {
   storage.createProject({
     id: projectId,
@@ -87,6 +89,14 @@ function createKnowledge(projectId: string, id: string, overrides: Record<string
     version: 1,
     ...overrides,
   });
+}
+
+function approveDistillerProposalGates(projectId: string, cycleId: string) {
+  for (const gate of storage.listGates(projectId).filter((item) => item.cycleId === cycleId && item.status === "pending" && item.type === "meaning")) {
+    const payload = JSON.parse(gate.payload);
+    if (payload.source !== "distiller_proposal") continue;
+    gateService.approve(gate.id, { actor: "test", via: "test" });
+  }
 }
 
 function measurablePrediction(cycleId: string, error = 0.6) {
@@ -413,6 +423,7 @@ test("scheduler creates autonomous cycle 5 instead of scenario_exhausted", async
   let cycle = createCycle(projectId, 1);
   for (let idx = 1; idx <= SCENARIO.length; idx += 1) {
     await runFullCycle(projectId, cycle.id);
+    approveDistillerProposalGates(projectId, cycle.id);
     if (idx < SCENARIO.length) {
       const sc = SCENARIO[idx];
       cycle = storage.createCycle({
