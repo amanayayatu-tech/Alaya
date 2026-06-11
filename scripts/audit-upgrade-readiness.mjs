@@ -315,7 +315,7 @@ const checks = [
       has("alaya-app/tests/external_feedback_scheduler.test.ts", /pending human gate backlog exceeds twice the weekly budget/) &&
       has("alaya-app/tests/external_feedback_scheduler.test.ts", /weekly human time is high but backlog is clear/) &&
       has("alaya-app/tests/external_feedback_scheduler.test.ts", /pending blocking gates exceed three/) &&
-      has("alaya-app/tests/external_feedback_scheduler.test.ts", /blocking human gate has been pending for more than five days/) &&
+      has("alaya-app/tests/external_feedback_scheduler.test.ts", /blocking human gate is older than five days/) &&
       has("alaya-app/tests/scheduler.safety_mode.test.ts", /S1 safety_mode exits/) &&
       has("alaya-app/tests/scheduler.safety_mode.test.ts", /S2 attention backlog safety_mode throttles/) &&
       has("alaya-app/tests/scheduler.safety_mode.test.ts", /S3 compounding guard warms up/) &&
