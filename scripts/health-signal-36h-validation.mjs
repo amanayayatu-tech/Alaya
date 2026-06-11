@@ -235,6 +235,9 @@ const decisionVia = args["decision-via"] || "local_api_human_proxy";
 const approveMeaning = boolArg("approve-meaning-gates", true);
 const holdReviewRequiredMeaning = boolArg("hold-review-required-meaning-gates", true);
 const holdEveryMeaning = Math.max(0, Math.trunc(numArg("hold-every-meaning", 10)));
+const holdEveryMeaningUntilSample = args["hold-every-meaning-until-sample"] == null
+  ? Number.POSITIVE_INFINITY
+  : Math.max(0, Math.trunc(numArg("hold-every-meaning-until-sample", 0)));
 const resolveConflictReviewsTarget = Math.max(0, Math.trunc(numArg("resolve-conflict-reviews", 9999)));
 const injectEverySamples = Math.max(1, Math.trunc(numArg("inject-every-samples", 1)));
 const progressTicksPerSample = Math.max(1, Math.trunc(numArg("progress-ticks-per-sample", 6)));
@@ -662,12 +665,23 @@ function parsePayload(gate) {
   }
 }
 
-function shouldHoldMeaningGate(gate, approvedMeaningCount) {
+function shouldHoldMeaningGate(gate, state) {
   if (!approveMeaning) return true;
   const payload = parsePayload(gate);
   if (payload.riskKey === "knowledge_review_reminder") return true;
   if (holdReviewRequiredMeaning && meaningGateRequiresHumanReview(gate)) return true;
-  if (holdEveryMeaning > 0 && (approvedMeaningCount + 1) % holdEveryMeaning === 0) return true;
+  if (holdEveryMeaning > 0 && state.currentSample <= holdEveryMeaningUntilSample) {
+    if (!state.meaningGateSequenceById.has(gate.id)) {
+      state.meaningGateSequenceById.set(gate.id, state.meaningGateSequenceById.size + 1);
+    }
+    const sequence = state.meaningGateSequenceById.get(gate.id);
+    const heldAtSample = state.heldMeaningGateSampleById.get(gate.id);
+    if (heldAtSample != null) return state.currentSample <= heldAtSample;
+    if (sequence % holdEveryMeaning === 0) {
+      state.heldMeaningGateSampleById.set(gate.id, state.currentSample);
+      return true;
+    }
+  }
   return false;
 }
 
@@ -702,7 +716,7 @@ async function resolvePendingGates(baseUrl, projectId, state) {
   const gates = await requestJson(baseUrl, `/api/human-gates?projectId=${projectId}`);
   for (const gate of gates.filter((item) => item.status === "pending")) {
     const payload = parsePayload(gate);
-    if (gate.type === "meaning" && shouldHoldMeaningGate(gate, state.approvedMeaningCount)) {
+    if (gate.type === "meaning" && shouldHoldMeaningGate(gate, state)) {
       event("gate_left_pending_for_sampling", { gateId: gate.id, gateType: gate.type, title: gate.title });
       continue;
     }
@@ -857,11 +871,6 @@ async function finalDrainFlywheel(baseUrl, projectId, state) {
     await resolveConflictReviews(baseUrl, projectId, state);
 
     const before = await finalDrainState(baseUrl, projectId);
-    if (before.openCycles.length === 0) {
-      const result = { status: "complete", attempts: attempt - 1, lastAction };
-      event("final_drain_complete", result);
-      return result;
-    }
     if (before.pendingGates.length > 0 || before.pendingConflictReviews.length > 0) {
       const result = {
         status: "blocked",
@@ -872,6 +881,11 @@ async function finalDrainFlywheel(baseUrl, projectId, state) {
         openCycleCount: before.openCycles.length,
       };
       event("final_drain_blocked", result);
+      return result;
+    }
+    if (before.openCycles.length === 0) {
+      const result = { status: "complete", attempts: attempt - 1, lastAction };
+      event("final_drain_complete", result);
       return result;
     }
 
@@ -1136,9 +1150,15 @@ async function main() {
   const canary = await providerCanary(baseUrl, project.id);
   assertValidationCanary(canary);
 
-  const state = { approvedMeaningCount: 0, resolvedConflictReviews: 0 };
   const samples = [];
   const firstSample = lastRecordedSample() + 1;
+  const state = {
+    approvedMeaningCount: 0,
+    resolvedConflictReviews: 0,
+    currentSample: firstSample,
+    meaningGateSequenceById: new Map(),
+    heldMeaningGateSampleById: new Map(),
+  };
   const started = Date.now();
   const firstRecordedIso = firstRecordedSampleIso();
   const validationStartedAt = firstRecordedIso ? Date.parse(firstRecordedIso) : started;
@@ -1153,6 +1173,7 @@ async function main() {
     approveMeaning,
     holdReviewRequiredMeaning,
     holdEveryMeaning,
+    holdEveryMeaningUntilSample: Number.isFinite(holdEveryMeaningUntilSample) ? holdEveryMeaningUntilSample : null,
     resolveConflictReviewsTarget,
     firstSample,
     firstRecordedIso,
@@ -1162,6 +1183,7 @@ async function main() {
   let lastAction = "";
   const deadlineAt = validationStartedAt + durationMs;
   for (let sample = firstSample; sample <= maxSamples; sample += 1) {
+    state.currentSample = sample;
     if (Date.now() >= deadlineAt) {
       event("sample_skipped_after_deadline", {
         sample,

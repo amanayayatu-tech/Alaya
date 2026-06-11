@@ -62,6 +62,7 @@ function rowToKnowledge(value: unknown): KnowledgeItem {
     lastInjectedAt: r.last_injected_at ?? null,
     lastVerifiedAt: r.last_verified_at ?? null,
     lastDecayedAt: r.last_decayed_at ?? null,
+    grayStreak: r.gray_streak ?? 0,
     storageStrength: r.storage_strength ?? 1,
     noveltyScore: r.novelty_score ?? null,
     sourceRound: r.source_round ?? null,

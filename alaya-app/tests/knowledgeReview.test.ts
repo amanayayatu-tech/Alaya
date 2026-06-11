@@ -21,6 +21,7 @@ const { buildFlywheelHealth } = await import("../server/flywheelHealth.ts");
 const { ingestFormFeedback } = await import("../server/externalFeedback.ts");
 const { HumanGateService } = await import("../server/humanGateService.ts");
 const { parseTraceEvent } = await import("../server/trace.ts");
+const { executeGateBudget } = await import("../server/scheduler.ts");
 
 function project(projectId: string) {
   storage.createProject({
@@ -75,9 +76,10 @@ function knowledge(projectId: string, id: string, patch: Record<string, any>) {
     createdBy: patch.createdBy ?? "test",
     approvedBy: null,
     usageCount: 0,
-    lastInjectedAt: null,
+    lastInjectedAt: patch.lastInjectedAt ?? null,
     lastVerifiedAt: patch.lastVerifiedAt ?? Date.parse("2026-01-01T00:00:00Z"),
     lastDecayedAt: null,
+    grayStreak: patch.grayStreak ?? 0,
     storageStrength: 1,
     noveltyScore: null,
     sourceRound: 1,
@@ -496,6 +498,58 @@ test("creates stale and expiry review reminders without changing active facts", 
   assert.equal(reminders.length, 2);
   assert.equal(storage.getKnowledge("kb_old")?.status, "active");
   assert.equal(storage.listGates(projectId).filter((gate) => gate.type === "meaning").length, 2);
+});
+
+test("gray archive reminders use semanticKey for system merge without status migration", () => {
+  const projectId = "proj_gray_archive_semantic_merge";
+  const nowMs = Date.parse("2026-06-20T00:00:00Z");
+  project(projectId);
+  knowledge(projectId, "kb_gray_archive_a", {
+    status: "active",
+    title: "PPG priority watch",
+    semanticKey: "health_signal_priority",
+    confidenceScore: 0.62,
+    evidenceAlpha: 3,
+    evidenceBeta: 2,
+    lastInjectedAt: Date.parse("2026-05-01T00:00:00Z"),
+    lastVerifiedAt: Date.parse("2026-06-15T00:00:00Z"),
+  });
+  knowledge(projectId, "kb_gray_archive_b", {
+    status: "active",
+    title: "Voice signal watch",
+    semanticKey: "health_signal_priority",
+    confidenceScore: 0.61,
+    evidenceAlpha: 3,
+    evidenceBeta: 2,
+    lastInjectedAt: Date.parse("2026-05-02T00:00:00Z"),
+    lastVerifiedAt: Date.parse("2026-06-15T00:00:00Z"),
+  });
+
+  const reminders = createKnowledgeReviewReminders(projectId, {
+    nowMs,
+    staleAfterDays: 999,
+    expiryWithinDays: 0,
+    grayArchiveQueueDays: 14,
+  });
+
+  assert.equal(reminders.length, 2);
+  assert.ok(reminders.every((review) => review.reviewType === "gray_archive_review"));
+  assert.equal(storage.getKnowledge("kb_gray_archive_a")?.status, "active");
+  const gatesBefore = storage.listGates(projectId).filter((gate) => gate.type === "meaning");
+  assert.equal(gatesBefore.length, 2);
+  assert.ok(gatesBefore.every((gate) => JSON.parse(gate.payload).semanticKey === "health_signal_priority"));
+
+  executeGateBudget(projectId);
+
+  const gatesAfter = storage.listGates(projectId).filter((gate) => gate.type === "meaning");
+  assert.equal(gatesAfter.filter((gate) => gate.status === "pending").length, 1);
+  assert.equal(gatesAfter.filter((gate) => gate.decision?.startsWith("merged_into:")).length, 1);
+  const keeperPayload = JSON.parse(gatesAfter.find((gate) => gate.status === "pending")?.payload ?? "{}");
+  assert.equal(keeperPayload.grayArchiveStats.length, 2);
+  assert.deepEqual(
+    keeperPayload.decision_brief.cited_knowledge_ids.toSorted(),
+    ["kb_gray_archive_a", "kb_gray_archive_b"],
+  );
 });
 
 test("review resolution quarantines candidate and writes action ledger/trace", () => {

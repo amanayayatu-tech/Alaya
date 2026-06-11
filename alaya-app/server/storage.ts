@@ -184,6 +184,7 @@ export function runSchemaMigrations() {
     created_by TEXT NOT NULL DEFAULT 'distiller', approved_by TEXT,
     usage_count INTEGER NOT NULL DEFAULT 0, last_injected_at INTEGER, last_verified_at INTEGER,
     last_decayed_at INTEGER,
+    gray_streak INTEGER NOT NULL DEFAULT 0,
     storage_strength REAL NOT NULL DEFAULT 1.0, novelty_score REAL, source_round INTEGER,
     tags TEXT NOT NULL DEFAULT '[]',
     notes TEXT NOT NULL DEFAULT '', superseded_by TEXT, semantic_key TEXT NOT NULL DEFAULT '',
@@ -341,6 +342,7 @@ export function runSchemaMigrations() {
     ["last_injected_at", "INTEGER"],
     ["last_verified_at", "INTEGER"],
     ["last_decayed_at", "INTEGER"],
+    ["gray_streak", "INTEGER NOT NULL DEFAULT 0"],
     ["storage_strength", "REAL NOT NULL DEFAULT 1.0"],
     ["novelty_score", "REAL"],
     ["source_round", "INTEGER"],
@@ -540,6 +542,7 @@ function rowToKnowledge(value: unknown): KnowledgeItem {
     lastInjectedAt: r.last_injected_at ?? null,
     lastVerifiedAt: r.last_verified_at ?? null,
     lastDecayedAt: r.last_decayed_at ?? null,
+    grayStreak: r.gray_streak ?? 0,
     storageStrength: r.storage_strength ?? 1,
     noveltyScore: r.novelty_score ?? null,
     sourceRound: r.source_round ?? null,
@@ -1014,14 +1017,15 @@ export class DatabaseStorage implements IStorage {
       lastInjectedAt: k.lastInjectedAt ?? null,
       lastVerifiedAt: k.lastVerifiedAt ?? null,
       lastDecayedAt: k.lastDecayedAt ?? null,
+      grayStreak: k.grayStreak ?? 0,
       storageStrength: k.storageStrength ?? 1,
       noveltyScore: k.noveltyScore ?? null,
       sourceRound: k.sourceRound ?? k.createdByCycle ?? null,
       supersededBy: k.supersededBy ?? null,
       semanticKey: k.semanticKey ?? "",
     };
-    rawDb.prepare(`INSERT INTO knowledge_items (id,project_id,type,title,content,source_type,source_ref,evidence_alpha,evidence_beta,confidence_score,confidence_level,status,human_approved_count,external_verified_count,valid_from,valid_until,last_validated_cycle,created_by_cycle,created_by,approved_by,usage_count,last_injected_at,last_verified_at,last_decayed_at,storage_strength,novelty_score,source_round,tags,notes,superseded_by,semantic_key,version)
-      VALUES (@id,@project_id,@type,@title,@content,@source_type,@source_ref,@evidence_alpha,@evidence_beta,@confidence_score,@confidence_level,@status,@human_approved_count,@external_verified_count,@valid_from,@valid_until,@last_validated_cycle,@created_by_cycle,@created_by,@approved_by,@usage_count,@last_injected_at,@last_verified_at,@last_decayed_at,@storage_strength,@novelty_score,@source_round,@tags,@notes,@superseded_by,@semantic_key,@version)`).run({
+    rawDb.prepare(`INSERT INTO knowledge_items (id,project_id,type,title,content,source_type,source_ref,evidence_alpha,evidence_beta,confidence_score,confidence_level,status,human_approved_count,external_verified_count,valid_from,valid_until,last_validated_cycle,created_by_cycle,created_by,approved_by,usage_count,last_injected_at,last_verified_at,last_decayed_at,gray_streak,storage_strength,novelty_score,source_round,tags,notes,superseded_by,semantic_key,version)
+      VALUES (@id,@project_id,@type,@title,@content,@source_type,@source_ref,@evidence_alpha,@evidence_beta,@confidence_score,@confidence_level,@status,@human_approved_count,@external_verified_count,@valid_from,@valid_until,@last_validated_cycle,@created_by_cycle,@created_by,@approved_by,@usage_count,@last_injected_at,@last_verified_at,@last_decayed_at,@gray_streak,@storage_strength,@novelty_score,@source_round,@tags,@notes,@superseded_by,@semantic_key,@version)`).run({
       id: k.id, project_id: k.projectId, type: k.type, title: k.title, content: k.content,
       source_type: k.sourceType, source_ref: k.sourceRef, evidence_alpha: k.evidenceAlpha, evidence_beta: k.evidenceBeta,
       confidence_score: k.confidenceScore, confidence_level: k.confidenceLevel, status: k.status,
@@ -1032,6 +1036,7 @@ export class DatabaseStorage implements IStorage {
       last_injected_at: n.lastInjectedAt,
       last_verified_at: n.lastVerifiedAt,
       last_decayed_at: n.lastDecayedAt,
+      gray_streak: n.grayStreak,
       storage_strength: n.storageStrength,
       novelty_score: n.noveltyScore,
       source_round: n.sourceRound,
@@ -1059,6 +1064,7 @@ export class DatabaseStorage implements IStorage {
       lastInjectedAt: rawPatch.lastInjectedAt ?? cur.lastInjectedAt ?? null,
       lastVerifiedAt: rawPatch.lastVerifiedAt ?? cur.lastVerifiedAt ?? null,
       lastDecayedAt: rawPatch.lastDecayedAt ?? cur.lastDecayedAt ?? null,
+      grayStreak: rawPatch.grayStreak ?? cur.grayStreak ?? 0,
       storageStrength: rawPatch.storageStrength ?? cur.storageStrength ?? 1,
       noveltyScore: rawPatch.noveltyScore ?? cur.noveltyScore ?? null,
       sourceRound: rawPatch.sourceRound ?? cur.sourceRound ?? cur.createdByCycle ?? null,
@@ -1068,7 +1074,7 @@ export class DatabaseStorage implements IStorage {
       semanticKey: rawPatch.semanticKey ?? cur.semanticKey ?? "",
       version: cur.version + 1,
     };
-    rawDb.prepare(`UPDATE knowledge_items SET type=@type,title=@title,content=@content,source_type=@source_type,source_ref=@source_ref,evidence_alpha=@evidence_alpha,evidence_beta=@evidence_beta,confidence_score=@confidence_score,confidence_level=@confidence_level,status=@status,human_approved_count=@human_approved_count,external_verified_count=@external_verified_count,valid_from=@valid_from,valid_until=@valid_until,last_validated_cycle=@last_validated_cycle,created_by_cycle=@created_by_cycle,created_by=@created_by,approved_by=@approved_by,usage_count=@usage_count,last_injected_at=@last_injected_at,last_verified_at=@last_verified_at,last_decayed_at=@last_decayed_at,storage_strength=@storage_strength,novelty_score=@novelty_score,source_round=@source_round,tags=@tags,notes=@notes,superseded_by=@superseded_by,semantic_key=@semantic_key,version=@version WHERE id=@id`).run({
+    rawDb.prepare(`UPDATE knowledge_items SET type=@type,title=@title,content=@content,source_type=@source_type,source_ref=@source_ref,evidence_alpha=@evidence_alpha,evidence_beta=@evidence_beta,confidence_score=@confidence_score,confidence_level=@confidence_level,status=@status,human_approved_count=@human_approved_count,external_verified_count=@external_verified_count,valid_from=@valid_from,valid_until=@valid_until,last_validated_cycle=@last_validated_cycle,created_by_cycle=@created_by_cycle,created_by=@created_by,approved_by=@approved_by,usage_count=@usage_count,last_injected_at=@last_injected_at,last_verified_at=@last_verified_at,last_decayed_at=@last_decayed_at,gray_streak=@gray_streak,storage_strength=@storage_strength,novelty_score=@novelty_score,source_round=@source_round,tags=@tags,notes=@notes,superseded_by=@superseded_by,semantic_key=@semantic_key,version=@version WHERE id=@id`).run({
       id, type: n.type, title: n.title, content: n.content, source_type: n.sourceType, source_ref: n.sourceRef,
       evidence_alpha: n.evidenceAlpha, evidence_beta: n.evidenceBeta, confidence_score: n.confidenceScore,
       confidence_level: n.confidenceLevel, status: n.status, human_approved_count: n.humanApprovedCount,
@@ -1078,6 +1084,7 @@ export class DatabaseStorage implements IStorage {
       last_injected_at: n.lastInjectedAt,
       last_verified_at: n.lastVerifiedAt,
       last_decayed_at: n.lastDecayedAt,
+      gray_streak: n.grayStreak,
       storage_strength: n.storageStrength,
       novelty_score: n.noveltyScore,
       source_round: n.sourceRound,

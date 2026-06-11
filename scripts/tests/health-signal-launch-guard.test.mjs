@@ -112,4 +112,7 @@ test("health-signal monitor contract includes clean 10h retest columns and seman
   assert.match(source, /health\.totals\?\.activeKnowledgeCount/);
   assert.match(source, /payload\.sampleReviewReason/);
   assert.match(source, /llmTokenSourceStats/);
+  assert.match(source, /holdEveryMeaningUntilSample/);
+  assert.match(source, /heldMeaningGateSampleById/);
+  assert.match(source, /before\.pendingGates\.length > 0[\s\S]+before\.openCycles\.length === 0/);
 });

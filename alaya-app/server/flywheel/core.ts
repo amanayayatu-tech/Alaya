@@ -15,7 +15,7 @@ import { HumanGateService } from "../humanGateService";
 import { createDecisionBrief, withDecisionBriefPayload } from "../decisionBrief";
 import { computeClaimError, computeCycleError } from "alaya-core/src/core/compute_error.js";
 import { classifyError, routeError } from "alaya-core/src/core/classify_error.js";
-import { applyEvidence } from "alaya-core/src/core/update_confidence.js";
+import { applyEvidence, GRAY_HIGH, GRAY_LOW } from "alaya-core/src/core/update_confidence.js";
 import { eligibleForHighRisk, transitionState } from "alaya-core/src/core/transition_state.js";
 import { evidenceCount, type Claim, type AttributionContext, type Operator } from "alaya-core/src/core/types.js";
 import type { HumanGateItem, KnowledgeItem } from "@shared/schema";
@@ -197,6 +197,77 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
 }
 
+function parseStringArray(value: string | null | undefined): string[] {
+  if (!value) return [];
+  try {
+    return stringArray(JSON.parse(value));
+  } catch {
+    return [];
+  }
+}
+
+function isActiveGrayKnowledge(item: KnowledgeItem): boolean {
+  return item.status === "active" && item.confidenceScore > GRAY_LOW && item.confidenceScore < GRAY_HIGH;
+}
+
+export function applyCycleUtilityFeedback(projectId: string, cycleId: string, appliedAtMs = Date.now()) {
+  const cycle = storage.getCycle(cycleId);
+  if (!cycle) return { applied: 0, cited: 0, eventKind: null, skipped: "cycle_not_found" };
+  const predictions = storage.listPredictions(cycleId);
+  const predictionRefs = predictions.flatMap((prediction) => parseStringArray(prediction.knowledgeRefs));
+  const briefRefs = storage.listGates(projectId)
+    .filter((gate) => gate.cycleId === cycleId)
+    .flatMap(decisionBriefCitedKnowledgeIds);
+  const refs = Array.from(new Set([...predictionRefs, ...briefRefs]));
+  const observedErrors = predictions
+    .map((prediction) => prediction.worstClaimError ?? prediction.predictionError)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (refs.length === 0 || observedErrors.length === 0) {
+    return { applied: 0, cited: refs.length, eventKind: null, skipped: "missing_refs_or_observation" };
+  }
+  const worstError = Math.max(...observedErrors);
+  const eventKind = worstError <= 0.5 ? "cycle_utility_confirm" : "cycle_utility_refute";
+  const coAppliedSet = parseStringArray(cycle.coAppliedSet);
+  if (eventKind === "cycle_utility_refute" && coAppliedSet.length > 0) {
+    return { applied: 0, cited: refs.length, eventKind, skipped: "co_applied_set_nonempty" };
+  }
+
+  let applied = 0;
+  for (const id of refs) {
+    const item = storage.getKnowledge(id);
+    if (!item || item.projectId !== projectId || item.supersededBy || !isActiveGrayKnowledge(item)) continue;
+    const result = applyEvidence(coreFromDb(item), { kind: eventKind }).next as any;
+    storage.updateKnowledge(item.id, {
+      evidenceAlpha: result.evidenceAlpha,
+      evidenceBeta: result.evidenceBeta,
+      confidenceScore: result.confidenceScore,
+      confidenceLevel: result.confidenceLevel,
+      grayStreak: result.grayStreak,
+      lastValidatedCycle: cycle.idx,
+      lastVerifiedAt: eventKind === "cycle_utility_confirm" ? appliedAtMs : item.lastVerifiedAt,
+      actor: "librarian/utility_feedback",
+    });
+    recordTrace({
+      projectId,
+      cycleId,
+      cycleIdx: cycle.idx,
+      kind: "principle_transition",
+      name: "knowledge_cycle_utility_feedback",
+      agent: "librarian/utility_feedback",
+      attributes: {
+        knowledgeId: item.id,
+        eventKind,
+        previousScore: item.confidenceScore,
+        nextScore: result.confidenceScore,
+        worstError,
+        coAppliedSetSize: coAppliedSet.length,
+      },
+    });
+    applied += 1;
+  }
+  return { applied, cited: refs.length, eventKind, skipped: null };
+}
+
 function parseGatePayload(gate: HumanGateItem): Record<string, unknown> {
   try {
     const payload = JSON.parse(gate.payload);
@@ -204,6 +275,12 @@ function parseGatePayload(gate: HumanGateItem): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function decisionBriefCitedKnowledgeIds(gate: HumanGateItem): string[] {
+  const brief = parseGatePayload(gate).decision_brief;
+  if (!brief || typeof brief !== "object" || Array.isArray(brief)) return [];
+  return stringArray((brief as Record<string, unknown>).cited_knowledge_ids);
 }
 
 function planFromExistingDirectionGate(gate: HumanGateItem, sc: ScenarioRound) {
@@ -1139,7 +1216,7 @@ export async function runDistiller(projectId: string, cycleId: string, sc: Scena
       notes: nonEmptyString(candidate.notes, "由第1轮预测失败 + 两条负面反馈提炼"), version: 1,
     };
     const next = applyEvidenceDb(base, { kind: "prediction", normalizedError: claimError });
-    const saved = storage.createKnowledge({ ...base, evidenceAlpha: next.evidenceAlpha, evidenceBeta: next.evidenceBeta, confidenceScore: next.confidenceScore, confidenceLevel: next.confidenceLevel });
+    const saved = storage.createKnowledge({ ...base, evidenceAlpha: next.evidenceAlpha, evidenceBeta: next.evidenceBeta, confidenceScore: next.confidenceScore, confidenceLevel: next.confidenceLevel, grayStreak: next.grayStreak });
     created.push(saved.id);
     logEvent(1, "distiller", "knowledge_items", "insert", { id: saved.id });
   }
@@ -1152,7 +1229,7 @@ export async function runDistiller(projectId: string, cycleId: string, sc: Scena
       storage.updateKnowledge(k1.id, {
         evidenceAlpha: next.evidenceAlpha, evidenceBeta: next.evidenceBeta,
         confidenceScore: next.confidenceScore, confidenceLevel: next.confidenceLevel,
-        externalVerifiedCount: next.externalVerifiedCount, lastValidatedCycle: 2,
+        externalVerifiedCount: next.externalVerifiedCount, grayStreak: next.grayStreak, lastValidatedCycle: 2,
       });
       logEvent(2, "distiller", "knowledge_items", "update", { id: k1.id, score: next.confidenceScore });
     }
@@ -1169,7 +1246,7 @@ export async function runDistiller(projectId: string, cycleId: string, sc: Scena
       notes: nonEmptyString(candidate.notes, "由第2轮预测成功 + 正面反馈提炼"), version: 1,
     };
     const next = applyEvidenceDb(base, { kind: "prediction", normalizedError: claimError });
-    const saved = storage.createKnowledge({ ...base, evidenceAlpha: next.evidenceAlpha, evidenceBeta: next.evidenceBeta, confidenceScore: next.confidenceScore, confidenceLevel: next.confidenceLevel });
+    const saved = storage.createKnowledge({ ...base, evidenceAlpha: next.evidenceAlpha, evidenceBeta: next.evidenceBeta, confidenceScore: next.confidenceScore, confidenceLevel: next.confidenceLevel, grayStreak: next.grayStreak });
     created.push(saved.id);
     logEvent(2, "distiller", "knowledge_items", "insert", { id: saved.id });
   }
@@ -1186,6 +1263,7 @@ export async function runDistiller(projectId: string, cycleId: string, sc: Scena
           evidenceAlpha: next.evidenceAlpha, evidenceBeta: next.evidenceBeta,
           confidenceScore: next.confidenceScore, confidenceLevel: next.confidenceLevel,
           humanApprovedCount: next.humanApprovedCount, externalVerifiedCount: next.externalVerifiedCount,
+          grayStreak: next.grayStreak,
           approvedBy: "owner", lastValidatedCycle: 3, usageCount: k.usageCount + 1,
         });
         logEvent(3, "distiller", "knowledge_items", "update", { id: k.id, score: next.confidenceScore });
@@ -1205,6 +1283,7 @@ export async function runDistiller(projectId: string, cycleId: string, sc: Scena
           confidenceScore: next.confidenceScore,
           confidenceLevel: next.confidenceLevel,
           externalVerifiedCount: next.externalVerifiedCount,
+          grayStreak: next.grayStreak,
           lastValidatedCycle: 4,
           usageCount: k.usageCount + 1,
         });
@@ -1232,6 +1311,7 @@ export async function runDistiller(projectId: string, cycleId: string, sc: Scena
       evidenceBeta: next.evidenceBeta,
       confidenceScore: next.confidenceScore,
       confidenceLevel: next.confidenceLevel,
+      grayStreak: next.grayStreak,
       externalVerifiedCount: next.externalVerifiedCount,
     });
     created.push(saved.id);
@@ -1247,6 +1327,7 @@ export async function runDistiller(projectId: string, cycleId: string, sc: Scena
         evidenceBeta: next.evidenceBeta,
         confidenceScore: next.confidenceScore,
         confidenceLevel: next.confidenceLevel,
+        grayStreak: next.grayStreak,
         lastValidatedCycle: sc.index,
         usageCount: k.usageCount + 1,
         semanticKey: k.semanticKey || computeSemanticKey(k.title, k.content),
@@ -1279,6 +1360,7 @@ export async function runDistiller(projectId: string, cycleId: string, sc: Scena
         evidenceBeta: next.evidenceBeta,
         confidenceScore: next.confidenceScore,
         confidenceLevel: next.confidenceLevel,
+        grayStreak: next.grayStreak,
       });
       created.push(saved.id);
       logEvent(sc.index, "distiller", "knowledge_items", "insert", { id: saved.id, candidateForMergeWith: anchor.id });
@@ -1416,19 +1498,27 @@ export async function runLibrarian(projectId: string, cycleId: string, sc: Scena
     if (k.validUntil) {
       const validUntilMs = Date.parse(k.validUntil);
       if (Number.isFinite(validUntilMs) && validUntilMs < Date.now() && !["stale", "expired", "quarantined", "conflict"].includes(k.status)) {
-        storage.updateKnowledge(k.id, { status: "stale", lastValidatedCycle: sc.index });
-        transitions.push(`${k.id}: ${k.status}->stale (valid_until expired)`);
-        logEvent(sc.index, "librarian", "knowledge_items", "transition", { id: k.id, from: k.status, to: "stale" });
-        recordTrace({
-          projectId,
-          cycleId,
-          cycleIdx: sc.index,
-          kind: "principle_transition",
-          name: "knowledge_valid_until_expired",
-          agent: "librarian",
-          attributes: { knowledgeId: k.id, from: k.status, to: "stale", reason: "valid_until expired" },
+        const r = transitionState(coreFromDb(k), {
+          currentCycle: sc.index,
+          conflictsWithStrong: false,
+          validUntilExpired: true,
+          humanApprovedStrongPromotion: k.humanApprovedCount >= 1,
         });
-        continue;
+        if (r.changed) {
+          storage.updateKnowledge(k.id, { status: r.nextStatus, lastValidatedCycle: sc.index });
+          transitions.push(`${k.id}: ${k.status}->${r.nextStatus} (${r.reason})`);
+          logEvent(sc.index, "librarian", "knowledge_items", "transition", { id: k.id, from: k.status, to: r.nextStatus });
+          recordTrace({
+            projectId,
+            cycleId,
+            cycleIdx: sc.index,
+            kind: "principle_transition",
+            name: "knowledge_valid_until_expired",
+            agent: "librarian",
+            attributes: { knowledgeId: k.id, from: k.status, to: r.nextStatus, reason: r.reason },
+          });
+          continue;
+        }
       }
     }
     const core = coreFromDb(k);
@@ -1469,6 +1559,7 @@ export async function runOperationalStagesAfterApprovedDirection(projectId: stri
   await runSensor(projectId, cycleId, sc);
   await runBuilder(cycleId, sc, directionPlan.action, directionPlan.refs);
   const { pred, claimError } = evaluatePrediction(projectId, cycleId, sc, directionPlan);
+  const utilityFeedback = applyCycleUtilityFeedback(projectId, cycleId);
   await runDistiller(projectId, cycleId, sc, claimError, directionPlan.refs);
   const transitions = await runLibrarian(projectId, cycleId, sc);
 
@@ -1501,7 +1592,7 @@ export async function runOperationalStagesAfterApprovedDirection(projectId: stri
     kind: "cycle_state",
     name: "cycle_closed",
     agent: "orchestrator",
-    attributes: { strongKnowledgeCount, decisionKnowledgeCount, transitions },
+    attributes: { strongKnowledgeCount, decisionKnowledgeCount, transitions, utilityFeedback },
   });
 
   return { cycleIdx: sc.index, prediction: pred, transitions };

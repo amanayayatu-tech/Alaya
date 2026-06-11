@@ -4,7 +4,8 @@ import { generateNextGoal, type NextGoalDraft } from "../autonomousGoal";
 import { evaluateAutonomousStopRisk } from "../stallGuard";
 import { syncConfiguredFeedbackForProject } from "../externalFeedback";
 import type { ExternalFeedbackSyncResult, SyncGithubIssuesOptions } from "../externalFeedback";
-import { applyTimeDecay } from "alaya-core/src/core/update_confidence.js";
+import { applyTimeDecay, grayZoneStaleness } from "alaya-core/src/core/update_confidence.js";
+import { transitionState } from "alaya-core/src/core/transition_state.js";
 import { recordTrace } from "../trace";
 import { observeSchedulerCycle } from "../observability/metrics";
 import { createKnowledgeReviewReminders, detectConflictsAgainst } from "../knowledgeReview";
@@ -114,6 +115,25 @@ function validityExpired(item: KnowledgeItem, currentTime: number): boolean {
   return Number.isFinite(validUntilMs) && validUntilMs < currentTime;
 }
 
+function parseJsonStringArray(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function coreKnowledgeView(item: KnowledgeItem, confidenceScore = item.confidenceScore): any {
+  return {
+    ...item,
+    confidenceScore,
+    tags: parseJsonStringArray(item.tags),
+    validUntil: item.validUntil ?? null,
+    approvedBy: item.approvedBy ?? null,
+  };
+}
+
 export function decayStaleKnowledge(projectId: string, currentTime = Date.now(), lambda = 0.03) {
   const eligible = storage.listKnowledge(projectId).filter((item) => (
     !item.supersededBy &&
@@ -122,46 +142,67 @@ export function decayStaleKnowledge(projectId: string, currentTime = Date.now(),
   ));
   let decayed = 0;
   let demoted = 0;
+  const cycle = storage.listCycles(projectId).at(-1);
+  const currentCycle = cycle?.idx ?? 0;
 
   for (const item of eligible) {
+    const gray = grayZoneStaleness({ k: coreKnowledgeView(item), currentTimeMs: currentTime });
     const result = applyTimeDecay({
       score: item.confidenceScore,
       lastVerifiedAt: decayAnchorAtMs(item, currentTime),
       storageStrength: item.storageStrength ?? 1,
     }, currentTime, lambda);
-    if (result.daysSinceLastVerified === 0) continue;
+    if (result.daysSinceLastVerified === 0 && (!gray.isGrayActive || gray.daysSinceLastUse === 0)) continue;
 
-    const nextStatus = result.shouldDemoteToStale && item.status !== "stale" ? "stale" : item.status;
-    const scoreChanged = Math.abs(result.newScore - item.confidenceScore) > 1e-9;
+    const useTransition = gray.isGrayActive || item.status === "stale";
+    const transition = useTransition
+      ? transitionState(coreKnowledgeView(item, gray.isGrayActive ? item.confidenceScore : result.newScore), {
+        currentCycle,
+        conflictsWithStrong: false,
+        cyclesInStale: item.status === "stale" ? Math.max(0, currentCycle - item.lastValidatedCycle) : undefined,
+        daysSinceLastUse: gray.daysSinceLastUse,
+        wallclockDecayedScore: gray.isGrayActive ? gray.wallclockDecayedScore : undefined,
+        humanApprovedStrongPromotion: item.humanApprovedCount >= 1,
+      })
+      : null;
+    const nextStatus = transition?.changed
+      ? transition.nextStatus
+      : (result.shouldDemoteToStale && item.status !== "stale" ? "stale" : item.status);
+    const nextScore = gray.isGrayActive && !transition?.changed
+      ? item.confidenceScore
+      : (gray.isGrayActive ? Math.min(item.confidenceScore, gray.wallclockDecayedScore) : result.newScore);
+    const scoreChanged = Math.abs(nextScore - item.confidenceScore) > 1e-9;
     const storageChanged = Math.abs(result.newStorageStrength - (item.storageStrength ?? 1)) > 1e-9;
     const statusChanged = nextStatus !== item.status;
     if (!scoreChanged && !storageChanged && !statusChanged) continue;
 
     storage.updateKnowledge(item.id, {
-      confidenceScore: result.newScore,
-      confidenceLevel: confidenceLevelFor(item, result.newScore),
+      confidenceScore: nextScore,
+      confidenceLevel: confidenceLevelFor(item, nextScore),
       storageStrength: result.newStorageStrength,
       lastDecayedAt: currentTime,
       status: nextStatus,
-      actor: "time_decay_scheduler",
+      actor: gray.isGrayActive ? "librarian/gray_decay" : "time_decay_scheduler",
     });
-    const cycle = storage.listCycles(projectId).at(-1);
     recordTrace({
       projectId,
       cycleId: cycle?.id ?? null,
       cycleIdx: cycle?.idx ?? null,
       kind: "principle_transition",
       name: "knowledge_time_decay",
-      agent: "time_decay_scheduler",
+      agent: gray.isGrayActive ? "librarian/gray_decay" : "time_decay_scheduler",
       attributes: {
         knowledgeId: item.id,
         from: item.status,
         to: nextStatus,
         oldScore: item.confidenceScore,
-        newScore: result.newScore,
+        newScore: nextScore,
         oldStorageStrength: item.storageStrength ?? 1,
         newStorageStrength: result.newStorageStrength,
         daysSinceLastVerified: result.daysSinceLastVerified,
+        daysSinceLastUse: gray.daysSinceLastUse,
+        wallclockDecayedScore: gray.wallclockDecayedScore,
+        transitionReason: transition?.reason ?? "",
       },
     });
     decayed += 1;
@@ -222,7 +263,9 @@ function gateResolvedAt(gate: HumanGateItem): string | null {
 
 function gateTopicKey(gate: HumanGateItem): string {
   const payload = parsePayload(gate.payload);
-  return String(payload.topicKey ?? gate.title);
+  const semanticKey = typeof payload.semanticKey === "string" ? payload.semanticKey.trim() : "";
+  const topicKey = typeof payload.topicKey === "string" ? payload.topicKey.trim() : "";
+  return semanticKey || topicKey || gate.title;
 }
 
 function consumesHumanMinutes(gate: HumanGateItem): boolean {

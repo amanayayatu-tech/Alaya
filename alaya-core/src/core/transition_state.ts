@@ -29,6 +29,12 @@ export interface TransitionContext {
   conflictsWithStrong: boolean;
   /** 该知识已停留 stale 多少个 cycle */
   cyclesInStale?: number;
+  /** 最近使用距今的天数,用于灰区墙钟衰减审计 */
+  daysSinceLastUse?: number;
+  /** 灰区墙钟通道给出的计算视图分数 */
+  wallclockDecayedScore?: number;
+  /** 有效期已过,需要通过状态机降级,避免上层直接改状态 */
+  validUntilExpired?: boolean;
   /** active->strong 是否已获得人类批准(此迁移需人类闸) */
   humanApprovedStrongPromotion?: boolean;
 }
@@ -46,6 +52,10 @@ export function transitionState(
 ): TransitionResult {
   const ev = evidenceCount(k);
   const score = k.confidenceScore;
+  const wallclockScore = typeof ctx.wallclockDecayedScore === "number" && Number.isFinite(ctx.wallclockDecayedScore)
+    ? ctx.wallclockDecayedScore
+    : score;
+  const effectiveScore = Math.min(score, wallclockScore);
   const cur = k.status;
   const keep = (reason: string): TransitionResult => ({
     nextStatus: cur,
@@ -57,6 +67,13 @@ export function transitionState(
   // 冲突优先:任意 -> conflict (自动标记,不直接覆盖)
   if (ctx.conflictsWithStrong && cur !== "conflict") {
     return { nextStatus: "conflict", changed: true, requiresHuman: false, reason: "与 strong 知识断言相反且证据相当" };
+  }
+
+  if (
+    ctx.validUntilExpired &&
+    !["stale", "expired", "quarantined", "conflict", "deprecated", "rejected"].includes(cur)
+  ) {
+    return { nextStatus: "stale", changed: true, requiresHuman: false, reason: "valid_until expired" };
   }
 
   // 隔离:任意 -> quarantined
@@ -75,8 +92,10 @@ export function transitionState(
     }
     case "active": {
       // 衰减导致 score<0.5 -> stale
-      if (score < STALE_DECAY_SCORE) {
-        return { nextStatus: "stale", changed: true, requiresHuman: false, reason: `衰减后 score=${score.toFixed(2)}<0.5` };
+      if (effectiveScore < STALE_DECAY_SCORE) {
+        const channel = wallclockScore < score ? "wallclock_decay" : "cycle_decay";
+        const days = typeof ctx.daysSinceLastUse === "number" ? `,daysSinceLastUse=${ctx.daysSinceLastUse.toFixed(1)}` : "";
+        return { nextStatus: "stale", changed: true, requiresHuman: false, reason: `${channel} effectiveScore=${effectiveScore.toFixed(2)}<0.5${days}` };
       }
       // 晋级 strong 需人类批准(此迁移需人类闸)
       if (score >= STRONG_SCORE && ev >= 5 && k.humanApprovedCount >= 1) {
