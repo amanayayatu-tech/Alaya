@@ -1,16 +1,18 @@
 # syntax=docker/dockerfile:1
-
-FROM node:20-bookworm-slim AS deps
-WORKDIR /app/alaya-app
-COPY alaya-app/package*.json ./
-RUN npm ci
+# workspaces 仓库：根目录单次 npm ci；alaya-app 依赖 file:../alaya-core，
+# 必须在根上下文安装与构建（子包单独 npm ci 会产生悬空的 workspace 符号链接）。
 
 FROM node:20-bookworm-slim AS build
 WORKDIR /app
-COPY --from=deps /app/alaya-app/node_modules ./alaya-app/node_modules
+COPY package.json package-lock.json ./
+COPY alaya-core/package.json ./alaya-core/
+COPY alaya-app/package.json ./alaya-app/
+RUN npm ci
+COPY alaya-core ./alaya-core
 COPY alaya-app ./alaya-app
 WORKDIR /app/alaya-app
 RUN npm run build
+WORKDIR /app
 RUN npm prune --omit=dev
 
 FROM node:20-bookworm-slim AS runtime
@@ -28,9 +30,11 @@ ENV NODE_ENV=production \
 
 RUN groupadd --system alaya && useradd --system --gid alaya --home /app --shell /usr/sbin/nologin alaya
 WORKDIR /app
+COPY --from=build --chown=alaya:alaya /app/package*.json ./
+COPY --from=build --chown=alaya:alaya /app/node_modules ./node_modules
+COPY --from=build --chown=alaya:alaya /app/alaya-core ./alaya-core
 COPY --from=build --chown=alaya:alaya /app/alaya-app/package*.json ./alaya-app/
 COPY --from=build --chown=alaya:alaya /app/alaya-app/dist ./alaya-app/dist
-COPY --from=build --chown=alaya:alaya /app/alaya-app/node_modules ./alaya-app/node_modules
 RUN mkdir -p /var/lib/alaya/state /var/log/alaya /var/cache/alaya \
   && chown -R alaya:alaya /var/lib/alaya /var/log/alaya /var/cache/alaya
 
