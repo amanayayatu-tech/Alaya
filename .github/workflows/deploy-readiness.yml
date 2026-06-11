@@ -17,27 +17,13 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: |
-            alaya-app/package-lock.json
-            alaya-core/package-lock.json
+          cache-dependency-path: package-lock.json
 
-      - name: Install root tools
-        run: npm install
-
-      - name: Install app dependencies
-        working-directory: alaya-app
+      # workspaces 仓库：根目录单次 npm ci 安装全部依赖（子包内 npm ci 会操作根项目并清空 node_modules，禁止使用）
+      - name: Install dependencies (workspaces)
         run: npm ci
 
-      - name: Install core dependencies
-        working-directory: alaya-core
-        run: npm ci
-
-      - name: App dependency audit
-        working-directory: alaya-app
-        run: npm audit --audit-level=high
-
-      - name: Core dependency audit
-        working-directory: alaya-core
+      - name: Dependency audit
         run: npm audit --audit-level=high
 
       - name: Secret scan
