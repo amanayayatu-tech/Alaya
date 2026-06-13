@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -105,6 +105,54 @@ test("shadow analyzer fails incomplete/crashed fixture", () => {
   assert.match(report, /Summary: FAIL/);
   assert.match(report, /runnerCrashedZero \| FAIL/);
   assert.match(report, /durationAtLeast24h \| FAIL/);
+});
+
+test("shadow analyzer reconstructs duration and A-class assessment from raw logs when summary.json is missing", () => {
+  const dir = makeLogDir("shadow-reconstruct-pass");
+  rmSync(join(dir, "summary.json"));
+  // 25h of samples spanning real timestamps; criteria-satisfying raw values.
+  writeFileSync(join(dir, "monitor_log.csv"), [
+    "sample,epoch,iso,round1vs4KnowledgeDelta,pendingGates,activeCount,conflictCount,openConflictReviews,resolvedConflictReviews,stallGuardCount,cyclesClosed,llmTokenSource",
+    "1,1,2026-06-12T00:00:00.000Z,2,0,1,0,0,0,0,1,provider",
+    "2,2,2026-06-12T12:30:00.000Z,5,0,2,3,2,1,0,5,provider",
+    "3,3,2026-06-13T01:00:00.000Z,9,0,3,5,2,3,0,10,mixed_provider_100pct",
+  ].join("\n") + "\n");
+  writeFileSync(join(dir, "events.jsonl"), [
+    JSON.stringify({ ts: "2026-06-12T00:00:00.000Z", eventType: "metrics_sample", sample: 1, llmTokenSourceStats: { providerRatio: 1 } }),
+    JSON.stringify({ ts: "2026-06-13T01:00:00.000Z", eventType: "metrics_sample", sample: 3, llmTokenSourceStats: { providerRatio: 0.999 } }),
+    JSON.stringify({ ts: "2026-06-13T01:00:00.000Z", eventType: "knowledge_review_resolved", reviewId: "r1" }),
+    JSON.stringify({ ts: "2026-06-13T01:00:00.000Z", eventType: "knowledge_review_resolved", reviewId: "r2" }),
+    JSON.stringify({ ts: "2026-06-13T01:00:00.000Z", eventType: "knowledge_review_resolved", reviewId: "r3" }),
+  ].join("\n") + "\n");
+  const result = analyze(dir);
+  assert.equal(result.status, 0, result.stderr);
+  const report = readFileSync(join(dir, "SHADOW_FINDINGS.md"), "utf8");
+  assert.match(report, /Assessment source: reconstructed from monitor_log\.csv \+ events\.jsonl/);
+  assert.match(report, /Duration source: reconstructed from raw log timestamps/);
+  assert.match(report, /durationAtLeast24h \| PASS \| 25\.00h/);
+  assert.match(report, /deltaReached8 \| PASS \| last=9/);
+  assert.match(report, /tokenSourceProviderAtLeast95pct \| PASS \| providerRatio=0\.999/);
+  assert.match(report, /conflictAtLeast5 \| PASS/);
+  assert.match(report, /conflictResolvedAtLeast3 \| PASS/);
+  assert.match(report, /humanGateDropAtLeast30pct \| N\/A/);
+});
+
+test("shadow analyzer reconstruction still fails honestly on a short interrupted run", () => {
+  const dir = makeLogDir("shadow-reconstruct-fail");
+  rmSync(join(dir, "summary.json"));
+  writeFileSync(join(dir, "monitor_log.csv"), [
+    "sample,epoch,iso,round1vs4KnowledgeDelta,pendingGates,activeCount,conflictCount,openConflictReviews,resolvedConflictReviews,stallGuardCount,cyclesClosed,llmTokenSource",
+    "1,1,2026-06-12T00:00:00.000Z,1,0,1,0,0,0,0,1,estimated",
+    "2,2,2026-06-12T00:30:00.000Z,2,0,1,0,0,0,0,2,estimated",
+  ].join("\n") + "\n");
+  const result = analyze(dir);
+  assert.equal(result.status, 1);
+  const report = readFileSync(join(dir, "SHADOW_FINDINGS.md"), "utf8");
+  assert.match(report, /Summary: FAIL/);
+  assert.match(report, /Assessment source: reconstructed from monitor_log\.csv \+ events\.jsonl/);
+  assert.match(report, /durationAtLeast24h \| FAIL \| 0\.50h \(reconstructed from raw log timestamps\)/);
+  assert.match(report, /deltaReached8 \| FAIL \| last=2/);
+  assert.match(report, /tokenSourceProviderAtLeast95pct \| FAIL \| providerRatio=0/);
 });
 
 test("shadow runner exposes 24h shadow defaults without starting the run", () => {

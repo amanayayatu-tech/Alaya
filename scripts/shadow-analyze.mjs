@@ -71,6 +71,122 @@ function countDb(dbPath, sql) {
   }
 }
 
+function avg(values) {
+  if (!values.length) return 0;
+  return +(values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(3);
+}
+
+function unique(values) {
+  return Array.from(new Set(values.filter((value) => value != null && value !== "")));
+}
+
+// Mirrors cumulativeConflictEvidence() in scripts/health-signal-36h-validation.mjs.
+function cumulativeConflictEvidence(samples, events) {
+  const resolvedReviewIds = unique(events
+    .filter((eventItem) => eventItem.eventType === "knowledge_review_resolved")
+    .map((eventItem) => eventItem.reviewId));
+  const maxOpenReviews = Math.max(0, ...samples.map((s) => Number(s.openConflictReviews) || 0));
+  const maxResolvedReviews = Math.max(0, ...samples.map((s) => Number(s.resolvedConflictReviews) || 0), resolvedReviewIds.length);
+  const maxScanReviewRequired = Math.max(0, ...events
+    .filter((eventItem) => eventItem.eventType === "conflicts_scanned")
+    .map((eventItem) => Number(eventItem.reviewRequiredCount) || 0));
+  const maxScanConflictCandidates = Math.max(0, ...events
+    .filter((eventItem) => eventItem.eventType === "conflicts_scanned")
+    .map((eventItem) => Number(eventItem.conflictCandidateCount) || 0));
+  return {
+    maxOpenReviews,
+    maxResolvedReviews,
+    resolvedUniqueReviewCount: resolvedReviewIds.length,
+    maxScanReviewRequired,
+    maxScanConflictCandidates,
+    cumulativeConflictCount: Math.max(
+      maxResolvedReviews + maxOpenReviews,
+      resolvedReviewIds.length + maxOpenReviews,
+      maxScanReviewRequired,
+      maxScanConflictCandidates,
+    ),
+  };
+}
+
+// Mirrors finalAssessment() in scripts/health-signal-36h-validation.mjs so that an
+// interrupted run (no summary.json) can still be judged from raw logs instead of
+// degrading every criterion to n/a.
+function reconstructAssessment(samples, events) {
+  const first = samples[0] ?? {};
+  const last = samples[samples.length - 1] ?? {};
+  const maxSnapshotConflict = Math.max(0, ...samples.map((s) => Number(s.conflictCount) || 0));
+  const conflictEvidence = cumulativeConflictEvidence(samples, events);
+  const maxConflict = Math.max(maxSnapshotConflict, conflictEvidence.cumulativeConflictCount);
+  const maxResolved = conflictEvidence.maxResolvedReviews;
+  const maxStall = Math.max(0, ...samples.map((s) => Number(s.stallGuardCount) || 0));
+  const totalClosed = Number(last.cyclesClosed) || 0;
+  const earlyGateAvg = avg(samples.slice(0, Math.max(1, Math.floor(samples.length / 4))).map((s) => Number(s.pendingGates) || 0));
+  const lateGateAvg = avg(samples.slice(Math.floor(samples.length / 2)).map((s) => Number(s.pendingGates) || 0));
+  const humanGateDrop = earlyGateAvg > 0 ? +((earlyGateAvg - lateGateAvg) / earlyGateAvg).toFixed(3) : null;
+  const minActive = Math.min(...samples.map((s) => Number(s.activeCount)).filter(Number.isFinite));
+  const tokenEvents = events
+    .filter((eventItem) => eventItem.eventType === "metrics_sample" && eventItem.llmTokenSourceStats)
+    .map((eventItem) => eventItem.llmTokenSourceStats);
+  const lastTokenSource = tokenEvents[tokenEvents.length - 1] ?? null;
+  const semanticBypassCount = events.filter((eventItem) => (
+    eventItem.eventType === "gate_approved" &&
+    eventItem.via === "auto_approved_repeated_meaning" &&
+    /contradiction|conflict|矛盾|冲突|ppg|ecg|hybrid/i.test(JSON.stringify(eventItem))
+  )).length;
+  return {
+    criteria: {
+      deltaReached8: Number(last.round1vs4KnowledgeDelta) >= 8,
+      activeNeverZero: Number.isFinite(minActive) ? minActive >= 1 : false,
+      tokenSourceProviderAtLeast95pct: (lastTokenSource?.providerRatio ?? 0) >= 0.95,
+      semanticContradictionBypassZero: semanticBypassCount === 0,
+      conflictAtLeast5: maxConflict >= 5,
+      conflictResolvedAtLeast3: maxResolved >= 3,
+      humanGateDropAtLeast30pct: humanGateDrop != null ? humanGateDrop >= 0.3 : false,
+      stallGuardUnder5pct: totalClosed > 0 ? maxStall / totalClosed < 0.05 : false,
+    },
+    observed: {
+      lastDelta: last.round1vs4KnowledgeDelta ?? null,
+      minActiveKnowledgeCount: Number.isFinite(minActive) ? minActive : null,
+      lastLlmTokenSourceStats: lastTokenSource,
+      semanticContradictionBypassCount: semanticBypassCount,
+      maxConflictCount: maxConflict,
+      maxResolvedConflictReviews: maxResolved,
+      earlyPendingGateAverage: earlyGateAvg,
+      latePendingGateAverage: lateGateAvg,
+      humanGatePendingDropRatio: humanGateDrop,
+      maxStallGuardCount: maxStall,
+      cyclesClosed: totalClosed,
+      firstSample: first.sample ?? null,
+      lastSample: last.sample ?? null,
+    },
+  };
+}
+
+function providerRatioFromLabel(label) {
+  if (!label) return null;
+  if (label === "provider") return 1;
+  const match = /^mixed_provider_(\d+)pct$/.exec(String(label));
+  if (match) return Number(match[1]) / 100;
+  return null;
+}
+
+function collectTimestamps(samples, events, watchdog) {
+  const stamps = [];
+  for (const row of samples) {
+    const value = Date.parse(row.iso ?? "");
+    if (Number.isFinite(value)) stamps.push(value);
+  }
+  for (const row of events) {
+    const value = Date.parse(row.ts ?? "");
+    if (Number.isFinite(value)) stamps.push(value);
+  }
+  for (const row of watchdog) {
+    const value = Date.parse(row.checkedAt ?? "");
+    if (Number.isFinite(value)) stamps.push(value);
+  }
+  return stamps;
+}
+
 function renderTable(rows) {
   return [
     "| 判据 | 结果 | 观测 |",
@@ -102,13 +218,40 @@ async function main() {
     : [];
   const snapshotJson = snapshotJsonFiles.map((name) => readJson(join(metricsDir, name), {}));
   const opsWarningRows = readJsonl(join(logDir, "ops_trend_warnings.log"));
-  const durationMs = Number(summary.validationDurationMs ?? summary.processDurationMs ?? 0);
-  const dbPath = summary.dbPath;
 
-  const finalCriteria = summary.assessment?.criteria ?? {};
-  const observed = summary.assessment?.observed ?? {};
+  // Duration: prefer summary.json; for interrupted runs reconstruct from raw log timestamps.
+  const summaryDurationMs = Number(summary.validationDurationMs ?? summary.processDurationMs ?? 0);
+  const stamps = collectTimestamps(samples, events, watchdog);
+  const reconstructedDurationMs = stamps.length >= 2 ? Math.max(...stamps) - Math.min(...stamps) : 0;
+  const durationMs = summaryDurationMs > 0 ? summaryDurationMs : reconstructedDurationMs;
+  const durationSource = summaryDurationMs > 0
+    ? "summary.json"
+    : (reconstructedDurationMs > 0 ? "reconstructed from raw log timestamps" : "unavailable");
+
+  // DB path: prefer summary.json; fall back to the db file inside the log directory.
+  const localDbPath = join(logDir, "health-signal.db");
+  const dbPath = summary.dbPath && existsSync(summary.dbPath)
+    ? summary.dbPath
+    : (existsSync(localDbPath) ? localDbPath : null);
+
+  // Assessment: prefer summary.json; for interrupted runs reconstruct from raw logs
+  // with the exact finalAssessment() semantics from the runner.
+  const summaryAssessment = summary.assessment ?? null;
+  const reconstructedAssessment = !summaryAssessment && samples.length > 0
+    ? reconstructAssessment(samples, events)
+    : null;
+  const assessment = summaryAssessment ?? reconstructedAssessment ?? { criteria: {}, observed: {} };
+  const assessmentSource = summaryAssessment
+    ? "summary.json"
+    : (reconstructedAssessment ? "reconstructed from monitor_log.csv + events.jsonl (summary.json missing)" : "unavailable");
+
+  const finalCriteria = assessment.criteria ?? {};
+  const observed = assessment.observed ?? {};
   const earlyBacklog = Number(observed.earlyPendingGateAverage ?? 0);
-  const providerRatio = Number(observed.lastLlmTokenSourceStats?.providerRatio ?? 0);
+  let providerRatio = Number(observed.lastLlmTokenSourceStats?.providerRatio ?? NaN);
+  if (!Number.isFinite(providerRatio)) {
+    providerRatio = providerRatioFromLabel(samples.at(-1)?.llmTokenSource) ?? 0;
+  }
   const runnerCrashed = events.filter((event) => event.eventType === "runner_crashed");
   const sampleFailed = events.filter((event) => event.eventType === "sample_failed");
   const badWatchdog = watchdog.filter((row) => row.ok === false);
@@ -163,7 +306,7 @@ async function main() {
   ];
 
   const shadowChecks = [
-    ["durationAtLeast24h", pass(durationMs >= 24 * 3_600_000, `${(durationMs / 3_600_000).toFixed(2)}h`)],
+    ["durationAtLeast24h", pass(durationMs >= 24 * 3_600_000, `${(durationMs / 3_600_000).toFixed(2)}h (${durationSource})`)],
     ["metricsSnapshotsAtLeast48", pass(snapshotFiles.length >= 48, `${snapshotFiles.length}`)],
     ["uniqueConstraintErrorsZero", pass(uniqueErrors.length === 0, `${uniqueErrors.length}`)],
     ["closedDraftingRowsZero", pass(draftingRows.length === 0, `${draftingRows.length}`)],
@@ -188,6 +331,8 @@ async function main() {
     "",
     `Log dir: ${logDir}`,
     `Generated at: ${new Date().toISOString()}`,
+    `Assessment source: ${assessmentSource}`,
+    `Duration source: ${durationSource}`,
     `Summary: ${failing.length === 0 ? "PASS" : "FAIL"} (${failing.length} failing checks)`,
     "",
     "## A 类 9 判据",
