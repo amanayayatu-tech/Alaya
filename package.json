@@ -33,6 +33,8 @@
     "benchmark:smoke": "cd alaya-app && node --import tsx ../scripts/benchmark-smoke.mjs",
     "provider:canary": "cd alaya-app && node --import tsx ../scripts/provider-canary.mjs",
     "trace:export": "cd alaya-app && node --import tsx ../scripts/trace-export.mjs",
+    "shadow:run": "node scripts/shadow-run.mjs",
+    "shadow:analyze": "node scripts/shadow-analyze.mjs",
     "e2e:llm": "npm --prefix alaya-core run e2e:llm",
     "e2e:llm-flywheel": "npm --prefix alaya-core run e2e:llm-flywheel",
     "e2e:github": "node scripts/e2e-github-issue-sensor.mjs",
