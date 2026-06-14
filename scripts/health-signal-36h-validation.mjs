@@ -5,6 +5,13 @@ import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
+import {
+  evaluateDecisionTsr,
+  inferOracleSideFromValue,
+  oracleEventFields,
+  oracleMetadataForSide,
+  scoreResolutionEvent,
+} from "./lib/health-signal-quality.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -36,8 +43,15 @@ const STARTUP_FINDINGS = [
   },
 ];
 
+function evidenceTemplate(input) {
+  return {
+    ...input,
+    ...oracleMetadataForSide(input.side),
+  };
+}
+
 const EVIDENCE_TEMPLATES = [
-  {
+  evidenceTemplate({
     side: "ppg_support",
     title: "PPG 优先证据：成本与续航匹配",
     text: [
@@ -46,8 +60,8 @@ const EVIDENCE_TEMPLATES = [
       "当前最优选型决策：优先 PPG，置信度 0.64。",
       "关键证据：日常趋势监测、佩戴舒适度、连续采样和成本约束更匹配 PPG。",
     ].join("\n"),
-  },
-  {
+  }),
+  evidenceTemplate({
     side: "ecg_support",
     title: "ECG 优先证据：医疗认证与信号可解释性",
     text: [
@@ -56,8 +70,8 @@ const EVIDENCE_TEMPLATES = [
       "明确冲突：该结论与“PPG 优先”互相矛盾，必须进入 conflict 知识状态并等待人工审核。",
       "当前最优选型决策：优先 ECG，置信度 0.66。",
     ].join("\n"),
-  },
-  {
+  }),
+  evidenceTemplate({
     side: "ppg_risk",
     title: "PPG 反证：肤色/佩戴/运动干扰",
     text: [
@@ -66,8 +80,8 @@ const EVIDENCE_TEMPLATES = [
       "明确冲突：该证据削弱之前 PPG 优先结论，不能直接复用为 active 决策依据。",
       "建议：保留 PPG 作为低功耗连续趋势传感器，但医疗级判定需要 ECG 或人工复核。",
     ].join("\n"),
-  },
-  {
+  }),
+  evidenceTemplate({
     side: "ecg_risk",
     title: "ECG 反证：功耗/交互/成本压力",
     text: [
@@ -76,8 +90,8 @@ const EVIDENCE_TEMPLATES = [
       "明确冲突：该证据反驳 ECG 优先，必须隔离到冲突审查流程。",
       "当前最优选型决策：PPG 做连续监测，ECG 作为二次确认模块，置信度 0.61。",
     ].join("\n"),
-  },
-  {
+  }),
+  evidenceTemplate({
     side: "hybrid_support",
     title: "混合方案证据：PPG 连续 + ECG 复核",
     text: [
@@ -86,8 +100,8 @@ const EVIDENCE_TEMPLATES = [
       "明确冲突：混合方案与单一 PPG/单一 ECG 优先的结论都存在边界冲突，需要人工审核选择约束优先级。",
       "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。",
     ].join("\n"),
-  },
-  {
+  }),
+  evidenceTemplate({
     side: "hybrid_reject",
     title: "混合方案反证：BOM 与认证复杂度过高",
     text: [
@@ -96,7 +110,7 @@ const EVIDENCE_TEMPLATES = [
       "明确冲突：该结论与混合方案推荐互相矛盾，不能同时作为 active 知识复用。",
       "当前最优选型决策：先 PPG，保留 ECG 作为 Pro SKU，置信度 0.63。",
     ].join("\n"),
-  },
+  }),
 ];
 
 function parseArgs(argv) {
@@ -227,6 +241,11 @@ const durationTextZh = durationMinutes > 0 ? `${durationHours} 小时 ${duration
 const durationMs = Math.max(1_000, durationHours * 3_600_000 + durationMinutes * 60_000);
 const sampleMs = Math.max(1_000, numArg("sample-minutes", 5) * 60_000 + numArg("sample-seconds", 0) * 1_000);
 const maxSamples = Math.max(1, Math.min(Math.ceil(durationMs / sampleMs), Math.trunc(numArg("max-samples", Number.POSITIVE_INFINITY))));
+const scenario = args.scenario || "standard";
+if (!["standard", "conflict-flood"].includes(scenario)) {
+  console.error(`Unsupported --scenario=${JSON.stringify(scenario)}. Expected standard or conflict-flood.`);
+  process.exit(2);
+}
 const startApp = boolArg("start-app", true);
 const keepApp = boolArg("keep-app", false);
 const llmProvider = args["llm-provider"] || process.env.ALAYA_LLM_PROVIDER || "openai";
@@ -244,6 +263,9 @@ const holdEveryMeaningUntilSample = args["hold-every-meaning-until-sample"] == n
 const resolveConflictReviewsTarget = Math.max(0, Math.trunc(numArg("resolve-conflict-reviews", 9999)));
 const injectEverySamples = Math.max(1, Math.trunc(numArg("inject-every-samples", 1)));
 const progressTicksPerSample = Math.max(1, Math.trunc(numArg("progress-ticks-per-sample", 6)));
+const conflictFloodHoldSamples = scenario === "conflict-flood" ? Math.max(1, Math.floor(maxSamples * 0.25)) : 0;
+const conflictFloodMaxResolutionsPerSample = scenario === "conflict-flood" ? Math.max(1, Math.trunc(numArg("conflict-flood-max-resolutions-per-sample", 3))) : Number.POSITIVE_INFINITY;
+const qualityCanaryEverySamples = Math.max(0, Math.trunc(numArg("quality-canary-every-samples", 5)));
 
 mkdirSync(logDir, { recursive: true });
 const monitorCsv = join(logDir, "monitor_log.csv");
@@ -402,11 +424,22 @@ async function waitForReady(baseUrl, timeoutMs = 120_000) {
   throw new Error(`/readyz did not become ready within ${timeoutMs}ms: ${lastError}`);
 }
 
+function apiTimingSegment(method, path) {
+  if (method === "POST" && /\/scheduler\/tick$/.test(path)) return "scheduler_tick";
+  if (/\/api\/knowledge(?:\?|$)/.test(path) || /\/knowledge\/search/.test(path)) return "knowledge_retrieval";
+  if (/\/api\/flywheel\/health|\/api\/human-gates|\/api\/projects\/[^/]+\/(?:knowledge-reviews|cycles|ops-metrics|traces|llm-calls)|\/api\/action-ledger/.test(path)) {
+    return "harness_polling_api_request";
+  }
+  return "runner_control_api_request";
+}
+
 async function requestJson(baseUrl, path, options = {}) {
   const method = options.method || "GET";
   const maxAttempts = Math.max(1, options.attempts ?? 4);
   let lastError = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const started = Date.now();
+    let timingRecorded = false;
     try {
       const res = await fetch(`${baseUrl}${path}`, {
         method,
@@ -423,6 +456,16 @@ async function requestJson(baseUrl, path, options = {}) {
       } catch {
         json = { raw: text };
       }
+      event("api_request_timing", {
+        method,
+        path,
+        segment: apiTimingSegment(method, path),
+        attempt,
+        status: res.status,
+        ok: res.ok,
+        durationMs: Date.now() - started,
+      });
+      timingRecorded = true;
       if (res.ok) return json;
       const error = new Error(`${method} ${path} failed: ${res.status} ${JSON.stringify(json).slice(0, 800)}`);
       if (res.status < 500 && res.status !== 429) {
@@ -431,6 +474,17 @@ async function requestJson(baseUrl, path, options = {}) {
       }
       lastError = error;
     } catch (err) {
+      if (!timingRecorded) {
+        event("api_request_timing", {
+          method,
+          path,
+          segment: apiTimingSegment(method, path),
+          attempt,
+          status: null,
+          ok: false,
+          durationMs: Date.now() - started,
+        });
+      }
       lastError = err;
       if (err instanceof Error && err.retryable === false) throw err;
       if (attempt >= maxAttempts) break;
@@ -452,9 +506,21 @@ async function requestText(baseUrl, path, options = {}) {
   const maxAttempts = Math.max(1, options.attempts ?? 4);
   let lastError = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const started = Date.now();
+    let timingRecorded = false;
     try {
       const res = await fetch(`${baseUrl}${path}`, { method, headers: options.headers || {} });
       const text = await res.text();
+      event("api_request_timing", {
+        method,
+        path,
+        segment: apiTimingSegment(method, path),
+        attempt,
+        status: res.status,
+        ok: res.ok,
+        durationMs: Date.now() - started,
+      });
+      timingRecorded = true;
       if (res.ok) return text;
       const error = new Error(`${method} ${path} failed: ${res.status} ${text.slice(0, 800)}`);
       if (res.status < 500 && res.status !== 429) {
@@ -463,6 +529,17 @@ async function requestText(baseUrl, path, options = {}) {
       }
       lastError = error;
     } catch (err) {
+      if (!timingRecorded) {
+        event("api_request_timing", {
+          method,
+          path,
+          segment: apiTimingSegment(method, path),
+          attempt,
+          status: null,
+          ok: false,
+          durationMs: Date.now() - started,
+        });
+      }
       lastError = err;
       if (err instanceof Error && err.retryable === false) throw err;
       if (attempt >= maxAttempts) break;
@@ -702,6 +779,8 @@ async function injectContradictionEvidence(baseUrl, projectId, sample) {
   event("contradiction_feedback_injected", {
     sample,
     side: template.side,
+    externalId,
+    ...oracleEventFields(template.side),
     imported: result.imported,
     skipped: result.skipped,
     gateId: result.gate?.id ?? null,
@@ -832,12 +911,22 @@ function isSeedConflictReview(review) {
   return left.startsWith("kb_seed_") && right.startsWith("kb_seed_");
 }
 
-async function resolveConflictReviews(baseUrl, projectId, state) {
-  if (state.resolvedConflictReviews >= resolveConflictReviewsTarget) return;
+function shouldHoldConflictResolution(state) {
+  return scenario === "conflict-flood" && state.currentSample <= conflictFloodHoldSamples;
+}
+
+async function resolveConflictReviews(baseUrl, projectId, state, options = {}) {
+  if (state.resolvedConflictReviews >= resolveConflictReviewsTarget) return 0;
+  const maxResolutions = Number.isFinite(options.maxResolutions)
+    ? Math.max(0, Math.trunc(options.maxResolutions))
+    : Number.POSITIVE_INFINITY;
+  if (maxResolutions === 0) return 0;
+  let resolvedThisCall = 0;
   const reviews = await requestJson(baseUrl, `/api/projects/${projectId}/knowledge-reviews`);
   const pending = reviews.filter((review) => review.reviewType === "conflict" && review.status === "review_required");
   for (const review of pending) {
     if (state.resolvedConflictReviews >= resolveConflictReviewsTarget) break;
+    if (resolvedThisCall >= maxResolutions) break;
     if (isSeedConflictReview(review) && !state.seedConflictFalsePositiveRecorded) {
       state.seedConflictFalsePositiveRecorded = true;
       issue({
@@ -863,24 +952,43 @@ async function resolveConflictReviews(baseUrl, projectId, state) {
           action: "quarantine",
           rationale: `Health Signal validation human proxy via ${decisionVia}: quarantine weaker conflicting item to verify conflict convergence.`,
         };
+    const primaryOracleSide = inferOracleSideFromValue(review.primaryKnowledgeId);
+    const relatedOracleSide = inferOracleSideFromValue(review.relatedKnowledgeId);
+    const resolutionScore = scoreResolutionEvent({
+      reviewId: review.id,
+      primaryKnowledgeId: review.primaryKnowledgeId,
+      relatedKnowledgeId: review.relatedKnowledgeId,
+      primaryOracleSide,
+      relatedOracleSide,
+      action: body.action,
+      survivorKnowledgeId: body.survivorKnowledgeId ?? null,
+    });
     const resolved = await requestJson(baseUrl, `/api/knowledge-reviews/${review.id}/resolve`, {
       method: "POST",
       body,
     });
     state.resolvedConflictReviews += 1;
+    resolvedThisCall += 1;
     event("knowledge_review_resolved", {
       reviewId: review.id,
       primaryKnowledgeId: review.primaryKnowledgeId,
       relatedKnowledgeId: review.relatedKnowledgeId,
+      primaryOracleSide,
+      relatedOracleSide,
+      oracleSide: primaryOracleSide,
       action: body.action,
+      survivorKnowledgeId: body.survivorKnowledgeId ?? null,
+      ...resolutionScore,
       status: resolved.status,
       via: decisionVia,
     });
   }
+  return resolvedThisCall;
 }
 
 async function progressFlywheel(baseUrl, projectId, state, options = {}) {
   let lastAction = "";
+  let conflictResolutionsThisSample = 0;
   for (let i = 0; i < progressTicksPerSample; i += 1) {
     if (options.deadlineAt && Date.now() >= options.deadlineAt) {
       event("scheduler_tick_skipped_after_deadline", {
@@ -897,7 +1005,22 @@ async function progressFlywheel(baseUrl, projectId, state, options = {}) {
     event("scheduler_tick", { action: tick.action, note: tick.note, cycleId: tick.cycleId ?? null });
     await resolvePendingGates(baseUrl, projectId, state);
     await scanConflicts(baseUrl, projectId);
-    await resolveConflictReviews(baseUrl, projectId, state);
+    if (shouldHoldConflictResolution(state)) {
+      if (!state.conflictFloodHeldSamples.has(state.currentSample)) {
+        state.conflictFloodHeldSamples.add(state.currentSample);
+        event("conflict_flood_resolution_held", {
+          sample: state.currentSample,
+          holdUntilSample: conflictFloodHoldSamples,
+          scenario,
+        });
+      }
+    } else {
+      const remaining = Number.isFinite(conflictFloodMaxResolutionsPerSample)
+        ? Math.max(0, conflictFloodMaxResolutionsPerSample - conflictResolutionsThisSample)
+        : Number.POSITIVE_INFINITY;
+      const resolved = await resolveConflictReviews(baseUrl, projectId, state, { maxResolutions: remaining });
+      conflictResolutionsThisSample += resolved;
+    }
     if (tick.action === "ran_operational_stages" || tick.action === "created_next_cycle") continue;
     if (tick.action === "scenario_exhausted") break;
   }
@@ -1077,6 +1200,44 @@ async function collectMetrics(baseUrl, projectId, appPid, sample, lastAction) {
   return { row, health, gates, knowledge, reviews, cycles, ops, llmCalls };
 }
 
+function recordQualityCanary(sample, knowledge, state) {
+  const activeKnowledge = responseItems(knowledge).filter((item) => ["active", "strong"].includes(String(item.status)));
+  const decisionTsr = evaluateDecisionTsr(activeKnowledge);
+  const current = {
+    sample,
+    status: decisionTsr.status,
+    passed: decisionTsr.passed,
+    hybridLayeredCount: decisionTsr.hybridLayeredCount,
+    disallowedFinalCount: decisionTsr.disallowedFinalCount,
+    eligibleKnowledgeCount: decisionTsr.eligibleKnowledgeCount,
+  };
+  if (!state.qualityCanaryBaseline) {
+    state.qualityCanaryBaseline = current;
+    event("quality_canary", {
+      sample,
+      expectedDecision: decisionTsr.expectedDecision,
+      baseline: true,
+      decisionTsr,
+      driftFromBaseline: null,
+      note: "Baseline canary snapshot; later canaries compare against this single-run baseline.",
+    });
+    return;
+  }
+  event("quality_canary", {
+    sample,
+    expectedDecision: decisionTsr.expectedDecision,
+    baseline: false,
+    decisionTsr,
+    driftFromBaseline: {
+      baselineSample: state.qualityCanaryBaseline.sample,
+      passedChanged: state.qualityCanaryBaseline.passed !== current.passed,
+      hybridLayeredDelta: current.hybridLayeredCount - state.qualityCanaryBaseline.hybridLayeredCount,
+      disallowedFinalDelta: current.disallowedFinalCount - state.qualityCanaryBaseline.disallowedFinalCount,
+      eligibleKnowledgeDelta: current.eligibleKnowledgeCount - state.qualityCanaryBaseline.eligibleKnowledgeCount,
+    },
+  });
+}
+
 function opsTrendWarningLines(ops) {
   const lines = [];
   const gray = ops?.grayActiveStockTrend;
@@ -1234,7 +1395,8 @@ function finalAssessment(samples, events = []) {
   const totalClosed = Number(last.cyclesClosed) || 0;
   const earlyGateAvg = avg(samples.slice(0, Math.max(1, Math.floor(samples.length / 4))).map((s) => Number(s.pendingGates) || 0));
   const lateGateAvg = avg(samples.slice(Math.floor(samples.length / 2)).map((s) => Number(s.pendingGates) || 0));
-  const humanGateDrop = earlyGateAvg > 0 ? +((earlyGateAvg - lateGateAvg) / earlyGateAvg).toFixed(3) : null;
+  const humanGateDropEligible = earlyGateAvg >= 1;
+  const humanGateDrop = humanGateDropEligible ? +((earlyGateAvg - lateGateAvg) / earlyGateAvg).toFixed(3) : null;
   const minActive = Math.min(...samples.map((s) => Number(s.activeCount)).filter(Number.isFinite));
   const tokenEvents = events
     .filter((eventItem) => eventItem.eventType === "metrics_sample" && eventItem.llmTokenSourceStats)
@@ -1254,7 +1416,7 @@ function finalAssessment(samples, events = []) {
       semanticContradictionBypassZero: semanticBypassCount === 0,
       conflictAtLeast5: maxConflict >= 5,
       conflictResolvedAtLeast3: maxResolved >= 3,
-      humanGateDropAtLeast30pct: humanGateDrop != null ? humanGateDrop >= 0.3 : false,
+      humanGateDropAtLeast30pct: humanGateDropEligible ? humanGateDrop >= 0.3 : null,
       stallGuardUnder5pct: totalClosed > 0 ? maxStall / totalClosed < 0.05 : false,
       sampleFailedZero: sampleFailedCount === 0,
     },
@@ -1277,6 +1439,8 @@ function finalAssessment(samples, events = []) {
       cyclesClosed: totalClosed,
       earlyPendingGateAverage: earlyGateAvg,
       latePendingGateAverage: lateGateAvg,
+      humanGateDropEligible,
+      humanGateDropEligibilityThreshold: "earlyPendingGateAverage >= 1",
       humanGatePendingDropRatio: humanGateDrop,
     },
   };
@@ -1328,6 +1492,8 @@ async function main() {
     currentSample: firstSample,
     meaningGateSequenceById: new Map(),
     heldMeaningGateSampleById: new Map(),
+    conflictFloodHeldSamples: new Set(),
+    qualityCanaryBaseline: null,
   };
   const started = Date.now();
   const firstRecordedIso = firstRecordedSampleIso();
@@ -1345,6 +1511,10 @@ async function main() {
     holdEveryMeaning,
     holdEveryMeaningUntilSample: Number.isFinite(holdEveryMeaningUntilSample) ? holdEveryMeaningUntilSample : null,
     resolveConflictReviewsTarget,
+    scenario,
+    conflictFloodHoldSamples,
+    conflictFloodMaxResolutionsPerSample: Number.isFinite(conflictFloodMaxResolutionsPerSample) ? conflictFloodMaxResolutionsPerSample : null,
+    qualityCanaryEverySamples,
     metricsSnapshotMinutes,
     watchdogMinutes,
     firstSample,
@@ -1430,6 +1600,9 @@ async function main() {
       lastAction = await progressFlywheel(baseUrl, project.id, state, { deadlineAt });
       const metrics = await collectMetrics(baseUrl, project.id, child?.pid, sample, lastAction);
       samples.push(metrics.row);
+      if (qualityCanaryEverySamples > 0 && sample % qualityCanaryEverySamples === 0) {
+        recordQualityCanary(sample, metrics.knowledge, state);
+      }
       if (samples.length > 1 && sample > 4) {
         const prev = samples[samples.length - 2];
         if (metrics.row.knowledgeCount > prev.knowledgeCount && metrics.row.round1vs4KnowledgeDelta === prev.round1vs4KnowledgeDelta) {
@@ -1482,6 +1655,12 @@ async function main() {
       sampleMs,
       maxSamples,
       progressTicksPerSample,
+    },
+    scenario: {
+      name: scenario,
+      conflictFloodHoldSamples,
+      conflictFloodMaxResolutionsPerSample: Number.isFinite(conflictFloodMaxResolutionsPerSample) ? conflictFloodMaxResolutionsPerSample : null,
+      qualityCanaryEverySamples,
     },
     llmProvider,
     model: openaiModel,

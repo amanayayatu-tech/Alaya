@@ -114,5 +114,11 @@ test("health-signal monitor contract includes clean 10h retest columns and seman
   assert.match(source, /llmTokenSourceStats/);
   assert.match(source, /holdEveryMeaningUntilSample/);
   assert.match(source, /heldMeaningGateSampleById/);
+  assert.match(source, /scenario === "conflict-flood"/);
+  assert.match(source, /conflictFloodMaxResolutionsPerSample/);
+  assert.match(source, /qualityCanaryBaseline/);
+  assert.match(source, /driftFromBaseline/);
+  assert.match(source, /oracleEventFields\(template\.side\)/);
+  assert.match(source, /scoreResolutionEvent/);
   assert.match(source, /before\.pendingGates\.length > 0[\s\S]+before\.openCycles\.length === 0/);
 });
