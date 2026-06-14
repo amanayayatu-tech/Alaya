@@ -35,6 +35,30 @@ test("decisionTsr fails when an unsuperseded ppg_only card remains active", () =
   assert.match(result.interpretation, /pass@1/);
 });
 
+test("decisionTsr includes implemented passK when aggregate data is supplied", () => {
+  const result = evaluateDecisionTsr([
+    {
+      id: "kb_gate_sample_0005_hybrid_support",
+      content: "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。",
+      status: "active",
+    },
+  ], {
+    passKAggregate: {
+      k: 3,
+      passAt1: 1,
+      passPowK: 1,
+      status: "pass",
+      thresholds: { passAt1: 0.85, passPowK: 0.6 },
+    },
+  });
+
+  assert.equal(result.status, "pass");
+  assert.equal(result.passK.implemented, true);
+  assert.equal(result.passK.k, 3);
+  assert.equal(result.passK.passAt1, 1);
+  assert.equal(result.passK.passPowK, 1);
+});
+
 test("resolutionAccuracy deducts when the weaker side is preserved", () => {
   const result = scoreResolutionAccuracy([
     {

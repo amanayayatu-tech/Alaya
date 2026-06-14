@@ -139,6 +139,26 @@ function boolArg(name, fallback) {
   return ["1", "true", "yes", "on"].includes(String(raw).toLowerCase());
 }
 
+function createPrng(seed) {
+  let state = Number(seed) >>> 0;
+  return () => {
+    state = (state + 0x6D2B79F5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffledWithPrng(items, prng) {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(prng() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 function readNonEmptySecretFile(path) {
   if (!path?.trim()) return { usable: false, reason: "path is empty" };
   try {
@@ -266,6 +286,13 @@ const progressTicksPerSample = Math.max(1, Math.trunc(numArg("progress-ticks-per
 const conflictFloodHoldSamples = scenario === "conflict-flood" ? Math.max(1, Math.floor(maxSamples * 0.25)) : 0;
 const conflictFloodMaxResolutionsPerSample = scenario === "conflict-flood" ? Math.max(1, Math.trunc(numArg("conflict-flood-max-resolutions-per-sample", 3))) : Number.POSITIVE_INFINITY;
 const qualityCanaryEverySamples = Math.max(0, Math.trunc(numArg("quality-canary-every-samples", 5)));
+const seed = args.seed == null ? null : Math.trunc(numArg("seed", 0));
+const runId = args["run-id"] || null;
+const seedPrng = seed == null ? null : createPrng(seed);
+const evidenceSchedule = seedPrng ? shuffledWithPrng(EVIDENCE_TEMPLATES, seedPrng) : EVIDENCE_TEMPLATES;
+const qualityCanaryOffsetSamples = seedPrng && qualityCanaryEverySamples > 0
+  ? Math.floor(seedPrng() * qualityCanaryEverySamples)
+  : 0;
 
 mkdirSync(logDir, { recursive: true });
 const monitorCsv = join(logDir, "monitor_log.csv");
@@ -764,7 +791,7 @@ function assertValidationCanary(result) {
 }
 
 async function injectContradictionEvidence(baseUrl, projectId, sample) {
-  const template = EVIDENCE_TEMPLATES[(sample - 1) % EVIDENCE_TEMPLATES.length];
+  const template = evidenceSchedule[(sample - 1) % evidenceSchedule.length];
   const externalId = `sample_${String(sample).padStart(4, "0")}_${template.side}`;
   const result = await requestJson(baseUrl, `/api/projects/${projectId}/feedback/form`, {
     method: "POST",
@@ -1522,6 +1549,9 @@ async function main() {
     sampleMinutes: +(sampleMs / 60_000).toFixed(3),
     maxSamples,
     progressTicksPerSample,
+    seed,
+    runId,
+    evidenceOrder: evidenceSchedule.map((item) => item.side),
     approveMeaning,
     holdReviewRequiredMeaning,
     holdEveryMeaning,
@@ -1531,6 +1561,7 @@ async function main() {
     conflictFloodHoldSamples,
     conflictFloodMaxResolutionsPerSample: Number.isFinite(conflictFloodMaxResolutionsPerSample) ? conflictFloodMaxResolutionsPerSample : null,
     qualityCanaryEverySamples,
+    qualityCanaryOffsetSamples,
     metricsSnapshotMinutes,
     watchdogMinutes,
     firstSample,
@@ -1616,7 +1647,7 @@ async function main() {
       lastAction = await progressFlywheel(baseUrl, project.id, state, { deadlineAt });
       const metrics = await collectMetrics(baseUrl, project.id, child?.pid, sample, lastAction);
       samples.push(metrics.row);
-      if (qualityCanaryEverySamples > 0 && sample % qualityCanaryEverySamples === 0) {
+      if (qualityCanaryEverySamples > 0 && (sample - qualityCanaryOffsetSamples) % qualityCanaryEverySamples === 0) {
         recordQualityCanary(sample, metrics.knowledge, state);
       }
       if (samples.length > 1 && sample > 4) {
@@ -1674,6 +1705,10 @@ async function main() {
     },
     scenario: {
       name: scenario,
+      seed,
+      runId,
+      evidenceOrder: evidenceSchedule.map((item) => item.side),
+      qualityCanaryOffsetSamples,
       conflictFloodHoldSamples,
       conflictFloodMaxResolutionsPerSample: Number.isFinite(conflictFloodMaxResolutionsPerSample) ? conflictFloodMaxResolutionsPerSample : null,
       qualityCanaryEverySamples,

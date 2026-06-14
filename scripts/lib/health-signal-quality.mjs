@@ -199,7 +199,7 @@ export function classifyHealthSignalDecision(item) {
   return "unknown";
 }
 
-export function evaluateDecisionTsr(knowledgeItems = []) {
+export function evaluateDecisionTsr(knowledgeItems = [], options = {}) {
   const eligible = knowledgeItems.filter((item) => (
     ACTIVE_STATUSES.has(statusForKnowledge(item)) && !supersededByForKnowledge(item)
   ));
@@ -218,10 +218,7 @@ export function evaluateDecisionTsr(knowledgeItems = []) {
     status: eligible.length === 0 ? "insufficient_evidence" : (passed ? "pass" : "fail"),
     passed,
     interpretation: "single-scenario pass@1 check: verifies that the final active/strong card state matches the preset Health Signal oracle; it is not an independent reasoning benchmark",
-    passK: {
-      implemented: false,
-      plannedVersion: "v2",
-    },
+    passK: normalizePassKAggregate(options.passKAggregate),
     expectedDecision: EXPECTED_HEALTH_SIGNAL_DECISION,
     eligibleKnowledgeCount: eligible.length,
     hybridLayeredCount: hybrid.length,
@@ -232,6 +229,33 @@ export function evaluateDecisionTsr(knowledgeItems = []) {
     ])),
     disallowedFinalKnowledge: disallowed,
     hybridLayeredKnowledge: hybrid.slice(0, 20),
+  };
+}
+
+function normalizePassKAggregate(passKAggregate) {
+  if (!passKAggregate || typeof passKAggregate !== "object") {
+    return {
+      implemented: false,
+      plannedVersion: "v2",
+    };
+  }
+  const k = Number(passKAggregate.k);
+  const passAt1 = Number(passKAggregate.passAt1);
+  const passPowK = Number(passKAggregate.passPowK);
+  if (!Number.isFinite(k) || !Number.isFinite(passAt1) || !Number.isFinite(passPowK)) {
+    return {
+      implemented: false,
+      plannedVersion: "v2",
+      status: passKAggregate.status ?? "unavailable",
+    };
+  }
+  return {
+    implemented: true,
+    k,
+    passAt1,
+    passPowK,
+    status: passKAggregate.status ?? null,
+    thresholds: passKAggregate.thresholds ?? { passAt1: 0.85, passPowK: 0.6 },
   };
 }
 
@@ -799,12 +823,12 @@ export function latencyAndEfficiencyMetrics({ events = [], samples = [], llmCall
   };
 }
 
-export function summarizeHealthSignalQuality({ knowledgeItems = [], events = [], samples = [], llmCalls = [], evidenceCorpus = [], faithfulnessJudge = "lexical" } = {}) {
+export function summarizeHealthSignalQuality({ knowledgeItems = [], events = [], samples = [], llmCalls = [], evidenceCorpus = [], faithfulnessJudge = "lexical", passKAggregate = null } = {}) {
   const rssSlope = rssSlopeMbPerHour(samples);
   return {
     generatedAt: new Date().toISOString(),
     expectedDecision: EXPECTED_HEALTH_SIGNAL_DECISION,
-    decisionTsr: evaluateDecisionTsr(knowledgeItems),
+    decisionTsr: evaluateDecisionTsr(knowledgeItems, { passKAggregate }),
     resolutionAccuracy: scoreResolutionAccuracy(events),
     confidenceCalibration: evaluateConfidenceCalibration(knowledgeItems),
     faithfulness: evaluateFaithfulness({ knowledgeItems, events, evidenceCorpus, judgeMode: faithfulnessJudge }),
