@@ -4,6 +4,9 @@ import type { KnowledgeItem } from "@shared/schema";
 import type { Operator } from "alaya-core/src/core/types.js";
 
 type LlmCaller = typeof callLlm;
+const PROMPT_ELIGIBLE_KNOWLEDGE_LIMIT = 12;
+const PROMPT_KNOWLEDGE_CONTENT_CHARS = 800;
+const PROMPT_REJECTED_GOALS_LIMIT = 80;
 
 export interface NextGoalInput {
   cycleId: string;
@@ -299,12 +302,29 @@ function predictionFrom(value: unknown, fallback: NextGoalDraft["prediction"]): 
   };
 }
 
+function truncateForPrompt(value: string, maxChars: number): string {
+  return value.length <= maxChars ? value : `${value.slice(0, maxChars)}...`;
+}
+
 function rankedKnowledge(input: NextGoalInput) {
   return [...input.eligibleKnowledge].sort((a, b) => {
     if (a.status !== b.status) return a.status === "strong" ? -1 : b.status === "strong" ? 1 : 0;
     if (a.confidenceScore !== b.confidenceScore) return b.confidenceScore - a.confidenceScore;
     return a.id.localeCompare(b.id);
   });
+}
+
+function promptEligibleKnowledge(input: NextGoalInput): NextGoalInput["eligibleKnowledge"] {
+  return rankedKnowledge(input)
+    .slice(0, PROMPT_ELIGIBLE_KNOWLEDGE_LIMIT)
+    .map((item) => ({
+      ...item,
+      content: truncateForPrompt(item.content, PROMPT_KNOWLEDGE_CONTENT_CHARS),
+    }));
+}
+
+function promptRejectedGoals(input: NextGoalInput): string[] {
+  return input.rejectedGoals.slice(-PROMPT_REJECTED_GOALS_LIMIT);
 }
 
 function topRefs(input: NextGoalInput) {
@@ -414,6 +434,7 @@ function validateDraft(input: NextGoalInput, draft: NextGoalDraft): string[] {
 
 export async function generateNextGoal(input: NextGoalInput, llm: LlmCaller = callLlm): Promise<NextGoalDraft> {
   const fallback = fallbackDraft(input);
+  const promptKnowledge = promptEligibleKnowledge(input);
   const data = await llm({
     cycleId: input.cycleId,
     agent: "orchestrator",
@@ -423,13 +444,13 @@ export async function generateNextGoal(input: NextGoalInput, llm: LlmCaller = ca
       identity: input.identity,
       worldModel: input.worldModel,
       cycleIndex: input.cycleIndex,
-      eligibleKnowledge: input.eligibleKnowledge,
+      eligibleKnowledge: promptKnowledge,
       lastCyclePredictionError: input.lastCyclePredictionError,
       recentFeedback: input.recentFeedback,
-      rejectedGoals: input.rejectedGoals,
+      rejectedGoals: promptRejectedGoals(input),
       outputContract: NEXT_GOAL_OUTPUT_CONTRACT,
     },
-    knowledgeSummary: input.eligibleKnowledge.map((item) => `${item.id} ${item.status} ${item.title}`).join("\n"),
+    knowledgeSummary: promptKnowledge.map((item) => `${item.id} ${item.status} ${item.title}`).join("\n"),
     prohibited: [
       "Do not repeat rejected or already used goals.",
       "Do not reference stale, expired, quarantined, conflict, or superseded knowledge.",
