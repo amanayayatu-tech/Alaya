@@ -115,6 +115,8 @@ test("health-signal monitor contract includes clean 10h retest columns and seman
   assert.match(source, /holdEveryMeaningUntilSample/);
   assert.match(source, /heldMeaningGateSampleById/);
   assert.match(source, /scenario === "conflict-flood"/);
+  assert.match(source, /scenario === "conflict-flood" && isHealthSignalContradictionGate\(gate\)/);
+  assert.match(source, /sourceName === "health-signal-contradiction-runner"/);
   assert.match(source, /conflictFloodMaxResolutionsPerSample/);
   assert.match(source, /qualityCanaryBaseline/);
   assert.match(source, /driftFromBaseline/);

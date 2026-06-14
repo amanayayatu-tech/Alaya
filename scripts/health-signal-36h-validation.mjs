@@ -801,6 +801,7 @@ function parsePayload(gate) {
 
 function shouldHoldMeaningGate(gate, state) {
   if (!approveMeaning) return true;
+  if (scenario === "conflict-flood" && isHealthSignalContradictionGate(gate)) return false;
   const payload = parsePayload(gate);
   if (payload.riskKey === "knowledge_review_reminder") return true;
   if (holdReviewRequiredMeaning && meaningGateRequiresHumanReview(gate)) return true;
@@ -817,6 +818,16 @@ function shouldHoldMeaningGate(gate, state) {
     }
   }
   return false;
+}
+
+function isHealthSignalContradictionGate(gate) {
+  const payload = parsePayload(gate);
+  const sourceName = String(payload.sourceName ?? "");
+  const externalId = String(payload.externalId ?? "");
+  const userQuote = String(payload.userQuote ?? "");
+  return sourceName === "health-signal-contradiction-runner"
+    || /^sample_\d{4}_(?:ppg_support|ecg_support|ppg_risk|ecg_risk|hybrid_support|hybrid_reject)$/.test(externalId)
+    || /health-signal-contradiction-runner\s+sample_\d{4}_/.test(userQuote);
 }
 
 function meaningGateRequiresHumanReview(gate) {
