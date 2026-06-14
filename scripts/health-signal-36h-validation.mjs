@@ -952,7 +952,12 @@ async function resolveConflictReviews(baseUrl, projectId, state, options = {}) {
         }),
       });
     }
-    const action = state.resolvedConflictReviews % 2 === 0 ? "quarantine" : "merge_supersede";
+    const primaryOracleSide = inferOracleSideFromValue(review.primaryKnowledgeId);
+    const relatedOracleSide = inferOracleSideFromValue(review.relatedKnowledgeId);
+    const isSameSideDuplicate = primaryOracleSide && relatedOracleSide && primaryOracleSide === relatedOracleSide;
+    const action = isSameSideDuplicate
+      ? "merge_supersede"
+      : state.resolvedConflictReviews % 2 === 0 ? "quarantine" : "merge_supersede";
     const body = action === "merge_supersede" && review.relatedKnowledgeId
       ? {
           action,
@@ -963,8 +968,6 @@ async function resolveConflictReviews(baseUrl, projectId, state, options = {}) {
           action: "quarantine",
           rationale: `Health Signal validation human proxy via ${decisionVia}: quarantine weaker conflicting item to verify conflict convergence.`,
         };
-    const primaryOracleSide = inferOracleSideFromValue(review.primaryKnowledgeId);
-    const relatedOracleSide = inferOracleSideFromValue(review.relatedKnowledgeId);
     const resolutionScore = scoreResolutionEvent({
       reviewId: review.id,
       primaryKnowledgeId: review.primaryKnowledgeId,
