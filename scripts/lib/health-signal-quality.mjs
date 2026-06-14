@@ -61,6 +61,7 @@ const RESOLUTION_TIER_LABELS = Object.freeze({
 export const RESOLUTION_SCOREABLE_COVERAGE_THRESHOLD = 0.6;
 export const CALIBRATION_SCOREABLE_COVERAGE_THRESHOLD = 0.6;
 export const FAITHFULNESS_SCOREABLE_COVERAGE_THRESHOLD = 0.6;
+export const CONFLICT_QUALITY_MIN_ELIGIBLE = 10;
 export const LATENCY_SLO_THRESHOLDS_MS = Object.freeze({
   knowledge_retrieval: 2000,
   scheduler_tick: 30000,
@@ -217,10 +218,10 @@ function faithfulnessTextForKnowledge(item) {
 function inferHealthSignalOracleSideFromText(value) {
   const text = normalizeLexical(value);
   if (!text) return null;
-  if (/hybrid_decision_confidence\s*<=\s*0\.38|反对混合方案|保留\s*ecg\s*作为\s*pro sku|双传感器方案[^。；;]{0,80}(bom|认证范围|复杂度)/i.test(text)) {
+  if (/hybrid_decision_confidence\s*<=\s*0\.38|反对混合方案|混合方案反证|保留\s*ecg\s*作为\s*pro sku|双传感器方案[^。；;]{0,80}(bom|认证范围|复杂度)/i.test(text)) {
     return "hybrid_reject";
   }
-  if (/hybrid_decision_confidence\s*>=\s*0\.81|ppg\s*\+\s*ecg\s*分层方案|ppg\+ecg\s*分层方案|混合方案[^。；;]{0,80}ecg[^。；;]{0,80}(复核|补强)/i.test(text)) {
+  if (/hybrid_decision_confidence\s*>=\s*0\.81|ppg\s*(?:\+|＋)\s*ecg|ppg\s*\/\s*ecg\s*\/\s*混合方案|ppg\s*\+\s*ecg\s*分层方案|ppg\+ecg\s*分层方案|混合方案|分层方案|双轨|混合方案[^。；;]{0,80}ecg[^。；;]{0,80}(复核|补强)/i.test(text)) {
     return "hybrid_support";
   }
   if (/ecg\s*风险|ecg[^。；;]{0,40}(电极接触|主动测量交互|功耗|交互|成本压力)|当前最优选型决策[:：]\s*ppg\s*做连续监测/i.test(text)) {
@@ -258,17 +259,7 @@ function explicitOracleSideForKnowledge(item) {
 
 function isSeedIdentityOrWorldKnowledge(item) {
   const id = knowledgeId(item).toLowerCase();
-  if (NON_CONFLICT_SEED_ID_PREFIXES.some((prefix) => id.startsWith(prefix))) return true;
-  const supersededBy = supersededByForKnowledge(item).toLowerCase();
-  if (NON_CONFLICT_SEED_ID_PREFIXES.some((prefix) => supersededBy.startsWith(prefix))) return true;
-  const title = normalizeLexical(field(item, "title"));
-  if (/种子身份|种子世界|世界设定|seed identity|seed world/.test(title)) return true;
-  const tags = knowledgeTags(item);
-  return tags.includes("seed") && (
-    tags.includes("identity") ||
-    tags.includes("world") ||
-    /身份|世界|设定|约束/.test(title)
-  );
+  return NON_CONFLICT_SEED_ID_PREFIXES.some((prefix) => id.startsWith(prefix));
 }
 
 function isSensorFirewallAuditWrapperKnowledge(item) {
@@ -276,7 +267,7 @@ function isSensorFirewallAuditWrapperKnowledge(item) {
 }
 
 function conflictKnowledgeEligibility(item) {
-  const oracleSide = explicitOracleSideForKnowledge(item);
+  const oracleSide = explicitOracleSideForKnowledge(item) ?? oracleSideForKnowledge(item);
   if (isSeedIdentityOrWorldKnowledge(item)) {
     return { eligible: false, oracleSide, reason: "seed_identity_or_world" };
   }
@@ -518,6 +509,8 @@ export function evaluateConfidenceCalibration(knowledgeItems = [], options = {})
   const activeKnowledge = knowledgeItems.filter((item) => ACTIVE_STATUSES.has(statusForKnowledge(item)));
   const { eligible, excluded } = partitionConflictKnowledge(activeKnowledge);
   const excludedAsNonConflict = excludedAsNonConflictSummary(excluded);
+  const totalCandidates = activeKnowledge.length;
+  const eligibleConflictKnowledgeTotal = eligible.length;
   const scored = [];
   const unscored = [];
   for (const { item, oracleSide } of eligible) {
@@ -545,10 +538,13 @@ export function evaluateConfidenceCalibration(knowledgeItems = [], options = {})
   }
 
   const sampleSize = scored.length;
-  const totalEligible = scored.length + unscored.length;
-  const scoreableDenominator = scored.length + unscored.length;
-  const scoreableCoverage = scoreableDenominator === 0 ? null : +(scored.length / scoreableDenominator).toFixed(6);
-  const lowCoverage = scoreableCoverage != null && scoreableCoverage < CALIBRATION_SCOREABLE_COVERAGE_THRESHOLD;
+  const totalEligible = eligibleConflictKnowledgeTotal;
+  const scoreableDenominator = eligibleConflictKnowledgeTotal;
+  const scoreableCoverage = scoreableDenominator === 0 ? 0 : +(scored.length / scoreableDenominator).toFixed(6);
+  const lowCoverage = totalCandidates > 0 && (
+    eligibleConflictKnowledgeTotal < CONFLICT_QUALITY_MIN_ELIGIBLE ||
+    scoreableCoverage < CALIBRATION_SCOREABLE_COVERAGE_THRESHOLD
+  );
   const buckets = Array.from({ length: bucketCount }, (_, index) => ({
     bucket: index,
     lowerBound: +(index / bucketCount).toFixed(6),
@@ -581,7 +577,7 @@ export function evaluateConfidenceCalibration(knowledgeItems = [], options = {})
       .toFixed(6);
 
   let status = "insufficient_evidence";
-  if (totalEligible > 0 && lowCoverage) status = "low_coverage";
+  if (totalCandidates > 0 && lowCoverage) status = "low_coverage";
   else if (sampleSize > 0 && ece < 0.05) status = "pass";
   else if (sampleSize > 0 && ece <= 0.1) status = "warn";
   else if (sampleSize > 0) status = "fail";
@@ -595,6 +591,11 @@ export function evaluateConfidenceCalibration(knowledgeItems = [], options = {})
     sampleSize,
     scored: scored.length,
     unscored: unscored.length,
+    totalCandidates,
+    eligible: eligibleConflictKnowledgeTotal,
+    denominator: scoreableDenominator,
+    eligibleConflictKnowledgeTotal,
+    minEligible: CONFLICT_QUALITY_MIN_ELIGIBLE,
     totalEligible,
     scoreableDenominator,
     outOfScopeNoOracle: excludedAsNonConflict.reasonCounts.no_oracle_side ?? 0,
@@ -857,6 +858,9 @@ export function evaluateFaithfulness({ knowledgeItems = [], evidenceCorpus = [],
   const activeKnowledge = knowledgeItems.filter((item) => ACTIVE_STATUSES.has(statusForKnowledge(item)));
   const { eligible, excluded } = partitionConflictKnowledge(activeKnowledge);
   const excludedAsNonConflict = excludedAsNonConflictSummary(excluded);
+  const totalCandidates = activeKnowledge.length;
+  const eligibleConflictKnowledgeTotal = eligible.length;
+  const scoreableDenominator = eligibleConflictKnowledgeTotal;
 
   if (judgeMode === "llm") {
     return {
@@ -871,7 +875,16 @@ export function evaluateFaithfulness({ knowledgeItems = [], evidenceCorpus = [],
       unsupported: 0,
       indeterminate: 0,
       totalClaims: 0,
-      scoreableCoverage: null,
+      totalCandidates,
+      eligible: eligibleConflictKnowledgeTotal,
+      denominator: scoreableDenominator,
+      eligibleConflictKnowledgeTotal,
+      minEligible: CONFLICT_QUALITY_MIN_ELIGIBLE,
+      scoreableDenominator,
+      scoreableKnowledge: 0,
+      scoreableKnowledgeItems: 0,
+      claimScoreableCoverage: 0,
+      scoreableCoverage: 0,
       scoreableCoverageThreshold: FAITHFULNESS_SCOREABLE_COVERAGE_THRESHOLD,
       blockingEligible: false,
       unsupportedClaims: [],
@@ -897,7 +910,16 @@ export function evaluateFaithfulness({ knowledgeItems = [], evidenceCorpus = [],
       indeterminate: 0,
       totalClaims: 0,
       evidenceClaimCount: 0,
-      scoreableCoverage: null,
+      totalCandidates,
+      eligible: eligibleConflictKnowledgeTotal,
+      denominator: scoreableDenominator,
+      eligibleConflictKnowledgeTotal,
+      minEligible: CONFLICT_QUALITY_MIN_ELIGIBLE,
+      scoreableDenominator,
+      scoreableKnowledge: 0,
+      scoreableKnowledgeItems: 0,
+      claimScoreableCoverage: 0,
+      scoreableCoverage: 0,
       scoreableCoverageThreshold: FAITHFULNESS_SCOREABLE_COVERAGE_THRESHOLD,
       blockingEligible: false,
       unsupportedClaims: [],
@@ -911,8 +933,10 @@ export function evaluateFaithfulness({ knowledgeItems = [], evidenceCorpus = [],
   const corpusJoined = corpusLines.join("\n");
   const scoredClaims = [];
   const indeterminateClaims = [];
-  for (const { item, oracleSide } of eligible) {
+  const scoreableKnowledgeKeys = new Set();
+  for (const [eligibleIndex, { item, oracleSide }] of eligible.entries()) {
     const text = faithfulnessTextForKnowledge(item);
+    const itemKey = knowledgeId(item) || `eligible:${eligibleIndex}`;
     for (const claim of splitClaims(text)) {
       const result = scoreFaithfulnessClaim(claim, corpusLines, corpusJoined);
       const row = {
@@ -927,19 +951,27 @@ export function evaluateFaithfulness({ knowledgeItems = [], evidenceCorpus = [],
         longestCommonSubstringRatio: result.longestCommonSubstringRatio ?? null,
       };
       if (!result.scoreable) indeterminateClaims.push(row);
-      else scoredClaims.push({ ...row, supported: result.supported });
+      else {
+        scoreableKnowledgeKeys.add(itemKey);
+        scoredClaims.push({ ...row, supported: result.supported });
+      }
     }
   }
 
   const supported = scoredClaims.filter((claim) => claim.supported).length;
   const unsupported = scoredClaims.length - supported;
   const totalClaims = scoredClaims.length + indeterminateClaims.length;
-  const scoreableCoverage = totalClaims === 0 ? null : +(scoredClaims.length / totalClaims).toFixed(6);
-  const lowCoverage = scoreableCoverage != null && scoreableCoverage < FAITHFULNESS_SCOREABLE_COVERAGE_THRESHOLD;
+  const scoreableKnowledge = scoreableKnowledgeKeys.size;
+  const claimScoreableCoverage = totalClaims === 0 ? 0 : +(scoredClaims.length / totalClaims).toFixed(6);
+  const scoreableCoverage = scoreableDenominator === 0 ? 0 : +(scoreableKnowledge / scoreableDenominator).toFixed(6);
+  const lowCoverage = totalCandidates > 0 && (
+    eligibleConflictKnowledgeTotal < CONFLICT_QUALITY_MIN_ELIGIBLE ||
+    scoreableCoverage < FAITHFULNESS_SCOREABLE_COVERAGE_THRESHOLD
+  );
   const faithfulness = scoredClaims.length === 0 ? null : +(supported / scoredClaims.length).toFixed(6);
   const hallucinationRate = faithfulness == null ? null : +(1 - faithfulness).toFixed(6);
   let status = "insufficient_evidence";
-  if (totalClaims > 0 && lowCoverage) status = "low_coverage";
+  if (totalCandidates > 0 && lowCoverage) status = "low_coverage";
   else if (scoredClaims.length > 0 && faithfulness >= 0.95) status = "pass";
   else if (scoredClaims.length > 0 && faithfulness >= 0.9) status = "warn";
   else if (scoredClaims.length > 0) status = "fail";
@@ -958,6 +990,15 @@ export function evaluateFaithfulness({ knowledgeItems = [], evidenceCorpus = [],
     indeterminate: indeterminateClaims.length,
     totalClaims,
     evidenceClaimCount: corpusLines.length,
+    totalCandidates,
+    eligible: eligibleConflictKnowledgeTotal,
+    denominator: scoreableDenominator,
+    eligibleConflictKnowledgeTotal,
+    minEligible: CONFLICT_QUALITY_MIN_ELIGIBLE,
+    scoreableDenominator,
+    scoreableKnowledge,
+    scoreableKnowledgeItems: scoreableKnowledge,
+    claimScoreableCoverage,
     scoreableCoverage,
     scoreableCoverageThreshold: FAITHFULNESS_SCOREABLE_COVERAGE_THRESHOLD,
     blockingEligible: scoredClaims.length > 0 && !lowCoverage,

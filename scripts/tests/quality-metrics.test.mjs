@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  CONFLICT_QUALITY_MIN_ELIGIBLE,
   evaluateConfidenceCalibration,
   evaluateDecisionTsr,
   evaluateFaithfulness,
@@ -8,6 +9,16 @@ import {
   rssSlopeMbPerHour,
   scoreResolutionAccuracy,
 } from "../lib/health-signal-quality.mjs";
+
+function hybridSupportKnowledge(index, overrides = {}) {
+  return {
+    id: `kb_proj_runtime_${String(index).padStart(3, "0")}`,
+    content: "当前最优选型决策：PPG+ECG 分层方案，置信度 1.0。",
+    status: "active",
+    confidence_score: 1,
+    ...overrides,
+  };
+}
 
 test("decisionTsr fails when an unsuperseded ppg_only card remains active", () => {
   const result = evaluateDecisionTsr([
@@ -250,6 +261,7 @@ test("resolutionAccuracy keeps deliberately ambiguous pairs unscored", () => {
   ]);
 
   assert.equal(result.status, "insufficient_evidence");
+  assert.equal(result.blockingEligible, false);
   assert.equal(result.scored, 0);
   assert.equal(result.unscored, 3);
   assert.equal(result.unscoredReasonCounts.ambiguous_same_layer_t2_risk_pair, 1);
@@ -344,10 +356,14 @@ test("confidenceCalibration computes ECE from scored oracle knowledge", () => {
     },
   ], { bucketCount: 2 });
 
-  assert.equal(result.status, "fail");
+  assert.equal(result.status, "low_coverage");
+  assert.equal(result.blockingEligible, false);
   assert.equal(result.sampleSize, 2);
   assert.equal(result.scored, 2);
   assert.equal(result.unscored, 0);
+  assert.equal(result.totalCandidates, 2);
+  assert.equal(result.eligible, 2);
+  assert.equal(result.denominator, 2);
   assert.equal(result.scoreableCoverage, 1);
   assert.equal(result.ece, 0.2);
   assert.deepEqual(result.reliabilityTable.map((row) => ({
@@ -383,6 +399,9 @@ test("confidenceCalibration reports low coverage without blocking", () => {
   assert.equal(result.blockingEligible, false);
   assert.equal(result.scored, 1);
   assert.equal(result.unscored, 1);
+  assert.equal(result.totalCandidates, 3);
+  assert.equal(result.eligible, 2);
+  assert.equal(result.denominator, 2);
   assert.equal(result.scoreableDenominator, 2);
   assert.equal(result.scoreableCoverage, 0.5);
   assert.equal(result.ece, 0);
@@ -403,6 +422,9 @@ test("confidenceCalibration returns null ECE when oracle samples lack confidence
   assert.equal(result.status, "low_coverage");
   assert.equal(result.ece, null);
   assert.equal(result.sampleSize, 0);
+  assert.equal(result.totalCandidates, 1);
+  assert.equal(result.eligible, 1);
+  assert.equal(result.denominator, 1);
   assert.equal(result.scoreableDenominator, 1);
   assert.equal(result.scoreableCoverage, 0);
   assert.equal(result.blockingEligible, false);
@@ -419,11 +441,15 @@ test("confidenceCalibration excludes no-oracle knowledge before ECE scoring", ()
     },
   ]);
 
-  assert.equal(result.status, "insufficient_evidence");
+  assert.equal(result.status, "low_coverage");
+  assert.equal(result.blockingEligible, false);
   assert.equal(result.scored, 0);
   assert.equal(result.unscored, 0);
+  assert.equal(result.totalCandidates, 1);
+  assert.equal(result.eligible, 0);
+  assert.equal(result.denominator, 0);
   assert.equal(result.scoreableDenominator, 0);
-  assert.equal(result.scoreableCoverage, null);
+  assert.equal(result.scoreableCoverage, 0);
   assert.equal(result.outOfScopeNoOracle, 1);
   assert.deepEqual(result.unscoredReasonCounts, {});
   assert.equal(result.excludedAsNonConflict.count, 1);
@@ -431,7 +457,7 @@ test("confidenceCalibration excludes no-oracle knowledge before ECE scoring", ()
   assert.equal(result.excludedAsNonConflict.reasonCounts.no_oracle_side, 1);
 });
 
-test("confidenceCalibration excludes seed and non-conflict knowledge without changing correctness scoring", () => {
+test("confidenceCalibration only excludes true seed ids and keeps kb_proj side knowledge", () => {
   const result = evaluateConfidenceCalibration([
     {
       id: "kb_seed_identity_001",
@@ -441,7 +467,7 @@ test("confidenceCalibration excludes seed and non-conflict knowledge without cha
     {
       id: "kb_proj_market_context",
       title: "种子身份",
-      content: "须通过 NMPA 三类审批，遇 PPG/ECG 矛盾必须等待人工审核，置信度 0.88。",
+      content: "当前最优选型决策：PPG+ECG 分层方案。须通过 NMPA 三类审批，遇 PPG/ECG 矛盾必须等待人工审核，置信度 0.88。",
       status: "active",
       tags: ["identity", "seed"],
       supersededBy: "kb_seed_identity_001",
@@ -460,14 +486,19 @@ test("confidenceCalibration excludes seed and non-conflict knowledge without cha
     },
   ], { bucketCount: 2 });
 
-  assert.equal(result.scored, 2);
+  assert.equal(result.status, "low_coverage");
+  assert.equal(result.blockingEligible, false);
+  assert.equal(result.scored, 3);
   assert.equal(result.unscored, 0);
+  assert.equal(result.totalCandidates, 4);
+  assert.equal(result.eligible, 3);
+  assert.equal(result.denominator, 3);
   assert.equal(result.scoreableCoverage, 1);
-  assert.equal(result.blockingEligible, true);
-  assert.equal(result.excludedAsNonConflict.count, 2);
-  assert.deepEqual(result.excludedAsNonConflict.exampleIds, ["kb_seed_identity_001", "kb_proj_market_context"]);
-  assert.equal(result.excludedAsNonConflict.reasonCounts.seed_identity_or_world, 2);
+  assert.equal(result.excludedAsNonConflict.count, 1);
+  assert.deepEqual(result.excludedAsNonConflict.exampleIds, ["kb_seed_identity_001"]);
+  assert.equal(result.excludedAsNonConflict.reasonCounts.seed_identity_or_world, 1);
   assert.equal(result.excludedAsNonConflict.reasonCounts.no_oracle_side ?? 0, 0);
+  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_proj_market_context").correct, false);
   assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_sample_hybrid_support").correct, true);
   assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_sample_ecg_support").correct, false);
 });
@@ -493,7 +524,11 @@ test("confidenceCalibration excludes sensor firewall audit wrappers from oracle 
   ]);
 
   assert.equal(result.scored, 1);
+  assert.equal(result.eligible, 1);
+  assert.equal(result.denominator, 1);
   assert.equal(result.scoreableCoverage, 1);
+  assert.equal(result.status, "low_coverage");
+  assert.equal(result.blockingEligible, false);
   assert.equal(result.excludedAsNonConflict.count, 1);
   assert.equal(result.excludedAsNonConflict.reasonCounts.sensor_firewall_audit_wrapper, 1);
   assert.equal(result.scoredKnowledge[0].knowledgeId, "kb_gate_sample_0004_ecg_risk");
@@ -532,11 +567,58 @@ test("confidenceCalibration parses decision brief and template fallback confiden
   assert.equal(result.blockingEligible, false);
   assert.equal(result.scored, 2);
   assert.equal(result.unscored, 2);
+  assert.equal(result.eligible, 4);
+  assert.equal(result.denominator, 4);
   assert.equal(result.scoreableCoverage, 0.5);
   assert.equal(result.unscoredReasonCounts.missing_confidence, 2);
   assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_sample_hybrid_support").confidence, 0.72);
   assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_gate_sample_0001_ppg_support").confidence, 0.64);
   assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_gate_sample_0001_ppg_support").correct, false);
+});
+
+test("confidenceCalibration only blocks when eligible coverage and sample count are sufficient", () => {
+  const passResult = evaluateConfidenceCalibration(
+    Array.from({ length: CONFLICT_QUALITY_MIN_ELIGIBLE }, (_, index) => hybridSupportKnowledge(index)),
+  );
+
+  assert.equal(passResult.status, "pass");
+  assert.equal(passResult.blockingEligible, true);
+  assert.equal(passResult.totalCandidates, CONFLICT_QUALITY_MIN_ELIGIBLE);
+  assert.equal(passResult.eligible, CONFLICT_QUALITY_MIN_ELIGIBLE);
+  assert.equal(passResult.denominator, CONFLICT_QUALITY_MIN_ELIGIBLE);
+  assert.equal(passResult.scored, CONFLICT_QUALITY_MIN_ELIGIBLE);
+  assert.equal(passResult.scoreableCoverage, 1);
+
+  const failResult = evaluateConfidenceCalibration(
+    Array.from({ length: CONFLICT_QUALITY_MIN_ELIGIBLE }, (_, index) => ({
+      id: `kb_proj_wrong_ppg_${String(index).padStart(3, "0")}`,
+      content: "当前最优选型决策：优先 PPG，置信度 1.0。",
+      status: "active",
+      confidence_score: 1,
+    })),
+  );
+
+  assert.equal(failResult.status, "fail");
+  assert.equal(failResult.blockingEligible, true);
+  assert.equal(failResult.scored, CONFLICT_QUALITY_MIN_ELIGIBLE);
+  assert.equal(failResult.scoreableCoverage, 1);
+  assert.equal(failResult.ece, 1);
+
+  const lowCoverage = evaluateConfidenceCalibration(
+    Array.from({ length: CONFLICT_QUALITY_MIN_ELIGIBLE }, (_, index) => (
+      index < 5
+        ? hybridSupportKnowledge(index)
+        : hybridSupportKnowledge(index, { confidence_score: undefined, content: "当前最优选型决策：PPG+ECG 分层方案。" })
+    )),
+  );
+
+  assert.equal(lowCoverage.status, "low_coverage");
+  assert.equal(lowCoverage.blockingEligible, false);
+  assert.equal(lowCoverage.eligible, CONFLICT_QUALITY_MIN_ELIGIBLE);
+  assert.equal(lowCoverage.denominator, CONFLICT_QUALITY_MIN_ELIGIBLE);
+  assert.equal(lowCoverage.scored, 5);
+  assert.equal(lowCoverage.unscored, 5);
+  assert.equal(lowCoverage.scoreableCoverage, 0.5);
 });
 
 test("faithfulness passes when active claims are supported by evidence corpus", () => {
@@ -561,12 +643,17 @@ test("faithfulness passes when active claims are supported by evidence corpus", 
     ],
   });
 
-  assert.equal(result.status, "pass");
+  assert.equal(result.status, "low_coverage");
   assert.equal(result.judgeMode, "lexical");
   assert.equal(result.faithfulness, 1);
   assert.equal(result.hallucinationRate, 0);
   assert.equal(result.unsupportedClaims.length, 0);
-  assert.equal(result.blockingEligible, true);
+  assert.equal(result.scored, 3);
+  assert.equal(result.scoreableKnowledgeItems, 1);
+  assert.equal(result.eligible, 1);
+  assert.equal(result.denominator, 1);
+  assert.equal(result.scoreableCoverage, 1);
+  assert.equal(result.blockingEligible, false);
 });
 
 test("faithfulness flags unsupported injected-looking claims", () => {
@@ -587,7 +674,8 @@ test("faithfulness flags unsupported injected-looking claims", () => {
     ],
   });
 
-  assert.equal(result.status, "fail");
+  assert.equal(result.status, "low_coverage");
+  assert.equal(result.blockingEligible, false);
   assert.equal(result.supported, 1);
   assert.equal(result.unsupported, 1);
   assert.equal(result.hallucinationRate, 0.5);
@@ -612,7 +700,8 @@ test("faithfulness scores Chinese domain phrases without numeric anchors and sti
     ],
   });
 
-  assert.equal(result.status, "fail");
+  assert.equal(result.status, "low_coverage");
+  assert.equal(result.blockingEligible, false);
   assert.equal(result.scored, 2);
   assert.equal(result.supported, 1);
   assert.equal(result.unsupported, 1);
@@ -621,10 +710,72 @@ test("faithfulness scores Chinese domain phrases without numeric anchors and sti
   assert.ok(result.unsupportedClaims[0].anchors.some((anchor) => /fda class iii/.test(anchor)));
 });
 
-test("faithfulness excludes seed and non-conflict knowledge before claim scoring", () => {
+test("faithfulness only blocks when eligible knowledge coverage and sample count are sufficient", () => {
+  const evidenceCorpus = [
+    "当前最优选型决策：PPG+ECG 分层方案，置信度 1.0。",
+    "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低，更容易满足 ¥899 定价与 7 天续航。",
+    "当前最优选型决策：优先 PPG，置信度 0.64。",
+  ];
+  const passResult = evaluateFaithfulness({
+    evidenceCorpus,
+    knowledgeItems: Array.from({ length: CONFLICT_QUALITY_MIN_ELIGIBLE }, (_, index) => hybridSupportKnowledge(index)),
+  });
+
+  assert.equal(passResult.status, "pass");
+  assert.equal(passResult.blockingEligible, true);
+  assert.equal(passResult.eligible, CONFLICT_QUALITY_MIN_ELIGIBLE);
+  assert.equal(passResult.denominator, CONFLICT_QUALITY_MIN_ELIGIBLE);
+  assert.equal(passResult.scoreableKnowledgeItems, CONFLICT_QUALITY_MIN_ELIGIBLE);
+  assert.equal(passResult.scoreableCoverage, 1);
+  assert.equal(passResult.faithfulness, 1);
+
+  const failResult = evaluateFaithfulness({
+    evidenceCorpus,
+    knowledgeItems: Array.from({ length: CONFLICT_QUALITY_MIN_ELIGIBLE }, (_, index) => ({
+      id: `kb_proj_ppg_support_${String(index).padStart(3, "0")}`,
+      status: "active",
+      content: [
+        "当前最优选型决策：优先 PPG，置信度 0.64。",
+        "新增主张：已经完成 FDA Class III 认证，置信度 0.92。",
+      ].join("\n"),
+    })),
+  });
+
+  assert.equal(failResult.status, "fail");
+  assert.equal(failResult.blockingEligible, true);
+  assert.equal(failResult.eligible, CONFLICT_QUALITY_MIN_ELIGIBLE);
+  assert.equal(failResult.scoreableKnowledgeItems, CONFLICT_QUALITY_MIN_ELIGIBLE);
+  assert.equal(failResult.scoreableCoverage, 1);
+  assert.equal(failResult.faithfulness, 0.5);
+  assert.equal(failResult.unsupported, CONFLICT_QUALITY_MIN_ELIGIBLE);
+
+  const lowCoverage = evaluateFaithfulness({
+    evidenceCorpus,
+    knowledgeItems: Array.from({ length: CONFLICT_QUALITY_MIN_ELIGIBLE }, (_, index) => (
+      index < 5
+        ? hybridSupportKnowledge(index)
+        : {
+          id: `kb_proj_sparse_hybrid_support_${String(index).padStart(3, "0")}`,
+          status: "active",
+          content: "流程备注等待后续复查。",
+        }
+    )),
+  });
+
+  assert.equal(lowCoverage.status, "low_coverage");
+  assert.equal(lowCoverage.blockingEligible, false);
+  assert.equal(lowCoverage.eligible, CONFLICT_QUALITY_MIN_ELIGIBLE);
+  assert.equal(lowCoverage.denominator, CONFLICT_QUALITY_MIN_ELIGIBLE);
+  assert.equal(lowCoverage.scoreableKnowledgeItems, 5);
+  assert.equal(lowCoverage.scoreableCoverage, 0.5);
+  assert.equal(lowCoverage.indeterminateReasonCounts.no_deterministic_anchor, 5);
+});
+
+test("faithfulness only excludes true seed ids and keeps kb_proj side knowledge", () => {
   const result = evaluateFaithfulness({
     evidenceCorpus: [
       "PPG 风险：肤色、佩戴松紧、环境光和运动伪影会影响 PPG 静息心率可靠性。",
+      "当前最优选型决策：PPG+ECG 分层方案。须通过 NMPA 三类审批，遇 PPG/ECG 矛盾必须等待人工审核。",
     ],
     knowledgeItems: [
       {
@@ -638,7 +789,7 @@ test("faithfulness excludes seed and non-conflict knowledge before claim scoring
         status: "active",
         tags: ["world", "seed"],
         supersededBy: "kb_seed_world_001",
-        content: "须通过 NMPA 三类审批，遇 PPG/ECG 矛盾必须等待人工审核。",
+        content: "当前最优选型决策：PPG+ECG 分层方案。须通过 NMPA 三类审批，遇 PPG/ECG 矛盾必须等待人工审核。",
       },
       {
         id: "kb_sample_ppg_risk",
@@ -648,16 +799,20 @@ test("faithfulness excludes seed and non-conflict knowledge before claim scoring
     ],
   });
 
-  assert.equal(result.status, "pass");
-  assert.equal(result.scored, 1);
-  assert.equal(result.supported, 1);
+  assert.equal(result.status, "low_coverage");
+  assert.equal(result.blockingEligible, false);
+  assert.equal(result.scored, 3);
+  assert.equal(result.supported, 3);
   assert.equal(result.unsupported, 0);
-  assert.equal(result.indeterminate, 0);
-  assert.equal(result.totalClaims, 1);
+  assert.equal(result.indeterminate, 1);
+  assert.equal(result.totalClaims, 4);
+  assert.equal(result.scoreableKnowledgeItems, 2);
+  assert.equal(result.eligible, 2);
+  assert.equal(result.denominator, 2);
   assert.equal(result.scoreableCoverage, 1);
-  assert.equal(result.excludedAsNonConflict.count, 2);
-  assert.deepEqual(result.excludedAsNonConflict.exampleIds, ["kb_seed_world_001", "kb_proj_regulatory_context"]);
-  assert.equal(result.excludedAsNonConflict.reasonCounts.seed_identity_or_world, 2);
+  assert.equal(result.excludedAsNonConflict.count, 1);
+  assert.deepEqual(result.excludedAsNonConflict.exampleIds, ["kb_seed_world_001"]);
+  assert.equal(result.excludedAsNonConflict.reasonCounts.seed_identity_or_world, 1);
   assert.equal(result.excludedAsNonConflict.reasonCounts.no_oracle_side ?? 0, 0);
 });
 
@@ -684,7 +839,8 @@ test("faithfulness strips approval audit wrappers before scoring business claims
     ],
   });
 
-  assert.equal(result.status, "pass");
+  assert.equal(result.status, "low_coverage");
+  assert.equal(result.blockingEligible, false);
   assert.equal(result.unsupported, 0);
   assert.equal(result.indeterminate, 0);
   assert.equal(result.scoreableCoverage, 1);
@@ -708,7 +864,8 @@ test("faithfulness excludes sensor firewall audit wrappers from claim scoring", 
     ],
   });
 
-  assert.equal(result.status, "insufficient_evidence");
+  assert.equal(result.status, "low_coverage");
+  assert.equal(result.blockingEligible, false);
   assert.equal(result.scored, 0);
   assert.equal(result.totalClaims, 0);
   assert.equal(result.excludedAsNonConflict.count, 1);
@@ -732,7 +889,9 @@ test("faithfulness reports low coverage and unavailable evidence honestly", () =
   });
   assert.equal(lowCoverage.status, "low_coverage");
   assert.equal(lowCoverage.blockingEligible, false);
-  assert.equal(lowCoverage.scoreableCoverage, 0.333333);
+  assert.equal(lowCoverage.scoreableCoverage, 1);
+  assert.equal(lowCoverage.scoreableKnowledgeItems, 1);
+  assert.equal(lowCoverage.eligible, 1);
   assert.equal(lowCoverage.indeterminateReasonCounts.no_deterministic_anchor, 2);
 
   const unavailable = evaluateFaithfulness({
