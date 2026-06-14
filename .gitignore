@@ -28,3 +28,19 @@ backups/
 tmp/alaya-backups/
 .codex-screenshots/
 alaya-app/.codex-screenshots/
+
+# Validation & shadow-run artifacts (kept out of Git by workflow)
+validation-logs/
+archive/
+flywheel-report.json
+.codex-runtime/
+*.tar.gz
+*.patch
+
+# Validation reports, findings & handoff/prompt docs (untracked deliverables)
+REVIEW_BUNDLE*
+FIX_REPORT_*.md
+SHADOW_FINDINGS*.md
+SMOKE_FINDINGS*.md
+Alaya_*.md
+Alaya项目_*.md

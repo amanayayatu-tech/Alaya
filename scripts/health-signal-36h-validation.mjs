@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn, execFileSync } from "node:child_process";
-import { appendFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, statfsSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,16 +15,18 @@ const REQUIRED_OPENAI_MODEL = "MiniMax-M3";
 const LAUNCH_GUARD_FAILURE_EXIT_CODE = 2;
 
 const PROJECT_NAME = "wearable-health-signal-decision";
-const PROJECT_DESCRIPTION = [
-  "你是某智能健康硬件的产品决策系统。你需要对一个穿戴设备的核心传感器选型做出决策：",
-  "在用户静息心率监测场景下，应该优先选用 光学 PPG 传感器 还是 生物电阻抗 ECG 方案？",
-  "",
-  "已知约束：设备定价目标 ¥899，续航目标 7 天，目标用户是 35-50 岁亚健康白领，需要通过 NMPA 三类医疗器械认证。",
-  "",
-  "本次验证窗口为 36 小时，每 5 分钟采样一次。每轮必须复用当前知识库，不得只重算单轮结论；最终需要观察知识熵变、Human Gate 收敛、冲突解决和 Stall Guard 触发率。",
-  "",
-  "每轮任务：基于当前知识库，给出当前最优选型决策，并列明置信度与关键证据。如果遇到矛盾证据，必须在知识库中记录冲突并等待人工审核。",
-].join("\n");
+function projectDescription() {
+  return [
+    "你是某智能健康硬件的产品决策系统。你需要对一个穿戴设备的核心传感器选型做出决策：",
+    "在用户静息心率监测场景下，应该优先选用 光学 PPG 传感器 还是 生物电阻抗 ECG 方案？",
+    "",
+    "已知约束：设备定价目标 ¥899，续航目标 7 天，目标用户是 35-50 岁亚健康白领，需要通过 NMPA 三类医疗器械认证。",
+    "",
+    `本次验证窗口为 ${durationTextZh}，每 5 分钟采样一次。每轮必须复用当前知识库，不得只重算单轮结论；最终需要观察知识熵变、Human Gate 收敛、冲突解决和 Stall Guard 触发率。`,
+    "",
+    "每轮任务：基于当前知识库，给出当前最优选型决策，并列明置信度与关键证据。如果遇到矛盾证据，必须在知识库中记录冲突并等待人工审核。",
+  ].join("\n");
+}
 
 const STARTUP_FINDINGS = [
   {
@@ -221,6 +223,7 @@ if (!launchGuard.ok) {
 const durationHours = numArg("duration-hours", 36);
 const durationMinutes = numArg("duration-minutes", 0);
 const durationLabel = durationMinutes > 0 ? `${durationHours}h${durationMinutes}m` : `${durationHours}h`;
+const durationTextZh = durationMinutes > 0 ? `${durationHours} 小时 ${durationMinutes} 分钟` : `${durationHours} 小时`;
 const durationMs = Math.max(1_000, durationHours * 3_600_000 + durationMinutes * 60_000);
 const sampleMs = Math.max(1_000, numArg("sample-minutes", 5) * 60_000 + numArg("sample-seconds", 0) * 1_000);
 const maxSamples = Math.max(1, Math.min(Math.ceil(durationMs / sampleMs), Math.trunc(numArg("max-samples", Number.POSITIVE_INFINITY))));
@@ -249,7 +252,12 @@ const issuesMd = join(logDir, "issues.md");
 const summaryJson = join(logDir, "summary.json");
 const appLogPath = join(logDir, "app.log");
 const runnerLogPath = join(logDir, "runner.log");
+const metricsDir = join(logDir, "metrics");
+const opsTrendWarningsPath = join(logDir, "ops_trend_warnings.log");
+const watchdogPath = join(logDir, "watchdog.jsonl");
 const dbPath = resolve(launchGuard.config.dbPath);
+const metricsSnapshotMinutes = Math.max(0, numArg("metrics-snapshot-minutes", 0));
+const watchdogMinutes = Math.max(0, numArg("watchdog-minutes", 0));
 
 function logLine(message) {
   const line = `${new Date().toISOString()} ${message}`;
@@ -439,6 +447,38 @@ async function requestJson(baseUrl, path, options = {}) {
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
+async function requestText(baseUrl, path, options = {}) {
+  const method = options.method || "GET";
+  const maxAttempts = Math.max(1, options.attempts ?? 4);
+  let lastError = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, { method, headers: options.headers || {} });
+      const text = await res.text();
+      if (res.ok) return text;
+      const error = new Error(`${method} ${path} failed: ${res.status} ${text.slice(0, 800)}`);
+      if (res.status < 500 && res.status !== 429) {
+        error.retryable = false;
+        throw error;
+      }
+      lastError = error;
+    } catch (err) {
+      lastError = err;
+      if (err instanceof Error && err.retryable === false) throw err;
+      if (attempt >= maxAttempts) break;
+    }
+    event("request_retry", {
+      method,
+      path,
+      attempt,
+      maxAttempts,
+      error: lastError instanceof Error ? lastError.message : String(lastError),
+    });
+    await sleep(500 * attempt);
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 function redactEnvForRecord(env) {
   const secretKeys = /key|token|secret|password/i;
   return Object.fromEntries(Object.entries(env)
@@ -502,11 +542,12 @@ async function startLocalApp() {
 }
 
 function projectPayload() {
+  const description = projectDescription();
   return {
     name: PROJECT_NAME,
-    oneLiner: PROJECT_DESCRIPTION,
+    oneLiner: description,
     targetUser: "35-50 岁亚健康白领；匿名智能健康硬件产品与合规团队",
-    currentHypothesis: "在 36 小时连续验证窗口内，¥899 定价、7 天续航和 NMPA 三类认证约束会持续拉扯 PPG/ECG/混合方案选型；系统必须复用历史知识、隔离矛盾知识并让 Human Gate 触发率逐步收敛。",
+    currentHypothesis: `在 ${durationTextZh} 连续验证窗口内，¥899 定价、7 天续航和 NMPA 三类认证约束会持续拉扯 PPG/ECG/混合方案选型；系统必须复用历史知识、隔离矛盾知识并让 Human Gate 触发率逐步收敛。`,
     neverDo: "不得把互相矛盾的 PPG/ECG 结论同时作为 active 决策事实复用；不得绕过 NMPA 三类认证约束。",
     redlines: [
       "遇到 PPG vs ECG 选型矛盾必须记录 conflict 并等待人工审核",
@@ -515,21 +556,21 @@ function projectPayload() {
     ],
     founderPreference: "优先满足 ¥899 与 7 天续航，但不能牺牲医疗器械认证路径与长期可信度。",
     competitors: "Apple Watch ECG/PPG、医疗级 Holter、国产健康手环 PPG、血压/心电一体腕带",
-    feedbackSources: "Codex 36h runner 表单反馈矛盾注入、Alaya agent outputs、Human Gate 审核",
+    feedbackSources: `Codex ${durationLabel} runner 表单反馈矛盾注入、Alaya agent outputs、Human Gate 审核`,
     weeklyHumanMinutes: 10080,
     weeklyLlmBudgetCents: 1_000_000,
     firstClaimMetric: "decision_confidence",
     firstClaimOperator: ">=",
     firstClaimTarget: 0.7,
-    firstSignal: "每轮输出当前 PPG/ECG/混合方案选型、置信度、关键证据和冲突记录；36h 全程观察 delta、Human Gate、conflict resolution 和 Stall Guard。",
+    firstSignal: `每轮输出当前 PPG/ECG/混合方案选型、置信度、关键证据和冲突记录；${durationLabel} 全程观察 delta、Human Gate、conflict resolution 和 Stall Guard。`,
   };
 }
 
 function projectConfigPatch() {
   const payload = projectPayload();
   const validationNote = [
-    "36h 验证目标:",
-    "本轮 Health Signal 验证窗口为 36 小时；runner 使用 sample-minutes=5、progress-ticks-per-sample=6、max-samples=432。",
+    `${durationLabel} 验证目标:`,
+    `本轮 Health Signal 验证窗口为 ${durationTextZh}；runner 使用 sample-minutes=${+(sampleMs / 60_000).toFixed(3)}、progress-ticks-per-sample=${progressTicksPerSample}、max-samples=${maxSamples}。`,
     "每轮必须复用当前知识库，不得只重算单轮结论；最终需要观察 delta、Human Gate 收敛、conflict resolution 和 Stall Guard 触发率。",
   ].join("\n");
   return {
@@ -567,6 +608,19 @@ async function createProject(baseUrl) {
     try {
       const existing = JSON.parse(readFileSync(projectPath, "utf8"));
       if (existing?.id) {
+        if (existingRun) {
+          const project = await requestJson(baseUrl, `/api/projects/${existing.id}`);
+          writeFileSync(projectPath, JSON.stringify(project, null, 2));
+          event("project_reused", {
+            projectId: project.id,
+            name: project.name,
+            promptCadenceMinutes: 5,
+            maxSamples,
+            resumeMode: "read_only_existing_project",
+            lastRecordedSample: lastRecordedSample(),
+          });
+          return project;
+        }
         const project = await requestJson(baseUrl, `/api/projects/${existing.id}`, {
           method: "PATCH",
           body: projectConfigPatch(),
@@ -579,6 +633,7 @@ async function createProject(baseUrl) {
       event("project_reuse_failed", {
         error: error instanceof Error ? error.message : String(error),
       });
+      if (existingRun) throw error;
     }
   }
   const project = await requestJson(baseUrl, "/api/projects", {
@@ -1022,6 +1077,121 @@ async function collectMetrics(baseUrl, projectId, appPid, sample, lastAction) {
   return { row, health, gates, knowledge, reviews, cycles, ops, llmCalls };
 }
 
+function opsTrendWarningLines(ops) {
+  const lines = [];
+  const gray = ops?.grayActiveStockTrend;
+  if (gray?.warning) {
+    const increases = Array.isArray(gray.increases)
+      ? gray.increases.map((item) => `${item.fromCycleIdx}->${item.toCycleIdx} +${item.delta}`).join(", ")
+      : "";
+    lines.push(`灰区存量趋势告警：未单调下降（${increases}）`);
+  }
+  const budget = ops?.meaningGateBudget;
+  if (budget?.overBudget) {
+    lines.push(`意义闸预算告警：预计 ${budget.projectedMinutes}/${budget.budget} 分钟（pending ${budget.pendingEstimatedMinutes}）。`);
+  }
+  return lines;
+}
+
+async function writeMetricsSnapshot(baseUrl, projectId, sample, index, reason = "interval") {
+  mkdirSync(metricsDir, { recursive: true });
+  const [prometheus, json, ops] = await Promise.all([
+    requestText(baseUrl, "/metrics"),
+    requestJson(baseUrl, "/metrics?format=json"),
+    requestJson(baseUrl, `/api/projects/${projectId}/ops-metrics`),
+  ]);
+  const prefix = `snapshot_${String(index).padStart(4, "0")}`;
+  const meta = {
+    sample,
+    index,
+    reason,
+    capturedAt: new Date().toISOString(),
+    projectId,
+  };
+  writeFileSync(join(metricsDir, `${prefix}.txt`), [
+    `# shadow_snapshot_meta ${JSON.stringify(meta)}`,
+    prometheus.trimEnd(),
+    "",
+  ].join("\n"));
+  writeFileSync(join(metricsDir, `${prefix}.json`), `${JSON.stringify({ ...meta, metrics: json, opsMetrics: ops }, null, 2)}\n`);
+  const warnings = opsTrendWarningLines(ops);
+  appendFileSync(opsTrendWarningsPath, `${JSON.stringify({ ...meta, warnings })}\n`);
+  event("metrics_snapshot_captured", {
+    ...meta,
+    files: {
+      prometheus: join(metricsDir, `${prefix}.txt`),
+      json: join(metricsDir, `${prefix}.json`),
+    },
+    warningCount: warnings.length,
+    warnings,
+  });
+}
+
+async function dbWritable(dbFile) {
+  try {
+    const imported = await import("better-sqlite3");
+    const Database = imported.default;
+    const db = new Database(dbFile);
+    try {
+      db.pragma("quick_check");
+      db.exec("BEGIN IMMEDIATE; ROLLBACK;");
+      return { ok: true };
+    } finally {
+      db.close();
+    }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function runWatchdog(baseUrl, child, sample) {
+  const checks = {
+    sample,
+    checkedAt: new Date().toISOString(),
+    processAlive: !child || child.exitCode == null,
+    readyz: false,
+    dbWritable: false,
+    diskFreeBytes: null,
+    ok: false,
+    errors: [],
+  };
+  try {
+    const ready = await requestJson(baseUrl, "/readyz", { attempts: 1 });
+    checks.readyz = ready?.status === "ready";
+    if (!checks.readyz) checks.errors.push(`readyz=${JSON.stringify(ready).slice(0, 200)}`);
+  } catch (error) {
+    checks.errors.push(`readyz_error=${error instanceof Error ? error.message : String(error)}`);
+  }
+  const dbCheck = await dbWritable(dbPath);
+  checks.dbWritable = dbCheck.ok;
+  if (!dbCheck.ok) checks.errors.push(`db_writable_error=${dbCheck.error}`);
+  try {
+    const stat = statfsSync(logDir);
+    checks.diskFreeBytes = Number(stat.bavail) * Number(stat.bsize);
+    if (checks.diskFreeBytes < 2_000_000_000) checks.errors.push(`low_disk_free_bytes=${checks.diskFreeBytes}`);
+  } catch (error) {
+    checks.errors.push(`disk_error=${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!checks.processAlive) checks.errors.push("app_process_not_alive");
+  checks.ok = checks.errors.length === 0;
+  appendFileSync(watchdogPath, `${JSON.stringify(checks)}\n`);
+  event("watchdog_check", checks);
+  if (!checks.ok) {
+    issue({
+      severity: "P0",
+      title: `watchdog failed at sample ${sample}`,
+      detail: checks.errors.join("\n"),
+      evidence: JSON.stringify({
+        processAlive: checks.processAlive,
+        readyz: checks.readyz,
+        dbWritable: checks.dbWritable,
+        diskFreeBytes: checks.diskFreeBytes,
+      }),
+    });
+  }
+  return checks;
+}
+
 function unique(values) {
   return Array.from(new Set(values.filter((value) => value != null && value !== "")));
 }
@@ -1175,12 +1345,66 @@ async function main() {
     holdEveryMeaning,
     holdEveryMeaningUntilSample: Number.isFinite(holdEveryMeaningUntilSample) ? holdEveryMeaningUntilSample : null,
     resolveConflictReviewsTarget,
+    metricsSnapshotMinutes,
+    watchdogMinutes,
     firstSample,
     firstRecordedIso,
     validationStartedAtIso: new Date(validationStartedAt).toISOString(),
     elapsedBeforeThisProcessMs: Math.max(0, started - validationStartedAt),
   });
   let lastAction = "";
+  let snapshotIndex = existsSync(metricsDir)
+    ? readFileSync(eventsJsonl, "utf8").split(/\r?\n/).filter((line) => line.includes("\"metrics_snapshot_captured\"")).length
+    : 0;
+  let snapshotChain = Promise.resolve();
+  let watchdogChain = Promise.resolve();
+  let snapshotTimer = null;
+  let watchdogTimer = null;
+  const captureError = (kind, reason, sample, error) => {
+    const detail = error instanceof Error ? error.stack || error.message : String(error);
+    issue({
+      severity: "P0",
+      title: `${kind} failed at sample ${sample}`,
+      detail,
+    });
+    event(`${kind}_failed`, { sample, reason, error: detail });
+  };
+  const queueSnapshot = (reason) => {
+    if (metricsSnapshotMinutes <= 0) return snapshotChain;
+    const sampleAtCapture = state.currentSample;
+    snapshotChain = snapshotChain
+      .then(async () => {
+        snapshotIndex += 1;
+        await writeMetricsSnapshot(baseUrl, project.id, sampleAtCapture, snapshotIndex, reason);
+      })
+      .catch((error) => captureError("metrics_snapshot", reason, sampleAtCapture, error));
+    return snapshotChain;
+  };
+  const queueWatchdog = (reason) => {
+    if (watchdogMinutes <= 0) return watchdogChain;
+    const sampleAtCapture = state.currentSample;
+    watchdogChain = watchdogChain
+      .then(() => runWatchdog(baseUrl, child, sampleAtCapture))
+      .catch((error) => captureError("watchdog", reason, sampleAtCapture, error));
+    return watchdogChain;
+  };
+  const stopPeriodicCaptures = async () => {
+    if (snapshotTimer) clearInterval(snapshotTimer);
+    if (watchdogTimer) clearInterval(watchdogTimer);
+    await Promise.all([snapshotChain, watchdogChain]);
+  };
+  if (metricsSnapshotMinutes > 0) {
+    queueSnapshot("initial");
+    snapshotTimer = setInterval(() => {
+      queueSnapshot("interval");
+    }, metricsSnapshotMinutes * 60_000);
+  }
+  if (watchdogMinutes > 0) {
+    queueWatchdog("initial");
+    watchdogTimer = setInterval(() => {
+      queueWatchdog("interval");
+    }, watchdogMinutes * 60_000);
+  }
   const deadlineAt = validationStartedAt + durationMs;
   for (let sample = firstSample; sample <= maxSamples; sample += 1) {
     state.currentSample = sample;
@@ -1233,7 +1457,12 @@ async function main() {
     await sleep(Math.max(0, nextAt - Date.now()));
   }
 
+  await stopPeriodicCaptures();
   const finalDrain = await finalDrainFlywheel(baseUrl, project.id, state);
+  await Promise.all([
+    queueSnapshot("final"),
+    queueWatchdog("final"),
+  ]);
   const assessmentSamples = readMonitorSamples();
   const assessment = finalAssessment(assessmentSamples.length ? assessmentSamples : samples, readEvents());
   writeFileSync(summaryJson, JSON.stringify({
@@ -1265,6 +1494,9 @@ async function main() {
       issuesMd,
       appLogPath,
       runnerLogPath,
+      metricsDir,
+      opsTrendWarningsPath,
+      watchdogPath,
     },
   }, null, 2));
   event("validation_complete", assessment);
