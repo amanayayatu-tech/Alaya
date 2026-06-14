@@ -382,12 +382,13 @@ test("confidenceCalibration reports low coverage without blocking", () => {
   assert.equal(result.status, "low_coverage");
   assert.equal(result.blockingEligible, false);
   assert.equal(result.scored, 1);
-  assert.equal(result.unscored, 2);
+  assert.equal(result.unscored, 1);
   assert.equal(result.scoreableDenominator, 2);
   assert.equal(result.scoreableCoverage, 0.5);
   assert.equal(result.ece, 0);
-  assert.equal(result.unscoredReasonCounts.no_oracle, 1);
   assert.equal(result.unscoredReasonCounts.missing_confidence, 1);
+  assert.equal(result.excludedAsNonConflict.count, 1);
+  assert.equal(result.excludedAsNonConflict.reasonCounts.no_oracle_side, 1);
 });
 
 test("confidenceCalibration returns null ECE when oracle samples lack confidence", () => {
@@ -409,7 +410,7 @@ test("confidenceCalibration returns null ECE when oracle samples lack confidence
   assert.equal(result.unscoredReasonCounts.missing_confidence, 1);
 });
 
-test("confidenceCalibration reports no-oracle knowledge outside the ECE denominator", () => {
+test("confidenceCalibration excludes no-oracle knowledge before ECE scoring", () => {
   const result = evaluateConfidenceCalibration([
     {
       id: "kb_generic_unknown",
@@ -419,10 +420,83 @@ test("confidenceCalibration reports no-oracle knowledge outside the ECE denomina
   ]);
 
   assert.equal(result.status, "insufficient_evidence");
+  assert.equal(result.scored, 0);
+  assert.equal(result.unscored, 0);
   assert.equal(result.scoreableDenominator, 0);
   assert.equal(result.scoreableCoverage, null);
   assert.equal(result.outOfScopeNoOracle, 1);
-  assert.equal(result.unscoredReasonCounts.no_oracle, 1);
+  assert.deepEqual(result.unscoredReasonCounts, {});
+  assert.equal(result.excludedAsNonConflict.count, 1);
+  assert.deepEqual(result.excludedAsNonConflict.exampleIds, ["kb_generic_unknown"]);
+  assert.equal(result.excludedAsNonConflict.reasonCounts.no_oracle_side, 1);
+});
+
+test("confidenceCalibration excludes seed and non-conflict knowledge without changing correctness scoring", () => {
+  const result = evaluateConfidenceCalibration([
+    {
+      id: "kb_seed_identity_001",
+      content: "目标用户 35-50 岁，价格锚定 ¥899，续航红线为 7 天，置信度 0.95。",
+      status: "active",
+    },
+    {
+      id: "kb_proj_market_context",
+      title: "种子身份",
+      content: "须通过 NMPA 三类审批，遇 PPG/ECG 矛盾必须等待人工审核，置信度 0.88。",
+      status: "active",
+      tags: ["identity", "seed"],
+      supersededBy: "kb_seed_identity_001",
+    },
+    {
+      id: "kb_sample_hybrid_support",
+      content: "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。",
+      status: "active",
+      confidence_score: 0.71,
+    },
+    {
+      id: "kb_sample_ecg_support",
+      content: "当前最优选型决策：优先 ECG，置信度 0.66。",
+      status: "active",
+      confidence_score: 0.66,
+    },
+  ], { bucketCount: 2 });
+
+  assert.equal(result.scored, 2);
+  assert.equal(result.unscored, 0);
+  assert.equal(result.scoreableCoverage, 1);
+  assert.equal(result.blockingEligible, true);
+  assert.equal(result.excludedAsNonConflict.count, 2);
+  assert.deepEqual(result.excludedAsNonConflict.exampleIds, ["kb_seed_identity_001", "kb_proj_market_context"]);
+  assert.equal(result.excludedAsNonConflict.reasonCounts.seed_identity_or_world, 2);
+  assert.equal(result.excludedAsNonConflict.reasonCounts.no_oracle_side ?? 0, 0);
+  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_sample_hybrid_support").correct, true);
+  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_sample_ecg_support").correct, false);
+});
+
+test("confidenceCalibration excludes sensor firewall audit wrappers from oracle calibration", () => {
+  const result = evaluateConfidenceCalibration([
+    {
+      id: "kb_gate_gate_sensor_recurring_1234",
+      sourceRef: "health-signal-contradiction-runner:sample_0029_hybrid_support",
+      title: "外部反馈: recurring sensor error unknown from health-signal-contradiction-runner",
+      content: "Human approved meaning gate gate_sensor_recurring_1234.",
+      status: "strong",
+      confidence_score: 0.98,
+      tags: ["meaning_gate", "sensor_firewall", "external_feedback"],
+    },
+    {
+      id: "kb_gate_sample_0004_ecg_risk",
+      sourceRef: "health-signal-contradiction-runner:sample_0004_ecg_risk",
+      content: "ECG 风险：ECG 需要更严格电极接触和主动测量交互，连续 7 天续航与 ¥899 定价下硬件和体验成本更高。",
+      status: "strong",
+      confidence_score: 0.9,
+    },
+  ]);
+
+  assert.equal(result.scored, 1);
+  assert.equal(result.scoreableCoverage, 1);
+  assert.equal(result.excludedAsNonConflict.count, 1);
+  assert.equal(result.excludedAsNonConflict.reasonCounts.sensor_firewall_audit_wrapper, 1);
+  assert.equal(result.scoredKnowledge[0].knowledgeId, "kb_gate_sample_0004_ecg_risk");
 });
 
 test("confidenceCalibration parses decision brief and template fallback confidence without changing correctness", () => {
@@ -547,12 +621,106 @@ test("faithfulness scores Chinese domain phrases without numeric anchors and sti
   assert.ok(result.unsupportedClaims[0].anchors.some((anchor) => /fda class iii/.test(anchor)));
 });
 
+test("faithfulness excludes seed and non-conflict knowledge before claim scoring", () => {
+  const result = evaluateFaithfulness({
+    evidenceCorpus: [
+      "PPG 风险：肤色、佩戴松紧、环境光和运动伪影会影响 PPG 静息心率可靠性。",
+    ],
+    knowledgeItems: [
+      {
+        id: "kb_seed_world_001",
+        status: "active",
+        content: "目标用户 35-50 岁，价格锚定 ¥899，必须达到 7 天续航。",
+      },
+      {
+        id: "kb_proj_regulatory_context",
+        title: "种子世界",
+        status: "active",
+        tags: ["world", "seed"],
+        supersededBy: "kb_seed_world_001",
+        content: "须通过 NMPA 三类审批，遇 PPG/ECG 矛盾必须等待人工审核。",
+      },
+      {
+        id: "kb_sample_ppg_risk",
+        status: "active",
+        content: "PPG 风险来自肤色、佩戴松紧、环境光和运动伪影。",
+      },
+    ],
+  });
+
+  assert.equal(result.status, "pass");
+  assert.equal(result.scored, 1);
+  assert.equal(result.supported, 1);
+  assert.equal(result.unsupported, 0);
+  assert.equal(result.indeterminate, 0);
+  assert.equal(result.totalClaims, 1);
+  assert.equal(result.scoreableCoverage, 1);
+  assert.equal(result.excludedAsNonConflict.count, 2);
+  assert.deepEqual(result.excludedAsNonConflict.exampleIds, ["kb_seed_world_001", "kb_proj_regulatory_context"]);
+  assert.equal(result.excludedAsNonConflict.reasonCounts.seed_identity_or_world, 2);
+  assert.equal(result.excludedAsNonConflict.reasonCounts.no_oracle_side ?? 0, 0);
+});
+
+test("faithfulness strips approval audit wrappers before scoring business claims", () => {
+  const result = evaluateFaithfulness({
+    evidenceCorpus: [
+      "ECG 反证：功耗/交互/成本压力。",
+      "ECG 风险：ECG 需要更严格电极接触和主动测量交互，连续 7 天续航与 ¥899 定价下硬件和体验成本更高。",
+    ],
+    knowledgeItems: [
+      {
+        id: "kb_gate_sample_0004_ecg_risk",
+        sourceRef: "health-signal-contradiction-runner:sample_0004_ecg_risk",
+        title: "外部反馈: ECG 反证：功耗/交互/成本压力",
+        status: "strong",
+        content: [
+          "Human approved meaning gate gate_ext_fb_form_sample_0004_ecg_risk.",
+          "Source: form_feedback sample_0004_ecg_risk.",
+          "Summary: ECG 反证：功耗/交互/成本压力.",
+          "User quote: Form Feedback (health-signal-contradiction-runner sample_0004_ecg_risk): ECG 风险：ECG 需要更严格电极接触和主动测量交互，连续 7 天续航与 ¥899 定价下硬件和体验成本更高。",
+        ].join("\n"),
+        notes: "approved via web\nReview kr_1234: survivor retained after absorbing duplicate.\nLibrarian merge: not physically deleted.",
+      },
+    ],
+  });
+
+  assert.equal(result.status, "pass");
+  assert.equal(result.unsupported, 0);
+  assert.equal(result.indeterminate, 0);
+  assert.equal(result.scoreableCoverage, 1);
+  assert.equal(result.unsupportedClaims.length, 0);
+});
+
+test("faithfulness excludes sensor firewall audit wrappers from claim scoring", () => {
+  const result = evaluateFaithfulness({
+    evidenceCorpus: [
+      "混合方案证据：PPG 连续 + ECG 复核。",
+    ],
+    knowledgeItems: [
+      {
+        id: "kb_gate_gate_sensor_recurring_1234",
+        sourceRef: "health-signal-contradiction-runner:sample_0029_hybrid_support",
+        title: "外部反馈: recurring sensor error unknown from health-signal-contradiction-runner",
+        status: "strong",
+        content: "User quote: recurring sensor error unknown from health-signal-contradiction-runner: 混合方案证据：PPG 连续 + ECG 复核.",
+        tags: ["meaning_gate", "sensor_firewall", "external_feedback"],
+      },
+    ],
+  });
+
+  assert.equal(result.status, "insufficient_evidence");
+  assert.equal(result.scored, 0);
+  assert.equal(result.totalClaims, 0);
+  assert.equal(result.excludedAsNonConflict.count, 1);
+  assert.equal(result.excludedAsNonConflict.reasonCounts.sensor_firewall_audit_wrapper, 1);
+});
+
 test("faithfulness reports low coverage and unavailable evidence honestly", () => {
   const lowCoverage = evaluateFaithfulness({
     evidenceCorpus: ["PPG 优先：光学 PPG 在静息心率监测下功耗低。"],
     knowledgeItems: [
       {
-        id: "kb_notes",
+        id: "kb_sample_ppg_support",
         status: "active",
         content: [
           "需要后续人工复查。",

@@ -41,6 +41,7 @@ export const HEALTH_SIGNAL_ORACLE_BY_SIDE = Object.freeze({
 
 const ORACLE_SIDE_PATTERN = /(hybrid_support|hybrid_reject|ppg_support|ppg_risk|ecg_support|ecg_risk)/i;
 const ACTIVE_STATUSES = new Set(["active", "strong"]);
+const NON_CONFLICT_SEED_ID_PREFIXES = ["kb_seed_identity", "kb_seed_world"];
 const DISALLOWED_FINAL_DECISIONS = new Set(["ppg_only", "ecg_only", "hybrid_reject"]);
 const NON_FINAL_STATUSES = new Set(["quarantined", "deprecated", "stale", "archived"]);
 const RESOLUTION_SIDE_TIERS = Object.freeze({
@@ -149,15 +150,6 @@ function textForKnowledge(item) {
   ].filter(Boolean).join("\n"));
 }
 
-function faithfulnessTextForKnowledge(item) {
-  return normalizeSpace([
-    field(item, "title"),
-    field(item, "text"),
-    field(item, "content"),
-    field(item, "notes"),
-  ].filter(Boolean).join("\n"));
-}
-
 function statusForKnowledge(item) {
   return String(field(item, "status") ?? "").toLowerCase();
 }
@@ -168,6 +160,58 @@ function supersededByForKnowledge(item) {
 
 function knowledgeId(item) {
   return String(field(item, "id") ?? "");
+}
+
+function knowledgeTags(item) {
+  const raw = field(item, "tags");
+  if (Array.isArray(raw)) return raw.map((tag) => normalizeLexical(tag)).filter(Boolean);
+  const parsed = parseMaybeJson(raw);
+  if (Array.isArray(parsed)) return parsed.map((tag) => normalizeLexical(tag)).filter(Boolean);
+  return normalizeLexical(raw)
+    .split(/[\s,，;；|]+/g)
+    .filter(Boolean);
+}
+
+function stripFeedbackQuotePrefix(value) {
+  return normalizeSpace(value)
+    .replace(/^form feedback\s*\([^)]*\)\s*:\s*/i, "")
+    .replace(/^recurring sensor error unknown from [^:]+:\s*/i, "");
+}
+
+function faithfulnessBusinessText(value) {
+  const lines = String(value ?? "")
+    .split(/[\n\r]+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const kept = [];
+  for (const line of lines) {
+    if (/^human approved meaning gate\b/i.test(line)) continue;
+    if (/^source\s*:/i.test(line)) continue;
+    if (/^approved via web\b/i.test(line)) continue;
+    if (/^librarian merge\s*:/i.test(line)) continue;
+    if (/^review\s+kr_[a-z0-9_-]+\s*:/i.test(line)) continue;
+    if (/^health signal validation human proxy\b/i.test(line)) continue;
+    const summary = /^summary\s*:\s*(.+)$/i.exec(line);
+    if (summary) {
+      kept.push(normalizeSpace(summary[1]));
+      continue;
+    }
+    const quote = /^user quote\s*:\s*(.+)$/i.exec(line);
+    if (quote) {
+      kept.push(stripFeedbackQuotePrefix(quote[1]));
+      continue;
+    }
+    kept.push(normalizeSpace(line));
+  }
+  return kept.filter(Boolean).join("\n");
+}
+
+function faithfulnessTextForKnowledge(item) {
+  return [
+    faithfulnessBusinessText(field(item, "title")),
+    faithfulnessBusinessText(field(item, "text")),
+    faithfulnessBusinessText(field(item, "content")),
+  ].filter(Boolean).join("\n");
 }
 
 function inferHealthSignalOracleSideFromText(value) {
@@ -196,6 +240,83 @@ function inferHealthSignalOracleSideFromText(value) {
 
 function oracleSideForKnowledge(item) {
   return inferOracleSideFromValue(item) ?? inferHealthSignalOracleSideFromText(textForKnowledge(item));
+}
+
+function explicitOracleSideForKnowledge(item) {
+  return inferOracleSideFromValue({
+    oracleSide: field(item, "oracleSide", "oracle_side"),
+    side: field(item, "side"),
+    primaryOracleSide: field(item, "primaryOracleSide", "primary_oracle_side"),
+    relatedOracleSide: field(item, "relatedOracleSide", "related_oracle_side"),
+    sourceRef: field(item, "sourceRef", "source_ref"),
+    id: field(item, "id"),
+    title: field(item, "title"),
+    semanticKey: field(item, "semanticKey", "semantic_key"),
+    tags: field(item, "tags"),
+  });
+}
+
+function isSeedIdentityOrWorldKnowledge(item) {
+  const id = knowledgeId(item).toLowerCase();
+  if (NON_CONFLICT_SEED_ID_PREFIXES.some((prefix) => id.startsWith(prefix))) return true;
+  const supersededBy = supersededByForKnowledge(item).toLowerCase();
+  if (NON_CONFLICT_SEED_ID_PREFIXES.some((prefix) => supersededBy.startsWith(prefix))) return true;
+  const title = normalizeLexical(field(item, "title"));
+  if (/种子身份|种子世界|世界设定|seed identity|seed world/.test(title)) return true;
+  const tags = knowledgeTags(item);
+  return tags.includes("seed") && (
+    tags.includes("identity") ||
+    tags.includes("world") ||
+    /身份|世界|设定|约束/.test(title)
+  );
+}
+
+function isSensorFirewallAuditWrapperKnowledge(item) {
+  return knowledgeTags(item).includes("sensor_firewall");
+}
+
+function conflictKnowledgeEligibility(item) {
+  const oracleSide = explicitOracleSideForKnowledge(item);
+  if (isSeedIdentityOrWorldKnowledge(item)) {
+    return { eligible: false, oracleSide, reason: "seed_identity_or_world" };
+  }
+  if (isSensorFirewallAuditWrapperKnowledge(item)) {
+    return { eligible: false, oracleSide, reason: "sensor_firewall_audit_wrapper" };
+  }
+  if (!oracleSide) {
+    return { eligible: false, oracleSide: null, reason: "no_oracle_side" };
+  }
+  return { eligible: true, oracleSide, reason: null };
+}
+
+function partitionConflictKnowledge(items = []) {
+  const eligible = [];
+  const excluded = [];
+  for (const item of items) {
+    const eligibility = conflictKnowledgeEligibility(item);
+    if (eligibility.eligible) {
+      eligible.push({ item, oracleSide: eligibility.oracleSide });
+    } else {
+      excluded.push({
+        knowledgeId: knowledgeId(item),
+        oracleSide: eligibility.oracleSide,
+        status: statusForKnowledge(item),
+        reason: eligibility.reason,
+      });
+    }
+  }
+  return { eligible, excluded };
+}
+
+function excludedAsNonConflictSummary(excluded = []) {
+  return {
+    count: excluded.length,
+    reasonCounts: countBy(excluded, (item) => item.reason ?? "unknown"),
+    exampleIds: excluded
+      .map((item) => item.knowledgeId)
+      .filter(Boolean)
+      .slice(0, 20),
+  };
 }
 
 const HEALTH_SIGNAL_TEMPLATE_CONFIDENCE_BY_SIDE = Object.freeze({
@@ -394,12 +515,13 @@ function normalizePassKAggregate(passKAggregate) {
 
 export function evaluateConfidenceCalibration(knowledgeItems = [], options = {}) {
   const bucketCount = Math.max(1, Math.trunc(Number(options.bucketCount ?? 10)));
-  const eligible = knowledgeItems.filter((item) => ACTIVE_STATUSES.has(statusForKnowledge(item)));
+  const activeKnowledge = knowledgeItems.filter((item) => ACTIVE_STATUSES.has(statusForKnowledge(item)));
+  const { eligible, excluded } = partitionConflictKnowledge(activeKnowledge);
+  const excludedAsNonConflict = excludedAsNonConflictSummary(excluded);
   const scored = [];
   const unscored = [];
-  for (const item of eligible) {
+  for (const { item, oracleSide } of eligible) {
     const confidence = confidenceForKnowledge(item);
-    const oracleSide = oracleSideForKnowledge(item);
     const oracle = oracleMetadataForSide(oracleSide);
     const correct = actualDispositionMatchesOracle(item, oracle);
     const row = {
@@ -424,7 +546,7 @@ export function evaluateConfidenceCalibration(knowledgeItems = [], options = {})
 
   const sampleSize = scored.length;
   const totalEligible = scored.length + unscored.length;
-  const scoreableDenominator = scored.length + unscored.filter((item) => item.unscoredReason !== "no_oracle").length;
+  const scoreableDenominator = scored.length + unscored.length;
   const scoreableCoverage = scoreableDenominator === 0 ? null : +(scored.length / scoreableDenominator).toFixed(6);
   const lowCoverage = scoreableCoverage != null && scoreableCoverage < CALIBRATION_SCOREABLE_COVERAGE_THRESHOLD;
   const buckets = Array.from({ length: bucketCount }, (_, index) => ({
@@ -475,7 +597,8 @@ export function evaluateConfidenceCalibration(knowledgeItems = [], options = {})
     unscored: unscored.length,
     totalEligible,
     scoreableDenominator,
-    outOfScopeNoOracle: unscored.filter((item) => item.unscoredReason === "no_oracle").length,
+    outOfScopeNoOracle: excludedAsNonConflict.reasonCounts.no_oracle_side ?? 0,
+    excludedAsNonConflict,
     scoreableCoverage,
     scoreableCoverageThreshold: CALIBRATION_SCOREABLE_COVERAGE_THRESHOLD,
     blockingEligible: sampleSize > 0 && !lowCoverage,
@@ -731,6 +854,10 @@ function scoreFaithfulnessClaim(claim, corpusLines, corpusJoined) {
 }
 
 export function evaluateFaithfulness({ knowledgeItems = [], evidenceCorpus = [], events = [], judgeMode = "lexical" } = {}) {
+  const activeKnowledge = knowledgeItems.filter((item) => ACTIVE_STATUSES.has(statusForKnowledge(item)));
+  const { eligible, excluded } = partitionConflictKnowledge(activeKnowledge);
+  const excludedAsNonConflict = excludedAsNonConflictSummary(excluded);
+
   if (judgeMode === "llm") {
     return {
       status: "unavailable",
@@ -749,6 +876,8 @@ export function evaluateFaithfulness({ knowledgeItems = [], evidenceCorpus = [],
       blockingEligible: false,
       unsupportedClaims: [],
       indeterminateReasonCounts: {},
+      indeterminateReasons: {},
+      excludedAsNonConflict,
       note: "LLM judge mode is reserved for a future claim-level NLI path; default lexical mode makes no LLM calls.",
     };
   }
@@ -773,21 +902,22 @@ export function evaluateFaithfulness({ knowledgeItems = [], evidenceCorpus = [],
       blockingEligible: false,
       unsupportedClaims: [],
       indeterminateReasonCounts: {},
+      indeterminateReasons: {},
+      excludedAsNonConflict,
       note: "No evidence corpus was available from runner templates or contradiction_feedback_injected events.",
     };
   }
 
   const corpusJoined = corpusLines.join("\n");
-  const eligible = knowledgeItems.filter((item) => ACTIVE_STATUSES.has(statusForKnowledge(item)));
   const scoredClaims = [];
   const indeterminateClaims = [];
-  for (const item of eligible) {
+  for (const { item, oracleSide } of eligible) {
     const text = faithfulnessTextForKnowledge(item);
     for (const claim of splitClaims(text)) {
       const result = scoreFaithfulnessClaim(claim, corpusLines, corpusJoined);
       const row = {
         knowledgeId: knowledgeId(item),
-        oracleSide: oracleSideForKnowledge(item),
+        oracleSide,
         claim,
         reason: result.reason,
         anchors: result.anchors ?? [],
@@ -813,6 +943,7 @@ export function evaluateFaithfulness({ knowledgeItems = [], evidenceCorpus = [],
   else if (scoredClaims.length > 0 && faithfulness >= 0.95) status = "pass";
   else if (scoredClaims.length > 0 && faithfulness >= 0.9) status = "warn";
   else if (scoredClaims.length > 0) status = "fail";
+  const indeterminateReasonCounts = countBy(indeterminateClaims, (claim) => claim.reason ?? "unknown");
 
   return {
     status,
@@ -831,7 +962,9 @@ export function evaluateFaithfulness({ knowledgeItems = [], evidenceCorpus = [],
     scoreableCoverageThreshold: FAITHFULNESS_SCOREABLE_COVERAGE_THRESHOLD,
     blockingEligible: scoredClaims.length > 0 && !lowCoverage,
     unsupportedClaims: scoredClaims.filter((claim) => !claim.supported).slice(0, 50),
-    indeterminateReasonCounts: countBy(indeterminateClaims, (claim) => claim.reason ?? "unknown"),
+    indeterminateReasonCounts,
+    indeterminateReasons: indeterminateReasonCounts,
+    excludedAsNonConflict,
     indeterminateExamples: indeterminateClaims.slice(0, 20),
   };
 }

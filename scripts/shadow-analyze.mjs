@@ -249,6 +249,15 @@ function topCounts(counts, limit = 5) {
   return entries.length ? entries.map(([key, value]) => `${key}:${value}`).join(", ") : "none";
 }
 
+function formatExcludedAsNonConflict(summary) {
+  const count = summary?.count ?? 0;
+  if (count === 0) return "count=0";
+  const examples = Array.isArray(summary?.exampleIds) && summary.exampleIds.length > 0
+    ? summary.exampleIds.slice(0, 8).join(",")
+    : "none";
+  return `count=${count} reasons=${topCounts(summary?.reasonCounts, 8)} examples=${examples}`;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const logDir = resolve(args._[0] || args["log-dir"] || "");
@@ -431,15 +440,15 @@ async function main() {
         ? lowCoverage(`accuracy=${resolution.accuracy} scored=${resolution.scored} unscored=${resolution.unscored} coverage=${resolution.scoreableCoverage} threshold=${resolution.scoreableCoverageThreshold} unscoredTop=${topCounts(resolution.unscoredPairTypeCounts)}`)
         : pass(resolution.passed, `accuracy=${resolution.accuracy} scored=${resolution.scored} unscored=${resolution.unscored} coverage=${resolution.scoreableCoverage} unscoredTop=${topCounts(resolution.unscoredPairTypeCounts)}`)],
     ["confidenceCalibration", calibration.status === "insufficient_evidence"
-      ? na(`ece=${calibration.ece ?? "n/a"} scored=${calibration.scored} unscored=${calibration.unscored}`)
+      ? na(`ece=${calibration.ece ?? "n/a"} scored=${calibration.scored} unscored=${calibration.unscored} excluded=${calibration.excludedAsNonConflict?.count ?? 0}`)
       : calibration.status === "low_coverage"
-        ? lowCoverage(`ece=${calibration.ece ?? "n/a"} scored=${calibration.scored} unscored=${calibration.unscored} coverage=${calibration.scoreableCoverage} unscoredReasons=${topCounts(calibration.unscoredReasonCounts)}`)
-        : pass(calibration.status === "pass" || calibration.status === "warn", `status=${calibration.status} ece=${calibration.ece ?? "n/a"} scored=${calibration.scored} buckets=${calibration.reliabilityTable.length} unscoredReasons=${topCounts(calibration.unscoredReasonCounts)}`)],
+        ? lowCoverage(`ece=${calibration.ece ?? "n/a"} scored=${calibration.scored} unscored=${calibration.unscored} coverage=${calibration.scoreableCoverage} unscoredReasons=${topCounts(calibration.unscoredReasonCounts)} excluded=${calibration.excludedAsNonConflict?.count ?? 0}`)
+        : pass(calibration.status === "pass" || calibration.status === "warn", `status=${calibration.status} ece=${calibration.ece ?? "n/a"} scored=${calibration.scored} buckets=${calibration.reliabilityTable.length} unscoredReasons=${topCounts(calibration.unscoredReasonCounts)} excluded=${calibration.excludedAsNonConflict?.count ?? 0}`)],
     ["faithfulness", faithfulness.status === "unavailable" || faithfulness.status === "insufficient_evidence"
-      ? na(`faithfulness=${faithfulness.faithfulness ?? "n/a"} judge=${faithfulness.judgeMode} scored=${faithfulness.scored}`)
+      ? na(`faithfulness=${faithfulness.faithfulness ?? "n/a"} judge=${faithfulness.judgeMode} scored=${faithfulness.scored} excluded=${faithfulness.excludedAsNonConflict?.count ?? 0}`)
       : faithfulness.status === "low_coverage"
-        ? lowCoverage(`faithfulness=${faithfulness.faithfulness ?? "n/a"} coverage=${faithfulness.scoreableCoverage} unsupported=${faithfulness.unsupported} indeterminateReasons=${topCounts(faithfulness.indeterminateReasonCounts)}`)
-        : pass(faithfulness.status === "pass" || faithfulness.status === "warn", `status=${faithfulness.status} faithfulness=${faithfulness.faithfulness ?? "n/a"} hallucination=${faithfulness.hallucinationRate ?? "n/a"} unsupported=${faithfulness.unsupported} indeterminateReasons=${topCounts(faithfulness.indeterminateReasonCounts)}`)],
+        ? lowCoverage(`faithfulness=${faithfulness.faithfulness ?? "n/a"} coverage=${faithfulness.scoreableCoverage} unsupported=${faithfulness.unsupported} indeterminateReasons=${topCounts(faithfulness.indeterminateReasonCounts ?? faithfulness.indeterminateReasons)} excluded=${faithfulness.excludedAsNonConflict?.count ?? 0}`)
+        : pass(faithfulness.status === "pass" || faithfulness.status === "warn", `status=${faithfulness.status} faithfulness=${faithfulness.faithfulness ?? "n/a"} hallucination=${faithfulness.hallucinationRate ?? "n/a"} unsupported=${faithfulness.unsupported} indeterminateReasons=${topCounts(faithfulness.indeterminateReasonCounts ?? faithfulness.indeterminateReasons)} excluded=${faithfulness.excludedAsNonConflict?.count ?? 0}`)],
     ["latencyAndEfficiency", latency.slo?.sloBlocking
       ? pass(false, `api_harness_p95=${latency.apiRequest.p95Ms ?? "n/a"}ms sloStatus=${latency.slo.sloStatus}; ${latency.slo.measurementNote}`)
       : info(`api_harness_p95=${latency.apiRequest.p95Ms ?? "n/a"}ms llm_p95=${latency.llmOverall.p95Ms ?? "n/a"}ms costPerCycle=${latency.ratios.costPerClosedCycleUsd ?? "N/A"} tokensPerConflict=${latency.ratios.tokensPerResolvedConflict ?? "N/A"}; sloStatus=${latency.slo?.sloStatus ?? "n/a"} sloBlocking=${latency.slo?.sloBlocking ?? false}; harness polling/control, not production SLO`)],
@@ -476,7 +485,9 @@ async function main() {
     "",
     `Resolution pair distribution: scoredTop=${topCounts(resolution.scoredPairTypeCounts, 8)}; unscoredTop=${topCounts(resolution.unscoredPairTypeCounts, 8)}; unscoredReasons=${topCounts(resolution.unscoredReasonCounts, 8)}.`,
     `Calibration unscored reasons: ${topCounts(calibration.unscoredReasonCounts, 8)}.`,
-    `Faithfulness indeterminate reasons: ${topCounts(faithfulness.indeterminateReasonCounts, 8)}.`,
+    `Calibration excluded non-conflict: ${formatExcludedAsNonConflict(calibration.excludedAsNonConflict)}.`,
+    `Faithfulness indeterminate reasons: ${topCounts(faithfulness.indeterminateReasonCounts ?? faithfulness.indeterminateReasons, 8)}.`,
+    `Faithfulness excluded non-conflict: ${formatExcludedAsNonConflict(faithfulness.excludedAsNonConflict)}.`,
     "",
     `Quality summary: ${qualityPath}`,
     "",
