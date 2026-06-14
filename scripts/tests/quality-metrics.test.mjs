@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  evaluateConfidenceCalibration,
   evaluateDecisionTsr,
   latencyAndEfficiencyMetrics,
   rssSlopeMbPerHour,
@@ -255,6 +256,82 @@ test("latency and efficiency ratios stay null when denominators are zero", () =>
   assert.equal(result.ratios.tokensPerResolvedConflict, null);
   assert.equal(result.ratios.costPerNetActiveKnowledgeUsd, null);
   assert.match(result.measurementNote, /harness/);
+});
+
+test("confidenceCalibration computes ECE from scored oracle knowledge", () => {
+  const result = evaluateConfidenceCalibration([
+    {
+      id: "kb_sample_hybrid_support",
+      title: "混合方案证据：PPG 连续 + ECG 复核",
+      content: "当前最优选型决策：PPG+ECG 分层方案，置信度 0.8。",
+      status: "active",
+      supersededBy: null,
+      confidence_score: 0.8,
+    },
+    {
+      id: "kb_sample_ppg_support",
+      title: "PPG 优先证据",
+      content: "当前最优选型决策：优先 PPG，置信度 0.6。",
+      status: "active",
+      supersededBy: "",
+      confidence_score: 0.6,
+    },
+  ], { bucketCount: 2 });
+
+  assert.equal(result.status, "fail");
+  assert.equal(result.sampleSize, 2);
+  assert.equal(result.scored, 2);
+  assert.equal(result.unscored, 0);
+  assert.equal(result.scoreableCoverage, 1);
+  assert.equal(result.ece, 0.2);
+  assert.deepEqual(result.reliabilityTable.map((row) => ({
+    bucket: row.bucket,
+    confMean: row.confMean,
+    accuracy: row.accuracy,
+    n: row.n,
+  })), [
+    { bucket: 1, confMean: 0.7, accuracy: 0.5, n: 2 },
+  ]);
+});
+
+test("confidenceCalibration reports low coverage without blocking", () => {
+  const result = evaluateConfidenceCalibration([
+    {
+      id: "kb_sample_hybrid_support",
+      content: "当前最优选型决策：PPG+ECG 分层方案，置信度 1.0。",
+      status: "active",
+    },
+    {
+      id: "kb_generic_unknown",
+      content: "没有 oracle side 的普通知识，置信度 0.7。",
+      status: "active",
+    },
+  ]);
+
+  assert.equal(result.status, "low_coverage");
+  assert.equal(result.blockingEligible, false);
+  assert.equal(result.scored, 1);
+  assert.equal(result.unscored, 1);
+  assert.equal(result.scoreableCoverage, 0.5);
+  assert.equal(result.ece, 0);
+  assert.equal(result.unscoredReasonCounts.unknown_oracle_side, 1);
+});
+
+test("confidenceCalibration returns null ECE when no scoreable denominator exists", () => {
+  const result = evaluateConfidenceCalibration([
+    {
+      id: "kb_generic_unknown",
+      content: "没有 oracle side 的普通知识",
+      status: "active",
+    },
+  ]);
+
+  assert.equal(result.status, "low_coverage");
+  assert.equal(result.ece, null);
+  assert.equal(result.sampleSize, 0);
+  assert.equal(result.scoreableCoverage, 0);
+  assert.equal(result.blockingEligible, false);
+  assert.deepEqual(result.reliabilityTable, []);
 });
 
 test("rssSlopeMbPerHour computes linear memory slope", () => {

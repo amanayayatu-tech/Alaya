@@ -325,7 +325,7 @@ async function main() {
   const finalDbErrors = countDb(dbPath, "SELECT COUNT(*) AS count FROM event_log WHERE op='error' OR op='sync_error'");
   const finalSnapshotErrors = metricValue(finalSnapshot, "alaya_errors_total");
   const knowledgeRows = allDb(dbPath, `
-    SELECT id, title, content, notes, source_ref, semantic_key, tags, status, superseded_by
+    SELECT id, title, content, notes, source_ref, semantic_key, tags, status, superseded_by, confidence_score
     FROM knowledge_items
     ORDER BY rowid ASC
   `);

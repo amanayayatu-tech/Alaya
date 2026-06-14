@@ -42,6 +42,7 @@ export const HEALTH_SIGNAL_ORACLE_BY_SIDE = Object.freeze({
 const ORACLE_SIDE_PATTERN = /(hybrid_support|hybrid_reject|ppg_support|ppg_risk|ecg_support|ecg_risk)/i;
 const ACTIVE_STATUSES = new Set(["active", "strong"]);
 const DISALLOWED_FINAL_DECISIONS = new Set(["ppg_only", "ecg_only", "hybrid_reject"]);
+const NON_FINAL_STATUSES = new Set(["quarantined", "deprecated", "stale", "archived"]);
 const RESOLUTION_SIDE_TIERS = Object.freeze({
   hybrid_support: 1,
   ppg_risk: 2,
@@ -57,6 +58,7 @@ const RESOLUTION_TIER_LABELS = Object.freeze({
   4: "T4_hybrid_reject",
 });
 export const RESOLUTION_SCOREABLE_COVERAGE_THRESHOLD = 0.6;
+export const CALIBRATION_SCOREABLE_COVERAGE_THRESHOLD = 0.6;
 
 export function oracleMetadataForSide(side) {
   const normalized = String(side ?? "").toLowerCase();
@@ -133,6 +135,35 @@ function knowledgeId(item) {
   return String(field(item, "id") ?? "");
 }
 
+function confidenceForKnowledge(item) {
+  const raw = field(item, "confidenceScore", "confidence_score", "confidence");
+  const numeric = Number(raw);
+  if (Number.isFinite(numeric) && numeric >= 0 && numeric <= 1) return numeric;
+  const text = textForKnowledge(item);
+  const match = /(?:置信度|confidence(?:_score)?)\s*[:：]?\s*(0(?:\.\d+)?|1(?:\.0+)?|\.\d+)/i.exec(text);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : null;
+}
+
+function actualDispositionMatchesOracle(item, oracle) {
+  const status = statusForKnowledge(item);
+  const supersededBy = supersededByForKnowledge(item);
+  const isRetained = ACTIVE_STATUSES.has(status) && !supersededBy;
+  const isRemoved = Boolean(supersededBy) || NON_FINAL_STATUSES.has(status);
+  switch (oracle?.expectedDisposition) {
+    case "retained_as_final_decision":
+    case "retained_over_ppg_support":
+    case "retained_over_ecg_support":
+      return isRetained;
+    case "superseded_or_quarantined_when_conflicted":
+    case "quarantined_or_deprecated":
+      return isRemoved;
+    default:
+      return null;
+  }
+}
+
 export function classifyHealthSignalDecision(item) {
   const side = inferOracleSideFromValue(item);
   if (side === "ppg_support") return "ppg_only";
@@ -190,6 +221,97 @@ export function evaluateDecisionTsr(knowledgeItems = []) {
     ])),
     disallowedFinalKnowledge: disallowed,
     hybridLayeredKnowledge: hybrid.slice(0, 20),
+  };
+}
+
+export function evaluateConfidenceCalibration(knowledgeItems = [], options = {}) {
+  const bucketCount = Math.max(1, Math.trunc(Number(options.bucketCount ?? 10)));
+  const eligible = knowledgeItems.filter((item) => ACTIVE_STATUSES.has(statusForKnowledge(item)));
+  const scored = [];
+  const unscored = [];
+  for (const item of eligible) {
+    const confidence = confidenceForKnowledge(item);
+    const oracleSide = inferOracleSideFromValue(item);
+    const oracle = oracleMetadataForSide(oracleSide);
+    const correct = actualDispositionMatchesOracle(item, oracle);
+    const row = {
+      knowledgeId: knowledgeId(item),
+      oracleSide,
+      status: statusForKnowledge(item),
+      supersededBy: supersededByForKnowledge(item) || null,
+      confidence,
+      expectedDisposition: oracle?.expectedDisposition ?? null,
+    };
+    if (confidence == null || !oracle || correct == null) {
+      unscored.push({
+        ...row,
+        unscoredReason: confidence == null
+          ? "missing_confidence"
+          : (!oracle ? "unknown_oracle_side" : "unknown_expected_disposition"),
+      });
+      continue;
+    }
+    scored.push({ ...row, correct });
+  }
+
+  const sampleSize = scored.length;
+  const totalEligible = scored.length + unscored.length;
+  const scoreableCoverage = totalEligible === 0 ? null : +(scored.length / totalEligible).toFixed(6);
+  const lowCoverage = scoreableCoverage != null && scoreableCoverage < CALIBRATION_SCOREABLE_COVERAGE_THRESHOLD;
+  const buckets = Array.from({ length: bucketCount }, (_, index) => ({
+    bucket: index,
+    lowerBound: +(index / bucketCount).toFixed(6),
+    upperBound: +((index + 1) / bucketCount).toFixed(6),
+    rows: [],
+  }));
+  for (const row of scored) {
+    const bucketIndex = Math.min(bucketCount - 1, Math.max(0, Math.floor(row.confidence * bucketCount)));
+    buckets[bucketIndex].rows.push(row);
+  }
+  const reliabilityTable = buckets
+    .filter((bucket) => bucket.rows.length > 0)
+    .map((bucket) => {
+      const n = bucket.rows.length;
+      const confMean = +(bucket.rows.reduce((sum, row) => sum + row.confidence, 0) / n).toFixed(6);
+      const accuracy = +(bucket.rows.filter((row) => row.correct).length / n).toFixed(6);
+      return {
+        bucket: bucket.bucket,
+        lowerBound: bucket.lowerBound,
+        upperBound: bucket.upperBound,
+        confMean,
+        accuracy,
+        n,
+      };
+    });
+  const ece = sampleSize === 0
+    ? null
+    : +reliabilityTable
+      .reduce((sum, bucket) => sum + (bucket.n / sampleSize) * Math.abs(bucket.accuracy - bucket.confMean), 0)
+      .toFixed(6);
+
+  let status = "insufficient_evidence";
+  if (totalEligible > 0 && lowCoverage) status = "low_coverage";
+  else if (sampleSize > 0 && ece < 0.05) status = "pass";
+  else if (sampleSize > 0 && ece <= 0.1) status = "warn";
+  else if (sampleSize > 0) status = "fail";
+
+  return {
+    status,
+    ece,
+    threshold: 0.05,
+    warnThreshold: 0.1,
+    bucketCount,
+    sampleSize,
+    scored: scored.length,
+    unscored: unscored.length,
+    totalEligible,
+    scoreableCoverage,
+    scoreableCoverageThreshold: CALIBRATION_SCOREABLE_COVERAGE_THRESHOLD,
+    blockingEligible: sampleSize > 0 && !lowCoverage,
+    reliabilityTable,
+    unscoredReasonCounts: countBy(unscored, (item) => item.unscoredReason ?? "unknown"),
+    scoredKnowledge: scored.slice(0, 20),
+    unscoredExamples: unscored.slice(0, 20),
   };
 }
 
@@ -479,6 +601,7 @@ export function summarizeHealthSignalQuality({ knowledgeItems = [], events = [],
     expectedDecision: EXPECTED_HEALTH_SIGNAL_DECISION,
     decisionTsr: evaluateDecisionTsr(knowledgeItems),
     resolutionAccuracy: scoreResolutionAccuracy(events),
+    confidenceCalibration: evaluateConfidenceCalibration(knowledgeItems),
     latencyAndEfficiency: latencyAndEfficiencyMetrics({ events, samples, llmCalls }),
     rssSlopeMbPerHour: rssSlope,
     rssSlopeThresholdMbPerHour: 50,
