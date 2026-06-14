@@ -433,13 +433,13 @@ async function main() {
     ["confidenceCalibration", calibration.status === "insufficient_evidence"
       ? na(`ece=${calibration.ece ?? "n/a"} scored=${calibration.scored} unscored=${calibration.unscored}`)
       : calibration.status === "low_coverage"
-        ? lowCoverage(`ece=${calibration.ece ?? "n/a"} scored=${calibration.scored} unscored=${calibration.unscored} coverage=${calibration.scoreableCoverage}`)
-        : pass(calibration.status === "pass" || calibration.status === "warn", `status=${calibration.status} ece=${calibration.ece ?? "n/a"} scored=${calibration.scored} buckets=${calibration.reliabilityTable.length}`)],
+        ? lowCoverage(`ece=${calibration.ece ?? "n/a"} scored=${calibration.scored} unscored=${calibration.unscored} coverage=${calibration.scoreableCoverage} unscoredReasons=${topCounts(calibration.unscoredReasonCounts)}`)
+        : pass(calibration.status === "pass" || calibration.status === "warn", `status=${calibration.status} ece=${calibration.ece ?? "n/a"} scored=${calibration.scored} buckets=${calibration.reliabilityTable.length} unscoredReasons=${topCounts(calibration.unscoredReasonCounts)}`)],
     ["faithfulness", faithfulness.status === "unavailable" || faithfulness.status === "insufficient_evidence"
       ? na(`faithfulness=${faithfulness.faithfulness ?? "n/a"} judge=${faithfulness.judgeMode} scored=${faithfulness.scored}`)
       : faithfulness.status === "low_coverage"
-        ? lowCoverage(`faithfulness=${faithfulness.faithfulness ?? "n/a"} coverage=${faithfulness.scoreableCoverage} unsupported=${faithfulness.unsupported}`)
-        : pass(faithfulness.status === "pass" || faithfulness.status === "warn", `status=${faithfulness.status} faithfulness=${faithfulness.faithfulness ?? "n/a"} hallucination=${faithfulness.hallucinationRate ?? "n/a"} unsupported=${faithfulness.unsupported}`)],
+        ? lowCoverage(`faithfulness=${faithfulness.faithfulness ?? "n/a"} coverage=${faithfulness.scoreableCoverage} unsupported=${faithfulness.unsupported} indeterminateReasons=${topCounts(faithfulness.indeterminateReasonCounts)}`)
+        : pass(faithfulness.status === "pass" || faithfulness.status === "warn", `status=${faithfulness.status} faithfulness=${faithfulness.faithfulness ?? "n/a"} hallucination=${faithfulness.hallucinationRate ?? "n/a"} unsupported=${faithfulness.unsupported} indeterminateReasons=${topCounts(faithfulness.indeterminateReasonCounts)}`)],
     ["latencyAndEfficiency", latency.slo?.sloBlocking
       ? pass(false, `api_harness_p95=${latency.apiRequest.p95Ms ?? "n/a"}ms sloStatus=${latency.slo.sloStatus}; ${latency.slo.measurementNote}`)
       : info(`api_harness_p95=${latency.apiRequest.p95Ms ?? "n/a"}ms llm_p95=${latency.llmOverall.p95Ms ?? "n/a"}ms costPerCycle=${latency.ratios.costPerClosedCycleUsd ?? "N/A"} tokensPerConflict=${latency.ratios.tokensPerResolvedConflict ?? "N/A"}; sloStatus=${latency.slo?.sloStatus ?? "n/a"} sloBlocking=${latency.slo?.sloBlocking ?? false}; harness polling/control, not production SLO`)],
@@ -475,6 +475,8 @@ async function main() {
     "Notes: `decisionTsr` is a deterministic pass@1 check for the preset Health Signal oracle state, not proof of independent reasoning. `resolutionAccuracy` is blocking only when scoreable coverage is at or above its threshold; low coverage is reported separately to avoid a misleading 100% on a tiny scored subset. API latency is harness polling/control latency under runner load, not production retrieval SLO.",
     "",
     `Resolution pair distribution: scoredTop=${topCounts(resolution.scoredPairTypeCounts, 8)}; unscoredTop=${topCounts(resolution.unscoredPairTypeCounts, 8)}; unscoredReasons=${topCounts(resolution.unscoredReasonCounts, 8)}.`,
+    `Calibration unscored reasons: ${topCounts(calibration.unscoredReasonCounts, 8)}.`,
+    `Faithfulness indeterminate reasons: ${topCounts(faithfulness.indeterminateReasonCounts, 8)}.`,
     "",
     `Quality summary: ${qualityPath}`,
     "",

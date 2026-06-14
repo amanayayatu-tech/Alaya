@@ -372,22 +372,29 @@ test("confidenceCalibration reports low coverage without blocking", () => {
       content: "没有 oracle side 的普通知识，置信度 0.7。",
       status: "active",
     },
+    {
+      id: "kb_sample_ppg_risk",
+      content: "PPG 风险来自肤色、佩戴松紧、环境光和运动伪影。",
+      status: "active",
+    },
   ]);
 
   assert.equal(result.status, "low_coverage");
   assert.equal(result.blockingEligible, false);
   assert.equal(result.scored, 1);
-  assert.equal(result.unscored, 1);
+  assert.equal(result.unscored, 2);
+  assert.equal(result.scoreableDenominator, 2);
   assert.equal(result.scoreableCoverage, 0.5);
   assert.equal(result.ece, 0);
-  assert.equal(result.unscoredReasonCounts.unknown_oracle_side, 1);
+  assert.equal(result.unscoredReasonCounts.no_oracle, 1);
+  assert.equal(result.unscoredReasonCounts.missing_confidence, 1);
 });
 
-test("confidenceCalibration returns null ECE when no scoreable denominator exists", () => {
+test("confidenceCalibration returns null ECE when oracle samples lack confidence", () => {
   const result = evaluateConfidenceCalibration([
     {
-      id: "kb_generic_unknown",
-      content: "没有 oracle side 的普通知识",
+      id: "kb_sample_ecg_risk",
+      content: "ECG 风险来自电极接触和主动测量交互。",
       status: "active",
     },
   ]);
@@ -395,9 +402,67 @@ test("confidenceCalibration returns null ECE when no scoreable denominator exist
   assert.equal(result.status, "low_coverage");
   assert.equal(result.ece, null);
   assert.equal(result.sampleSize, 0);
+  assert.equal(result.scoreableDenominator, 1);
   assert.equal(result.scoreableCoverage, 0);
   assert.equal(result.blockingEligible, false);
   assert.deepEqual(result.reliabilityTable, []);
+  assert.equal(result.unscoredReasonCounts.missing_confidence, 1);
+});
+
+test("confidenceCalibration reports no-oracle knowledge outside the ECE denominator", () => {
+  const result = evaluateConfidenceCalibration([
+    {
+      id: "kb_generic_unknown",
+      content: "没有 oracle side 的普通知识，置信度 0.7。",
+      status: "active",
+    },
+  ]);
+
+  assert.equal(result.status, "insufficient_evidence");
+  assert.equal(result.scoreableDenominator, 0);
+  assert.equal(result.scoreableCoverage, null);
+  assert.equal(result.outOfScopeNoOracle, 1);
+  assert.equal(result.unscoredReasonCounts.no_oracle, 1);
+});
+
+test("confidenceCalibration parses decision brief and template fallback confidence without changing correctness", () => {
+  const result = evaluateConfidenceCalibration([
+    {
+      id: "kb_sample_hybrid_support",
+      content: "当前最优选型决策：PPG+ECG 分层方案。",
+      status: "active",
+      decision_brief: {
+        claim: "混合方案仍是最终决策",
+        confidence: 0.72,
+      },
+    },
+    {
+      id: "kb_gate_sample_0001_ppg_support",
+      sourceRef: "health-signal-contradiction-runner:sample_0001_ppg_support",
+      content: "当前最优选型决策：优先 PPG。",
+      status: "active",
+    },
+    {
+      id: "kb_sample_ecg_risk",
+      content: "ECG 风险存在，但缺少置信度。",
+      status: "active",
+    },
+    {
+      id: "kb_sample_hybrid_reject",
+      content: "混合方案反证存在，但缺少置信度。",
+      status: "active",
+    },
+  ], { bucketCount: 2 });
+
+  assert.equal(result.status, "low_coverage");
+  assert.equal(result.blockingEligible, false);
+  assert.equal(result.scored, 2);
+  assert.equal(result.unscored, 2);
+  assert.equal(result.scoreableCoverage, 0.5);
+  assert.equal(result.unscoredReasonCounts.missing_confidence, 2);
+  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_sample_hybrid_support").confidence, 0.72);
+  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_gate_sample_0001_ppg_support").confidence, 0.64);
+  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_gate_sample_0001_ppg_support").correct, false);
 });
 
 test("faithfulness passes when active claims are supported by evidence corpus", () => {
@@ -455,6 +520,33 @@ test("faithfulness flags unsupported injected-looking claims", () => {
   assert.match(result.unsupportedClaims[0].claim, /FDA Class III/);
 });
 
+test("faithfulness scores Chinese domain phrases without numeric anchors and still catches unsupported claims", () => {
+  const result = evaluateFaithfulness({
+    evidenceCorpus: [
+      "PPG 风险：肤色、佩戴松紧、环境光和运动伪影会影响 PPG 静息心率可靠性。",
+      "建议：保留 PPG 作为低功耗连续趋势传感器，但医疗级判定需要 ECG 或人工复核。",
+    ],
+    knowledgeItems: [
+      {
+        id: "kb_sample_ppg_risk",
+        status: "active",
+        content: [
+          "PPG 风险来自肤色、佩戴松紧、环境光和运动伪影。",
+          "新增主张：PPG 风险已经完成 FDA Class III 认证。",
+        ].join("\n"),
+      },
+    ],
+  });
+
+  assert.equal(result.status, "fail");
+  assert.equal(result.scored, 2);
+  assert.equal(result.supported, 1);
+  assert.equal(result.unsupported, 1);
+  assert.equal(result.scoreableCoverage, 1);
+  assert.match(result.unsupportedClaims[0].claim, /FDA Class III/);
+  assert.ok(result.unsupportedClaims[0].anchors.some((anchor) => /fda class iii/.test(anchor)));
+});
+
 test("faithfulness reports low coverage and unavailable evidence honestly", () => {
   const lowCoverage = evaluateFaithfulness({
     evidenceCorpus: ["PPG 优先：光学 PPG 在静息心率监测下功耗低。"],
@@ -473,6 +565,7 @@ test("faithfulness reports low coverage and unavailable evidence honestly", () =
   assert.equal(lowCoverage.status, "low_coverage");
   assert.equal(lowCoverage.blockingEligible, false);
   assert.equal(lowCoverage.scoreableCoverage, 0.333333);
+  assert.equal(lowCoverage.indeterminateReasonCounts.no_deterministic_anchor, 2);
 
   const unavailable = evaluateFaithfulness({
     evidenceCorpus: [],
