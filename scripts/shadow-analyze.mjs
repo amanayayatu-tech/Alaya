@@ -222,6 +222,13 @@ function renderTable(rows) {
   ].join("\n");
 }
 
+function topCounts(counts, limit = 5) {
+  const entries = Object.entries(counts ?? {})
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit);
+  return entries.length ? entries.map(([key, value]) => `${key}:${value}`).join(", ") : "none";
+}
+
 async function main() {
   const logDir = resolve(process.argv[2] || "");
   assert.ok(logDir && existsSync(logDir), `log directory not found: ${logDir}`);
@@ -392,10 +399,10 @@ async function main() {
       ? na("no active/strong DB knowledge available; measures preset oracle card state, pass@1 only")
       : pass(decision.passed, `expected=${decision.expectedDecision} hybrid=${decision.hybridLayeredCount} disallowed=${decision.disallowedFinalCount} eligible=${decision.eligibleKnowledgeCount}; pass@1 single scenario`)],
     ["resolutionAccuracy", resolution.status === "insufficient_evidence"
-      ? na(`scored=${resolution.scored} unscored=${resolution.unscored}`)
+      ? na(`scored=${resolution.scored} unscored=${resolution.unscored} unscoredTop=${topCounts(resolution.unscoredPairTypeCounts)}`)
       : resolution.status === "low_coverage"
-        ? lowCoverage(`accuracy=${resolution.accuracy} scored=${resolution.scored} unscored=${resolution.unscored} coverage=${resolution.scoreableCoverage} threshold=${resolution.scoreableCoverageThreshold}`)
-        : pass(resolution.passed, `accuracy=${resolution.accuracy} scored=${resolution.scored} unscored=${resolution.unscored} coverage=${resolution.scoreableCoverage}`)],
+        ? lowCoverage(`accuracy=${resolution.accuracy} scored=${resolution.scored} unscored=${resolution.unscored} coverage=${resolution.scoreableCoverage} threshold=${resolution.scoreableCoverageThreshold} unscoredTop=${topCounts(resolution.unscoredPairTypeCounts)}`)
+        : pass(resolution.passed, `accuracy=${resolution.accuracy} scored=${resolution.scored} unscored=${resolution.unscored} coverage=${resolution.scoreableCoverage} unscoredTop=${topCounts(resolution.unscoredPairTypeCounts)}`)],
     ["latencyAndEfficiency", info(`api_harness_p95=${latency.apiRequest.p95Ms ?? "n/a"}ms llm_p95=${latency.llmOverall.p95Ms ?? "n/a"}ms costPerCycle=${latency.ratios.costPerClosedCycleUsd ?? "N/A"} tokensPerConflict=${latency.ratios.tokensPerResolvedConflict ?? "N/A"}; harness polling/control, not production SLO`)],
     ["rssSlopeUnder50MbPerHour", rssSlope == null
       ? na("need at least two RSS samples")
@@ -427,6 +434,8 @@ async function main() {
     renderTable(qualityRows),
     "",
     "Notes: `decisionTsr` is a deterministic pass@1 check for the preset Health Signal oracle state, not proof of independent reasoning. `resolutionAccuracy` is blocking only when scoreable coverage is at or above its threshold; low coverage is reported separately to avoid a misleading 100% on a tiny scored subset. API latency is harness polling/control latency under runner load, not production retrieval SLO.",
+    "",
+    `Resolution pair distribution: scoredTop=${topCounts(resolution.scoredPairTypeCounts, 8)}; unscoredTop=${topCounts(resolution.unscoredPairTypeCounts, 8)}; unscoredReasons=${topCounts(resolution.unscoredReasonCounts, 8)}.`,
     "",
     `Quality summary: ${qualityPath}`,
     "",

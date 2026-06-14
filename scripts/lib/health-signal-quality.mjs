@@ -42,6 +42,20 @@ export const HEALTH_SIGNAL_ORACLE_BY_SIDE = Object.freeze({
 const ORACLE_SIDE_PATTERN = /(hybrid_support|hybrid_reject|ppg_support|ppg_risk|ecg_support|ecg_risk)/i;
 const ACTIVE_STATUSES = new Set(["active", "strong"]);
 const DISALLOWED_FINAL_DECISIONS = new Set(["ppg_only", "ecg_only", "hybrid_reject"]);
+const RESOLUTION_SIDE_TIERS = Object.freeze({
+  hybrid_support: 1,
+  ppg_risk: 2,
+  ecg_risk: 2,
+  ppg_support: 3,
+  ecg_support: 3,
+  hybrid_reject: 4,
+});
+const RESOLUTION_TIER_LABELS = Object.freeze({
+  1: "T1_hybrid_support",
+  2: "T2_single_sensor_risk",
+  3: "T3_single_sensor_support",
+  4: "T4_hybrid_reject",
+});
 export const RESOLUTION_SCOREABLE_COVERAGE_THRESHOLD = 0.6;
 
 export function oracleMetadataForSide(side) {
@@ -179,18 +193,80 @@ export function evaluateDecisionTsr(knowledgeItems = []) {
   };
 }
 
+function resolutionTier(side) {
+  return RESOLUTION_SIDE_TIERS[side] ?? null;
+}
+
+function resolutionPairType(primarySide, relatedSide) {
+  return `${primarySide ?? "unknown"}|${relatedSide ?? "unknown"}`;
+}
+
+function unorderedResolutionPairType(primarySide, relatedSide) {
+  return [primarySide ?? "unknown", relatedSide ?? "unknown"].sort().join("|");
+}
+
 function expectedWinnerSide(leftSide, rightSide) {
-  const pair = new Set([leftSide, rightSide]);
-  if (pair.has("hybrid_support") && pair.has("hybrid_reject")) {
-    return { winner: "hybrid_support", rule: "hybrid_support_beats_hybrid_reject" };
+  const leftTier = resolutionTier(leftSide);
+  const rightTier = resolutionTier(rightSide);
+  if (!leftTier || !rightTier) return null;
+
+  if (leftSide === rightSide) {
+    return {
+      winner: leftSide,
+      rule: `duplicate_${leftSide}_merge_supersede`,
+      duplicate: true,
+      rationale: "同侧 pair 是重复项而非真实业务冲突；期望通过 merge_supersede 去重，quarantine 同侧项会丢失有效证据。",
+    };
   }
-  if (pair.has("ppg_risk") && pair.has("ppg_support")) {
-    return { winner: "ppg_risk", rule: "ppg_risk_beats_ppg_support" };
+
+  if (leftTier === rightTier) return null;
+  if ((leftTier === 3 && rightTier === 4) || (leftTier === 4 && rightTier === 3)) return null;
+
+  const winner = leftTier < rightTier ? leftSide : rightSide;
+  const loser = leftTier < rightTier ? rightSide : leftSide;
+  const winnerTier = Math.min(leftTier, rightTier);
+  const loserTier = Math.max(leftTier, rightTier);
+  if (winnerTier === 1) {
+    return {
+      winner,
+      rule: `hybrid_support_beats_${loser}`,
+      duplicate: false,
+      rationale: "T1 hybrid_support 是预置正解本体：PPG 连续趋势 + ECG 异常复核/医疗证据补强，因此在跨层冲突中应保留。",
+    };
   }
-  if (pair.has("ecg_risk") && pair.has("ecg_support")) {
-    return { winner: "ecg_risk", rule: "ecg_risk_beats_ecg_support" };
+  if (winnerTier === 2 && loserTier === 3) {
+    return {
+      winner,
+      rule: `${winner}_beats_${loser}`,
+      duplicate: false,
+      rationale: "T2 风险证据证伪单传感器优先主张，并推动系统走向 hybrid_layered，因此应胜过 T3 单传感器 support。",
+    };
+  }
+  if (winnerTier === 2 && loserTier === 4) {
+    return {
+      winner,
+      rule: `${winner}_beats_hybrid_reject`,
+      duplicate: false,
+      rationale: "T2 风险证据仍支持分层必要性，而 T4 hybrid_reject 反对分层；按 hybrid_layered 正解，T2 应胜过 T4。",
+    };
   }
   return null;
+}
+
+function unscoredResolutionReason(primarySide, relatedSide) {
+  const primaryTier = resolutionTier(primarySide);
+  const relatedTier = resolutionTier(relatedSide);
+  if (!primaryTier || !relatedTier) return "unknown_oracle_side";
+  if (primarySide === relatedSide) return null;
+  if (primaryTier === relatedTier) {
+    if (primaryTier === 2) return "ambiguous_same_layer_t2_risk_pair";
+    if (primaryTier === 3) return "ambiguous_same_layer_t3_support_pair";
+    return "ambiguous_same_layer_pair";
+  }
+  if ((primaryTier === 3 && relatedTier === 4) || (primaryTier === 4 && relatedTier === 3)) {
+    return "ambiguous_t3_support_vs_t4_hybrid_reject";
+  }
+  return "no_deterministic_rule";
 }
 
 function actualWinnerSide(event, primarySide, relatedSide) {
@@ -207,7 +283,9 @@ export function scoreResolutionEvent(event) {
   const relatedSide = inferOracleSideFromValue(event.relatedOracleSide ?? event.relatedSide ?? event.relatedKnowledgeId);
   const expected = expectedWinnerSide(primarySide, relatedSide);
   const actual = actualWinnerSide(event, primarySide, relatedSide);
-  const scoreable = Boolean(expected && actual);
+  const action = String(event.action ?? "");
+  const scoreable = Boolean(expected && (expected.duplicate || actual));
+  const duplicateCorrect = expected?.duplicate ? action === "merge_supersede" : null;
   return {
     reviewId: event.reviewId ?? null,
     primaryKnowledgeId: event.primaryKnowledgeId ?? null,
@@ -215,14 +293,32 @@ export function scoreResolutionEvent(event) {
     action: event.action ?? null,
     oracleSide: primarySide,
     relatedOracleSide: relatedSide,
+    primaryOracleSide: primarySide,
+    resolutionPairType: resolutionPairType(primarySide, relatedSide),
+    resolutionUnorderedPairType: unorderedResolutionPairType(primarySide, relatedSide),
+    primaryResolutionTier: primarySide ? RESOLUTION_TIER_LABELS[resolutionTier(primarySide)] ?? null : null,
+    relatedResolutionTier: relatedSide ? RESOLUTION_TIER_LABELS[resolutionTier(relatedSide)] ?? null : null,
     expectedDecision: EXPECTED_HEALTH_SIGNAL_DECISION,
     expectedDisposition: primarySide ? oracleMetadataForSide(primarySide)?.expectedDisposition ?? null : null,
     scoreableResolutionRule: expected?.rule ?? null,
+    scoreableResolutionRationale: expected?.rationale ?? null,
+    resolutionUnscoredReason: expected ? null : unscoredResolutionReason(primarySide, relatedSide),
+    resolutionDuplicatePair: Boolean(expected?.duplicate),
+    resolutionExpectedAction: expected?.duplicate ? "merge_supersede" : null,
     resolutionScoreable: scoreable,
     resolutionExpectedWinnerSide: expected?.winner ?? null,
     resolutionActualWinnerSide: actual,
-    resolutionCorrect: scoreable ? expected.winner === actual : null,
+    resolutionCorrect: scoreable ? (expected.duplicate ? duplicateCorrect : expected.winner === actual) : null,
   };
+}
+
+function countBy(items, keyFn) {
+  const counts = {};
+  for (const item of items) {
+    const key = keyFn(item);
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  return Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])));
 }
 
 export function scoreResolutionAccuracy(events = []) {
@@ -254,6 +350,11 @@ export function scoreResolutionAccuracy(events = []) {
     scoreableCoverage,
     scoreableCoverageThreshold: RESOLUTION_SCOREABLE_COVERAGE_THRESHOLD,
     blockingEligible: scored.length > 0 && !lowCoverage,
+    pairTypeCounts: countBy([...scored, ...unscored], (item) => item.resolutionUnorderedPairType),
+    scoredPairTypeCounts: countBy(scored, (item) => item.resolutionUnorderedPairType),
+    unscoredPairTypeCounts: countBy(unscored, (item) => item.resolutionUnorderedPairType),
+    unscoredReasonCounts: countBy(unscored, (item) => item.resolutionUnscoredReason ?? "unknown"),
+    duplicatePairTypeCounts: countBy(scored.filter((item) => item.resolutionDuplicatePair), (item) => item.resolutionUnorderedPairType),
     scoredEvents: scored,
     unscoredExamples: unscored.slice(0, 20),
   };
