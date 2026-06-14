@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { summarizeHealthSignalQuality } from "./lib/health-signal-quality.mjs";
 
 function readJson(path, fallback = null) {
   try {
@@ -58,6 +59,14 @@ function na(observed = "") {
   return { status: "N/A", observed };
 }
 
+function info(observed = "") {
+  return { status: "INFO", observed };
+}
+
+function lowCoverage(observed = "") {
+  return { status: "LOW_COVERAGE", observed };
+}
+
 function countDb(dbPath, sql) {
   if (!dbPath || !existsSync(dbPath)) return null;
   const Database = globalThis.__betterSqlite3;
@@ -68,6 +77,21 @@ function countDb(dbPath, sql) {
     return Number(row?.count ?? 0);
   } finally {
     db.close();
+  }
+}
+
+function allDb(dbPath, sql) {
+  if (!dbPath || !existsSync(dbPath)) return [];
+  const Database = globalThis.__betterSqlite3;
+  if (!Database) return [];
+  let db;
+  try {
+    db = new Database(dbPath, { readonly: true });
+    return db.prepare(sql).all();
+  } catch {
+    return [];
+  } finally {
+    db?.close();
   }
 }
 
@@ -122,7 +146,8 @@ function reconstructAssessment(samples, events) {
   const totalClosed = Number(last.cyclesClosed) || 0;
   const earlyGateAvg = avg(samples.slice(0, Math.max(1, Math.floor(samples.length / 4))).map((s) => Number(s.pendingGates) || 0));
   const lateGateAvg = avg(samples.slice(Math.floor(samples.length / 2)).map((s) => Number(s.pendingGates) || 0));
-  const humanGateDrop = earlyGateAvg > 0 ? +((earlyGateAvg - lateGateAvg) / earlyGateAvg).toFixed(3) : null;
+  const humanGateDropEligible = earlyGateAvg >= 1;
+  const humanGateDrop = humanGateDropEligible ? +((earlyGateAvg - lateGateAvg) / earlyGateAvg).toFixed(3) : null;
   const minActive = Math.min(...samples.map((s) => Number(s.activeCount)).filter(Number.isFinite));
   const tokenEvents = events
     .filter((eventItem) => eventItem.eventType === "metrics_sample" && eventItem.llmTokenSourceStats)
@@ -141,7 +166,7 @@ function reconstructAssessment(samples, events) {
       semanticContradictionBypassZero: semanticBypassCount === 0,
       conflictAtLeast5: maxConflict >= 5,
       conflictResolvedAtLeast3: maxResolved >= 3,
-      humanGateDropAtLeast30pct: humanGateDrop != null ? humanGateDrop >= 0.3 : false,
+      humanGateDropAtLeast30pct: humanGateDropEligible ? humanGateDrop >= 0.3 : null,
       stallGuardUnder5pct: totalClosed > 0 ? maxStall / totalClosed < 0.05 : false,
     },
     observed: {
@@ -153,6 +178,8 @@ function reconstructAssessment(samples, events) {
       maxResolvedConflictReviews: maxResolved,
       earlyPendingGateAverage: earlyGateAvg,
       latePendingGateAverage: lateGateAvg,
+      humanGateDropEligible,
+      humanGateDropEligibilityThreshold: "earlyPendingGateAverage >= 1",
       humanGatePendingDropRatio: humanGateDrop,
       maxStallGuardCount: maxStall,
       cyclesClosed: totalClosed,
@@ -290,6 +317,39 @@ async function main() {
   const finalSnapshotGray = metricValue(finalSnapshot, "alaya_gray_active_count");
   const finalDbErrors = countDb(dbPath, "SELECT COUNT(*) AS count FROM event_log WHERE op='error' OR op='sync_error'");
   const finalSnapshotErrors = metricValue(finalSnapshot, "alaya_errors_total");
+  const knowledgeRows = allDb(dbPath, `
+    SELECT id, title, content, notes, source_ref, semantic_key, tags, status, superseded_by
+    FROM knowledge_items
+    ORDER BY rowid ASC
+  `);
+  const llmCallRows = allDb(dbPath, `
+    SELECT agent, latency_ms, input_token_count, output_token_count, token_count, estimated_cost
+    FROM llm_calls
+    ORDER BY id ASC
+  `);
+  const qualitySummary = summarizeHealthSignalQuality({
+    knowledgeItems: knowledgeRows,
+    events,
+    samples,
+    llmCalls: llmCallRows,
+  });
+  const qualityPath = join(logDir, "quality_summary.json");
+  writeFileSync(qualityPath, JSON.stringify({
+    ...qualitySummary,
+    sources: {
+      knowledge: knowledgeRows.length > 0 ? "health-signal.db:knowledge_items" : "unavailable",
+      llmCalls: llmCallRows.length > 0 ? "health-signal.db:llm_calls" : "unavailable",
+      resolutionEvents: "events.jsonl:knowledge_review_resolved",
+      apiRequestLatency: "events.jsonl:api_request_timing",
+      rss: "monitor_log.csv:appRssMb",
+    },
+    notes: [
+      "decisionTsr is a single-scenario pass@1 oracle-state check, not an independent reasoning benchmark.",
+      "pass^k multi-seed reliability is intentionally deferred to v2.",
+      "API latency is runner/harness-observed polling and control request latency under validation load, not an isolated production retrieval SLO.",
+      "Resolution accuracy is blocking only when scoreable coverage meets the configured threshold.",
+    ],
+  }, null, 2));
   const meaningBudgetRows = snapshotJson.map((row) => row.opsMetrics?.meaningGateBudget).filter(Boolean);
   const overBudgetRows = meaningBudgetRows.filter((row) => row.overBudget);
 
@@ -300,7 +360,7 @@ async function main() {
     ["semanticContradictionBypassZero", pass(Boolean(finalCriteria.semanticContradictionBypassZero), `count=${observed.semanticContradictionBypassCount ?? "n/a"}`)],
     ["conflictAtLeast5", pass(Boolean(finalCriteria.conflictAtLeast5), `max=${observed.maxConflictCount ?? "n/a"}`)],
     ["conflictResolvedAtLeast3", pass(Boolean(finalCriteria.conflictResolvedAtLeast3), `resolved=${observed.maxResolvedConflictReviews ?? "n/a"}`)],
-    ["humanGateDropAtLeast30pct", earlyBacklog === 0 ? na("early backlog=0 per Phase 2/3/4 precedent") : pass(Boolean(finalCriteria.humanGateDropAtLeast30pct), `drop=${observed.humanGatePendingDropRatio ?? "n/a"}`)],
+    ["humanGateDropAtLeast30pct", earlyBacklog < 1 ? na("early pending average <1; backlog too small for drop-rate judgment") : pass(Boolean(finalCriteria.humanGateDropAtLeast30pct), `drop=${observed.humanGatePendingDropRatio ?? "n/a"}`)],
     ["stallGuardUnder5pct", pass(Boolean(finalCriteria.stallGuardUnder5pct), `max=${observed.maxStallGuardCount ?? "n/a"} cycles=${observed.cyclesClosed ?? "n/a"}`)],
     ["sampleFailedZero", pass(sampleFailed.length === 0, `sample_failed=${sampleFailed.length}`)],
   ];
@@ -323,7 +383,26 @@ async function main() {
     ["phase3ProposalCountersPresent", pass(snapshotTexts.some((text) => text.includes("alaya_distiller_proposals_total")), "proposal counter exported")],
   ];
 
-  const allRows = [...aClass, ...shadowChecks];
+  const decision = qualitySummary.decisionTsr;
+  const resolution = qualitySummary.resolutionAccuracy;
+  const latency = qualitySummary.latencyAndEfficiency;
+  const rssSlope = qualitySummary.rssSlopeMbPerHour;
+  const qualityRows = [
+    ["decisionTsr", decision.status === "insufficient_evidence"
+      ? na("no active/strong DB knowledge available; measures preset oracle card state, pass@1 only")
+      : pass(decision.passed, `expected=${decision.expectedDecision} hybrid=${decision.hybridLayeredCount} disallowed=${decision.disallowedFinalCount} eligible=${decision.eligibleKnowledgeCount}; pass@1 single scenario`)],
+    ["resolutionAccuracy", resolution.status === "insufficient_evidence"
+      ? na(`scored=${resolution.scored} unscored=${resolution.unscored}`)
+      : resolution.status === "low_coverage"
+        ? lowCoverage(`accuracy=${resolution.accuracy} scored=${resolution.scored} unscored=${resolution.unscored} coverage=${resolution.scoreableCoverage} threshold=${resolution.scoreableCoverageThreshold}`)
+        : pass(resolution.passed, `accuracy=${resolution.accuracy} scored=${resolution.scored} unscored=${resolution.unscored} coverage=${resolution.scoreableCoverage}`)],
+    ["latencyAndEfficiency", info(`api_harness_p95=${latency.apiRequest.p95Ms ?? "n/a"}ms llm_p95=${latency.llmOverall.p95Ms ?? "n/a"}ms costPerCycle=${latency.ratios.costPerClosedCycleUsd ?? "N/A"} tokensPerConflict=${latency.ratios.tokensPerResolvedConflict ?? "N/A"}; harness polling/control, not production SLO`)],
+    ["rssSlopeUnder50MbPerHour", rssSlope == null
+      ? na("need at least two RSS samples")
+      : pass(qualitySummary.rssSlopeUnder50MbPerHour, `slope=${rssSlope} MB/h threshold<${qualitySummary.rssSlopeThresholdMbPerHour}`)],
+  ];
+
+  const allRows = [...aClass, ...shadowChecks, ...qualityRows];
   const failing = allRows.filter(([, result]) => result.status === "FAIL");
   const findingsPath = join(logDir, "SHADOW_FINDINGS.md");
   const report = [
@@ -342,6 +421,14 @@ async function main() {
     "## Shadow Checks",
     "",
     renderTable(shadowChecks),
+    "",
+    "## Quality Metrics",
+    "",
+    renderTable(qualityRows),
+    "",
+    "Notes: `decisionTsr` is a deterministic pass@1 check for the preset Health Signal oracle state, not proof of independent reasoning. `resolutionAccuracy` is blocking only when scoreable coverage is at or above its threshold; low coverage is reported separately to avoid a misleading 100% on a tiny scored subset. API latency is harness polling/control latency under runner load, not production retrieval SLO.",
+    "",
+    `Quality summary: ${qualityPath}`,
     "",
     "## Snapshot / DB Cross-check",
     "",
