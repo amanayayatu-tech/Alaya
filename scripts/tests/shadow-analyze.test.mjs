@@ -241,14 +241,25 @@ test("shadow analyzer marks calibration and faithfulness low coverage without fa
   writeFileSync(join(dir, "events.jsonl"), [
     JSON.stringify({
       eventType: "contradiction_feedback_injected",
-      evidenceText: "当前最优选型决策：PPG+ECG 分层方案，置信度 0.8。",
+      evidenceText: [
+        "混合方案证据：PPG 连续 + ECG 复核。",
+        "hybrid_decision_confidence >= 0.81。",
+        "明确冲突：该结论与混合方案反证互相矛盾。",
+        "当前最优选型决策：PPG+ECG 分层方案，置信度 0.8。",
+      ].join("\n"),
     }),
   ].join("\n") + "\n");
   createQualityDb(dir, [
     {
       id: "kb_proj_runtime_hybrid_support_001",
       title: "运行知识: 混合方案",
-      content: "当前最优选型决策：PPG+ECG 分层方案，置信度 0.8。",
+      source_ref: "sample_0005_hybrid_support",
+      content: [
+        "混合方案证据：PPG 连续 + ECG 复核。",
+        "hybrid_decision_confidence >= 0.81。",
+        "明确冲突：该结论与混合方案反证互相矛盾。",
+        "当前最优选型决策：PPG+ECG 分层方案，置信度 0.8。",
+      ].join("\n"),
       status: "active",
       confidence_score: 0.8,
     },

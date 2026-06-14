@@ -11,9 +11,16 @@ import {
 } from "../lib/health-signal-quality.mjs";
 
 function hybridSupportKnowledge(index, overrides = {}) {
+  const sampleId = String(index + 1).padStart(4, "0");
   return {
     id: `kb_proj_runtime_${String(index).padStart(3, "0")}`,
-    content: "当前最优选型决策：PPG+ECG 分层方案，置信度 1.0。",
+    sourceRef: `health-signal-contradiction-runner:sample_${sampleId}_hybrid_support`,
+    content: [
+      "混合方案：PPG 用于低功耗连续静息心率趋势，ECG 用于疑似异常时主动复核和医疗级证据补强。",
+      "hybrid_decision_confidence >= 0.81。",
+      "明确冲突：该结论与混合方案反证互相矛盾，不能同时作为 active 知识复用。",
+      "当前最优选型决策：PPG+ECG 分层方案，置信度 1.0。",
+    ].join("\n"),
     status: "active",
     confidence_score: 1,
     ...overrides,
@@ -339,17 +346,29 @@ test("latency SLO excludes harness polling and only blocks when enforced", () =>
 test("confidenceCalibration computes ECE from scored oracle knowledge", () => {
   const result = evaluateConfidenceCalibration([
     {
-      id: "kb_sample_hybrid_support",
+      id: "kb_sample_0005_hybrid_support",
+      sourceRef: "health-signal-contradiction-runner:sample_0005_hybrid_support",
       title: "混合方案证据：PPG 连续 + ECG 复核",
-      content: "当前最优选型决策：PPG+ECG 分层方案，置信度 0.8。",
+      content: [
+        "混合方案证据：PPG 连续 + ECG 复核。",
+        "hybrid_decision_confidence >= 0.81。",
+        "明确冲突：该结论与混合方案反证互相矛盾。",
+        "当前最优选型决策：PPG+ECG 分层方案，置信度 0.8。",
+      ].join("\n"),
       status: "active",
       supersededBy: null,
       confidence_score: 0.8,
     },
     {
-      id: "kb_sample_ppg_support",
+      id: "kb_sample_0001_ppg_support",
+      sourceRef: "health-signal-contradiction-runner:sample_0001_ppg_support",
       title: "PPG 优先证据",
-      content: "当前最优选型决策：优先 PPG，置信度 0.6。",
+      content: [
+        "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低。",
+        "ppg_priority_score >= 0.78。",
+        "明确冲突：该结论与 ECG 优先互相矛盾。",
+        "当前最优选型决策：优先 PPG，置信度 0.6。",
+      ].join("\n"),
       status: "active",
       supersededBy: "",
       confidence_score: 0.6,
@@ -379,8 +398,14 @@ test("confidenceCalibration computes ECE from scored oracle knowledge", () => {
 test("confidenceCalibration reports low coverage without blocking", () => {
   const result = evaluateConfidenceCalibration([
     {
-      id: "kb_sample_hybrid_support",
-      content: "当前最优选型决策：PPG+ECG 分层方案，置信度 1.0。",
+      id: "kb_sample_0005_hybrid_support",
+      sourceRef: "health-signal-contradiction-runner:sample_0005_hybrid_support",
+      content: [
+        "混合方案证据：PPG 连续 + ECG 复核。",
+        "hybrid_decision_confidence >= 0.81。",
+        "明确冲突：该结论与混合方案反证互相矛盾。",
+        "当前最优选型决策：PPG+ECG 分层方案，置信度 1.0。",
+      ].join("\n"),
       status: "active",
     },
     {
@@ -389,8 +414,12 @@ test("confidenceCalibration reports low coverage without blocking", () => {
       status: "active",
     },
     {
-      id: "kb_sample_ppg_risk",
-      content: "PPG 风险来自肤色、佩戴松紧、环境光和运动伪影。",
+      id: "kb_proj_ppg_risk_missing_confidence",
+      content: [
+        "PPG 风险来自肤色、佩戴松紧、环境光和运动伪影。",
+        "ppg_priority_score <= 0.42。",
+        "明确冲突：该证据削弱之前 PPG 优先结论。",
+      ].join("\n"),
       status: "active",
     },
   ]);
@@ -413,8 +442,12 @@ test("confidenceCalibration reports low coverage without blocking", () => {
 test("confidenceCalibration returns null ECE when oracle samples lack confidence", () => {
   const result = evaluateConfidenceCalibration([
     {
-      id: "kb_sample_ecg_risk",
-      content: "ECG 风险来自电极接触和主动测量交互。",
+      id: "kb_proj_ecg_risk_missing_confidence",
+      content: [
+        "ECG 风险来自电极接触和主动测量交互。",
+        "ppg_priority_score >= 0.72。",
+        "明确冲突：该证据反驳 ECG 优先。",
+      ].join("\n"),
       status: "active",
     },
   ]);
@@ -457,7 +490,7 @@ test("confidenceCalibration excludes no-oracle knowledge before ECE scoring", ()
   assert.equal(result.excludedAsNonConflict.reasonCounts.no_oracle_side, 1);
 });
 
-test("confidenceCalibration only excludes true seed ids and keeps kb_proj side knowledge", () => {
+test("confidenceCalibration excludes governance restatements and keeps kb_proj conflict evidence", () => {
   const result = evaluateConfidenceCalibration([
     {
       id: "kb_seed_identity_001",
@@ -467,20 +500,31 @@ test("confidenceCalibration only excludes true seed ids and keeps kb_proj side k
     {
       id: "kb_proj_market_context",
       title: "种子身份",
-      content: "当前最优选型决策：PPG+ECG 分层方案。须通过 NMPA 三类审批，遇 PPG/ECG 矛盾必须等待人工审核，置信度 0.88。",
+      content: "当前最优选型决策：PPG+ECG 分层方案。须通过 NMPA 三类审批，遇 PPG/ECG 矛盾必须等待人工审核，budget_throttle_effectiveness >= 0.85，置信度 0.88。",
       status: "active",
       tags: ["identity", "seed"],
       supersededBy: "kb_seed_identity_001",
     },
     {
-      id: "kb_sample_hybrid_support",
-      content: "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。",
+      id: "kb_proj_conflict_hybrid",
+      content: [
+        "混合方案证据：PPG 连续趋势 + ECG 二次复核。",
+        "hybrid_decision_confidence >= 0.81。",
+        "明确冲突：该结论与混合方案反证互相矛盾。",
+        "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。",
+      ].join("\n"),
       status: "active",
       confidence_score: 0.71,
     },
     {
-      id: "kb_sample_ecg_support",
-      content: "当前最优选型决策：优先 ECG，置信度 0.66。",
+      id: "kb_sample_0002_ecg_support",
+      sourceRef: "health-signal-contradiction-runner:sample_0002_ecg_support",
+      content: [
+        "ECG 优先：心电信号更可解释。",
+        "ppg_priority_score <= 0.35。",
+        "明确冲突：该结论与 PPG 优先互相矛盾。",
+        "当前最优选型决策：优先 ECG，置信度 0.66。",
+      ].join("\n"),
       status: "active",
       confidence_score: 0.66,
     },
@@ -488,19 +532,20 @@ test("confidenceCalibration only excludes true seed ids and keeps kb_proj side k
 
   assert.equal(result.status, "low_coverage");
   assert.equal(result.blockingEligible, false);
-  assert.equal(result.scored, 3);
+  assert.equal(result.scored, 2);
   assert.equal(result.unscored, 0);
   assert.equal(result.totalCandidates, 4);
-  assert.equal(result.eligible, 3);
-  assert.equal(result.denominator, 3);
+  assert.equal(result.eligible, 2);
+  assert.equal(result.denominator, 2);
   assert.equal(result.scoreableCoverage, 1);
-  assert.equal(result.excludedAsNonConflict.count, 1);
-  assert.deepEqual(result.excludedAsNonConflict.exampleIds, ["kb_seed_identity_001"]);
+  assert.equal(result.excludedAsNonConflict.count, 2);
+  assert.deepEqual(result.excludedAsNonConflict.exampleIds, ["kb_seed_identity_001", "kb_proj_market_context"]);
   assert.equal(result.excludedAsNonConflict.reasonCounts.seed_identity_or_world, 1);
+  assert.equal(result.excludedAsNonConflict.reasonCounts.governance_or_task_restatement, 1);
   assert.equal(result.excludedAsNonConflict.reasonCounts.no_oracle_side ?? 0, 0);
-  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_proj_market_context").correct, false);
-  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_sample_hybrid_support").correct, true);
-  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_sample_ecg_support").correct, false);
+  assert.equal(result.scoredKnowledge.some((item) => item.knowledgeId === "kb_proj_market_context"), false);
+  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_proj_conflict_hybrid").correct, true);
+  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_sample_0002_ecg_support").correct, false);
 });
 
 test("confidenceCalibration excludes sensor firewall audit wrappers from oracle calibration", () => {
@@ -517,7 +562,11 @@ test("confidenceCalibration excludes sensor firewall audit wrappers from oracle 
     {
       id: "kb_gate_sample_0004_ecg_risk",
       sourceRef: "health-signal-contradiction-runner:sample_0004_ecg_risk",
-      content: "ECG 风险：ECG 需要更严格电极接触和主动测量交互，连续 7 天续航与 ¥899 定价下硬件和体验成本更高。",
+      content: [
+        "ECG 风险：ECG 需要更严格电极接触和主动测量交互，连续 7 天续航与 ¥899 定价下硬件和体验成本更高。",
+        "ppg_priority_score >= 0.72。",
+        "明确冲突：该证据反驳 ECG 优先，必须隔离到冲突审查流程。",
+      ].join("\n"),
       status: "strong",
       confidence_score: 0.9,
     },
@@ -537,8 +586,14 @@ test("confidenceCalibration excludes sensor firewall audit wrappers from oracle 
 test("confidenceCalibration parses decision brief and template fallback confidence without changing correctness", () => {
   const result = evaluateConfidenceCalibration([
     {
-      id: "kb_sample_hybrid_support",
-      content: "当前最优选型决策：PPG+ECG 分层方案。",
+      id: "kb_sample_0005_hybrid_support",
+      sourceRef: "health-signal-contradiction-runner:sample_0005_hybrid_support",
+      content: [
+        "混合方案仍是最终决策。",
+        "hybrid_decision_confidence >= 0.81。",
+        "明确冲突：该结论与混合方案反证互相矛盾。",
+        "当前最优选型决策：PPG+ECG 分层方案。",
+      ].join("\n"),
       status: "active",
       decision_brief: {
         claim: "混合方案仍是最终决策",
@@ -548,17 +603,30 @@ test("confidenceCalibration parses decision brief and template fallback confiden
     {
       id: "kb_gate_sample_0001_ppg_support",
       sourceRef: "health-signal-contradiction-runner:sample_0001_ppg_support",
-      content: "当前最优选型决策：优先 PPG。",
+      content: [
+        "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低。",
+        "ppg_priority_score >= 0.78。",
+        "明确冲突：该结论与 ECG 优先互相矛盾。",
+        "当前最优选型决策：优先 PPG。",
+      ].join("\n"),
       status: "active",
     },
     {
-      id: "kb_sample_ecg_risk",
-      content: "ECG 风险存在，但缺少置信度。",
+      id: "kb_proj_ecg_risk_missing_confidence",
+      content: [
+        "ECG 风险存在，但缺少置信度。",
+        "ppg_priority_score >= 0.72。",
+        "明确冲突：该证据反驳 ECG 优先。",
+      ].join("\n"),
       status: "active",
     },
     {
-      id: "kb_sample_hybrid_reject",
-      content: "混合方案反证存在，但缺少置信度。",
+      id: "kb_proj_hybrid_reject_missing_confidence",
+      content: [
+        "混合方案反证存在，但缺少置信度。",
+        "hybrid_decision_confidence <= 0.38。",
+        "明确冲突：该结论与混合方案推荐互相矛盾。",
+      ].join("\n"),
       status: "active",
     },
   ], { bucketCount: 2 });
@@ -571,7 +639,7 @@ test("confidenceCalibration parses decision brief and template fallback confiden
   assert.equal(result.denominator, 4);
   assert.equal(result.scoreableCoverage, 0.5);
   assert.equal(result.unscoredReasonCounts.missing_confidence, 2);
-  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_sample_hybrid_support").confidence, 0.72);
+  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_sample_0005_hybrid_support").confidence, 0.72);
   assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_gate_sample_0001_ppg_support").confidence, 0.64);
   assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_gate_sample_0001_ppg_support").correct, false);
 });
@@ -592,7 +660,12 @@ test("confidenceCalibration only blocks when eligible coverage and sample count 
   const failResult = evaluateConfidenceCalibration(
     Array.from({ length: CONFLICT_QUALITY_MIN_ELIGIBLE }, (_, index) => ({
       id: `kb_proj_wrong_ppg_${String(index).padStart(3, "0")}`,
-      content: "当前最优选型决策：优先 PPG，置信度 1.0。",
+      content: [
+        "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低。",
+        "ppg_priority_score >= 0.78。",
+        "明确冲突：该结论与 ECG 优先互相矛盾。",
+        "当前最优选型决策：优先 PPG，置信度 1.0。",
+      ].join("\n"),
       status: "active",
       confidence_score: 1,
     })),
@@ -608,7 +681,16 @@ test("confidenceCalibration only blocks when eligible coverage and sample count 
     Array.from({ length: CONFLICT_QUALITY_MIN_ELIGIBLE }, (_, index) => (
       index < 5
         ? hybridSupportKnowledge(index)
-        : hybridSupportKnowledge(index, { confidence_score: undefined, content: "当前最优选型决策：PPG+ECG 分层方案。" })
+        : hybridSupportKnowledge(index, {
+          sourceRef: "",
+          confidence_score: undefined,
+          content: [
+            "混合方案：PPG 用于低功耗连续静息心率趋势，ECG 用于疑似异常时主动复核和医疗级证据补强。",
+            "hybrid_decision_confidence >= 0.81。",
+            "明确冲突：该结论与混合方案反证互相矛盾，不能同时作为 active 知识复用。",
+            "当前最优选型决策：PPG+ECG 分层方案。",
+          ].join("\n"),
+        })
     )),
   );
 
@@ -632,7 +714,8 @@ test("faithfulness passes when active claims are supported by evidence corpus", 
     ],
     knowledgeItems: [
       {
-        id: "kb_sample_hybrid_support",
+        id: "kb_sample_0005_hybrid_support",
+        sourceRef: "health-signal-contradiction-runner:sample_0005_hybrid_support",
         status: "active",
         content: [
           "混合方案：PPG 用于低功耗连续静息心率趋势，ECG 用于疑似异常时主动复核和医疗级证据补强。",
@@ -660,13 +743,19 @@ test("faithfulness flags unsupported injected-looking claims", () => {
   const result = evaluateFaithfulness({
     evidenceCorpus: [
       "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低，更容易满足 ¥899 定价与 7 天续航。",
+      "ppg_priority_score >= 0.78。",
+      "明确冲突：该结论与 ECG 优先互相矛盾。",
       "当前最优选型决策：优先 PPG，置信度 0.64。",
     ],
     knowledgeItems: [
       {
-        id: "kb_sample_ppg_support",
+        id: "kb_sample_0001_ppg_support",
+        sourceRef: "health-signal-contradiction-runner:sample_0001_ppg_support",
         status: "active",
         content: [
+          "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低，更容易满足 ¥899 定价与 7 天续航。",
+          "ppg_priority_score >= 0.78。",
+          "明确冲突：该结论与 ECG 优先互相矛盾。",
           "当前最优选型决策：优先 PPG，置信度 0.64。",
           "新增主张：已经完成 FDA Class III 认证，置信度 0.92。",
         ].join("\n"),
@@ -676,24 +765,25 @@ test("faithfulness flags unsupported injected-looking claims", () => {
 
   assert.equal(result.status, "low_coverage");
   assert.equal(result.blockingEligible, false);
-  assert.equal(result.supported, 1);
+  assert.equal(result.supported, 4);
   assert.equal(result.unsupported, 1);
-  assert.equal(result.hallucinationRate, 0.5);
+  assert.equal(result.hallucinationRate, 0.2);
   assert.match(result.unsupportedClaims[0].claim, /FDA Class III/);
 });
 
 test("faithfulness scores Chinese domain phrases without numeric anchors and still catches unsupported claims", () => {
   const result = evaluateFaithfulness({
     evidenceCorpus: [
-      "PPG 风险：肤色、佩戴松紧、环境光和运动伪影会影响 PPG 静息心率可靠性。",
+      "PPG 风险：肤色、佩戴松紧、环境光和运动伪影会影响 PPG 静息心率可靠性，ppg_priority_score <= 0.42。",
       "建议：保留 PPG 作为低功耗连续趋势传感器，但医疗级判定需要 ECG 或人工复核。",
     ],
     knowledgeItems: [
       {
-        id: "kb_sample_ppg_risk",
+        id: "kb_sample_0003_ppg_risk",
+        sourceRef: "health-signal-contradiction-runner:sample_0003_ppg_risk",
         status: "active",
         content: [
-          "PPG 风险来自肤色、佩戴松紧、环境光和运动伪影。",
+          "PPG 风险来自肤色、佩戴松紧、环境光和运动伪影，ppg_priority_score <= 0.42。",
           "新增主张：PPG 风险已经完成 FDA Class III 认证。",
         ].join("\n"),
       },
@@ -712,8 +802,13 @@ test("faithfulness scores Chinese domain phrases without numeric anchors and sti
 
 test("faithfulness only blocks when eligible knowledge coverage and sample count are sufficient", () => {
   const evidenceCorpus = [
+    "混合方案：PPG 用于低功耗连续静息心率趋势，ECG 用于疑似异常时主动复核和医疗级证据补强。",
+    "hybrid_decision_confidence >= 0.81。",
+    "明确冲突：该结论与混合方案反证互相矛盾，不能同时作为 active 知识复用。",
     "当前最优选型决策：PPG+ECG 分层方案，置信度 1.0。",
     "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低，更容易满足 ¥899 定价与 7 天续航。",
+    "ppg_priority_score >= 0.78。",
+    "明确冲突：该结论与 ECG 优先互相矛盾。",
     "当前最优选型决策：优先 PPG，置信度 0.64。",
   ];
   const passResult = evaluateFaithfulness({
@@ -735,6 +830,9 @@ test("faithfulness only blocks when eligible knowledge coverage and sample count
       id: `kb_proj_ppg_support_${String(index).padStart(3, "0")}`,
       status: "active",
       content: [
+        "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低，更容易满足 ¥899 定价与 7 天续航。",
+        "ppg_priority_score >= 0.78。",
+        "明确冲突：该结论与 ECG 优先互相矛盾。",
         "当前最优选型决策：优先 PPG，置信度 0.64。",
         "新增主张：已经完成 FDA Class III 认证，置信度 0.92。",
       ].join("\n"),
@@ -746,7 +844,7 @@ test("faithfulness only blocks when eligible knowledge coverage and sample count
   assert.equal(failResult.eligible, CONFLICT_QUALITY_MIN_ELIGIBLE);
   assert.equal(failResult.scoreableKnowledgeItems, CONFLICT_QUALITY_MIN_ELIGIBLE);
   assert.equal(failResult.scoreableCoverage, 1);
-  assert.equal(failResult.faithfulness, 0.5);
+  assert.equal(failResult.faithfulness, 0.8);
   assert.equal(failResult.unsupported, CONFLICT_QUALITY_MIN_ELIGIBLE);
 
   const lowCoverage = evaluateFaithfulness({
@@ -756,7 +854,9 @@ test("faithfulness only blocks when eligible knowledge coverage and sample count
         ? hybridSupportKnowledge(index)
         : {
           id: `kb_proj_sparse_hybrid_support_${String(index).padStart(3, "0")}`,
+          sourceRef: `health-signal-contradiction-runner:sample_${String(index + 1).padStart(4, "0")}_hybrid_support`,
           status: "active",
+          tags: ["hybrid_decision_confidence>=0.81"],
           content: "流程备注等待后续复查。",
         }
     )),
@@ -771,10 +871,10 @@ test("faithfulness only blocks when eligible knowledge coverage and sample count
   assert.equal(lowCoverage.indeterminateReasonCounts.no_deterministic_anchor, 5);
 });
 
-test("faithfulness only excludes true seed ids and keeps kb_proj side knowledge", () => {
+test("faithfulness excludes governance restatements and keeps true conflict evidence", () => {
   const result = evaluateFaithfulness({
     evidenceCorpus: [
-      "PPG 风险：肤色、佩戴松紧、环境光和运动伪影会影响 PPG 静息心率可靠性。",
+      "PPG 风险：肤色、佩戴松紧、环境光和运动伪影会影响 PPG 静息心率可靠性，ppg_priority_score <= 0.42。",
       "当前最优选型决策：PPG+ECG 分层方案。须通过 NMPA 三类审批，遇 PPG/ECG 矛盾必须等待人工审核。",
     ],
     knowledgeItems: [
@@ -789,30 +889,32 @@ test("faithfulness only excludes true seed ids and keeps kb_proj side knowledge"
         status: "active",
         tags: ["world", "seed"],
         supersededBy: "kb_seed_world_001",
-        content: "当前最优选型决策：PPG+ECG 分层方案。须通过 NMPA 三类审批，遇 PPG/ECG 矛盾必须等待人工审核。",
+        content: "当前最优选型决策：PPG+ECG 分层方案。须通过 NMPA 三类审批，遇 PPG/ECG 矛盾必须等待人工审核，risk_gate_recovery_proof_coverage >= 0.85。",
       },
       {
-        id: "kb_sample_ppg_risk",
+        id: "kb_sample_0003_ppg_risk",
+        sourceRef: "health-signal-contradiction-runner:sample_0003_ppg_risk",
         status: "active",
-        content: "PPG 风险来自肤色、佩戴松紧、环境光和运动伪影。",
+        content: "PPG 风险来自肤色、佩戴松紧、环境光和运动伪影，ppg_priority_score <= 0.42。",
       },
     ],
   });
 
   assert.equal(result.status, "low_coverage");
   assert.equal(result.blockingEligible, false);
-  assert.equal(result.scored, 3);
-  assert.equal(result.supported, 3);
+  assert.equal(result.scored, 1);
+  assert.equal(result.supported, 1);
   assert.equal(result.unsupported, 0);
-  assert.equal(result.indeterminate, 1);
-  assert.equal(result.totalClaims, 4);
-  assert.equal(result.scoreableKnowledgeItems, 2);
-  assert.equal(result.eligible, 2);
-  assert.equal(result.denominator, 2);
+  assert.equal(result.indeterminate, 0);
+  assert.equal(result.totalClaims, 1);
+  assert.equal(result.scoreableKnowledgeItems, 1);
+  assert.equal(result.eligible, 1);
+  assert.equal(result.denominator, 1);
   assert.equal(result.scoreableCoverage, 1);
-  assert.equal(result.excludedAsNonConflict.count, 1);
-  assert.deepEqual(result.excludedAsNonConflict.exampleIds, ["kb_seed_world_001"]);
+  assert.equal(result.excludedAsNonConflict.count, 2);
+  assert.deepEqual(result.excludedAsNonConflict.exampleIds, ["kb_seed_world_001", "kb_proj_regulatory_context"]);
   assert.equal(result.excludedAsNonConflict.reasonCounts.seed_identity_or_world, 1);
+  assert.equal(result.excludedAsNonConflict.reasonCounts.governance_or_task_restatement, 1);
   assert.equal(result.excludedAsNonConflict.reasonCounts.no_oracle_side ?? 0, 0);
 });
 
@@ -821,6 +923,8 @@ test("faithfulness strips approval audit wrappers before scoring business claims
     evidenceCorpus: [
       "ECG 反证：功耗/交互/成本压力。",
       "ECG 风险：ECG 需要更严格电极接触和主动测量交互，连续 7 天续航与 ¥899 定价下硬件和体验成本更高。",
+      "ppg_priority_score >= 0.72。",
+      "明确冲突：该证据反驳 ECG 优先，必须隔离到冲突审查流程。",
     ],
     knowledgeItems: [
       {
@@ -832,7 +936,7 @@ test("faithfulness strips approval audit wrappers before scoring business claims
           "Human approved meaning gate gate_ext_fb_form_sample_0004_ecg_risk.",
           "Source: form_feedback sample_0004_ecg_risk.",
           "Summary: ECG 反证：功耗/交互/成本压力.",
-          "User quote: Form Feedback (health-signal-contradiction-runner sample_0004_ecg_risk): ECG 风险：ECG 需要更严格电极接触和主动测量交互，连续 7 天续航与 ¥899 定价下硬件和体验成本更高。",
+          "User quote: Form Feedback (health-signal-contradiction-runner sample_0004_ecg_risk): ECG 风险：ECG 需要更严格电极接触和主动测量交互，连续 7 天续航与 ¥899 定价下硬件和体验成本更高。\nppg_priority_score >= 0.72。\n明确冲突：该证据反驳 ECG 优先，必须隔离到冲突审查流程。",
         ].join("\n"),
         notes: "approved via web\nReview kr_1234: survivor retained after absorbing duplicate.\nLibrarian merge: not physically deleted.",
       },
@@ -877,7 +981,9 @@ test("faithfulness reports low coverage and unavailable evidence honestly", () =
     evidenceCorpus: ["PPG 优先：光学 PPG 在静息心率监测下功耗低。"],
     knowledgeItems: [
       {
-        id: "kb_sample_ppg_support",
+        id: "kb_sample_0001_ppg_support",
+        sourceRef: "health-signal-contradiction-runner:sample_0001_ppg_support",
+        tags: ["ppg_priority_score>=0.78"],
         status: "active",
         content: [
           "需要后续人工复查。",
@@ -897,7 +1003,16 @@ test("faithfulness reports low coverage and unavailable evidence honestly", () =
   const unavailable = evaluateFaithfulness({
     evidenceCorpus: [],
     knowledgeItems: [
-      { id: "kb_sample_hybrid_support", status: "active", content: "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。" },
+      {
+        id: "kb_sample_0005_hybrid_support",
+        sourceRef: "health-signal-contradiction-runner:sample_0005_hybrid_support",
+        status: "active",
+        content: [
+          "混合方案：PPG 用于低功耗连续静息心率趋势，ECG 用于疑似异常时主动复核。",
+          "hybrid_decision_confidence >= 0.81。",
+          "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。",
+        ].join("\n"),
+      },
     ],
   });
   assert.equal(unavailable.status, "unavailable");

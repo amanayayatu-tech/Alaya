@@ -44,6 +44,10 @@ const ACTIVE_STATUSES = new Set(["active", "strong"]);
 const NON_CONFLICT_SEED_ID_PREFIXES = ["kb_seed_identity", "kb_seed_world"];
 const DISALLOWED_FINAL_DECISIONS = new Set(["ppg_only", "ecg_only", "hybrid_reject"]);
 const NON_FINAL_STATUSES = new Set(["quarantined", "deprecated", "stale", "archived"]);
+const CONFLICT_SIDE_SOURCE_PATTERN = /\bsample_\d{4}_(?:hybrid_support|hybrid_reject|ppg_support|ppg_risk|ecg_support|ecg_risk)\b/i;
+const STRUCTURED_METRIC_THRESHOLD_PATTERN = /\b(?:ppg_priority_score|ecg_priority_score|hybrid_decision_confidence|long_thesis_score|short_thesis_score|bull_thesis_score|bear_thesis_score|tiered_thesis_confidence)\b\s*(?:>=|<=|>|<|=|≥|≤)\s*-?(?:\d+(?:\.\d+)?|\.\d+)/i;
+const EXPLICIT_CONFLICT_STATEMENT_PATTERN = /明确冲突|互相矛盾|相互矛盾|结论冲突|推荐冲突|与[^。；;]{0,80}冲突|进入\s*conflict|记录\s*conflict|冲突审查|conflict\s+知识状态|contradict|contradiction/i;
+const GOVERNANCE_OR_TASK_RESTATEMENT_PATTERN = /种子身份|种子世界|身份:wearable|每轮任务|本次验证窗口|本轮应用场景|目标用户|设备定价|续航目标|创始人偏好|绝不做|红线|不得绕过|不得把|必须记录\s*conflict|等待人工审核|低置信度|单轮\s*llm|human gate|dry-run|回滚步骤|审计摘要|挂起晋级|流程|任务设定/i;
 const RESOLUTION_SIDE_TIERS = Object.freeze({
   hybrid_support: 1,
   ppg_risk: 2,
@@ -218,10 +222,10 @@ function faithfulnessTextForKnowledge(item) {
 function inferHealthSignalOracleSideFromText(value) {
   const text = normalizeLexical(value);
   if (!text) return null;
-  if (/hybrid_decision_confidence\s*<=\s*0\.38|反对混合方案|混合方案反证|保留\s*ecg\s*作为\s*pro sku|双传感器方案[^。；;]{0,80}(bom|认证范围|复杂度)/i.test(text)) {
+  if (/hybrid_decision_confidence\s*(?:<=|<|≤)\s*(?:0(?:\.\d+)?|1(?:\.0+)?|\.\d+)|反对混合方案[^。；;]{0,120}hybrid_decision_confidence|混合方案反证[^。；;]{0,120}hybrid_decision_confidence/i.test(text)) {
     return "hybrid_reject";
   }
-  if (/hybrid_decision_confidence\s*>=\s*0\.81|ppg\s*(?:\+|＋)\s*ecg|ppg\s*\/\s*ecg\s*\/\s*混合方案|ppg\s*\+\s*ecg\s*分层方案|ppg\+ecg\s*分层方案|混合方案|分层方案|双轨|混合方案[^。；;]{0,80}ecg[^。；;]{0,80}(复核|补强)/i.test(text)) {
+  if (/hybrid_decision_confidence\s*(?:>=|>|≥)\s*(?:0(?:\.\d+)?|1(?:\.0+)?|\.\d+)|ppg\s*(?:\+|＋)\s*ecg[^。；;]{0,120}hybrid_decision_confidence/i.test(text)) {
     return "hybrid_support";
   }
   if (/ecg\s*风险|ecg[^。；;]{0,40}(电极接触|主动测量交互|功耗|交互|成本压力)|当前最优选型决策[:：]\s*ppg\s*做连续监测/i.test(text)) {
@@ -266,14 +270,64 @@ function isSensorFirewallAuditWrapperKnowledge(item) {
   return knowledgeTags(item).includes("sensor_firewall");
 }
 
+function conflictEvidenceText(item) {
+  return textForKnowledge(item);
+}
+
+function conflictEvidenceSourceText(item) {
+  return normalizeLexical([
+    field(item, "externalId", "external_id"),
+    field(item, "sourceRef", "source_ref"),
+    field(item, "id"),
+    field(item, "title"),
+    field(item, "semanticKey", "semantic_key"),
+  ].filter(Boolean).join(" "));
+}
+
+function hasStructuredMetricThreshold(value) {
+  return STRUCTURED_METRIC_THRESHOLD_PATTERN.test(normalizeLexical(value));
+}
+
+function hasExplicitConflictStatement(value) {
+  return EXPLICIT_CONFLICT_STATEMENT_PATTERN.test(normalizeLexical(value));
+}
+
+function isConflictInjectionPath(item) {
+  return CONFLICT_SIDE_SOURCE_PATTERN.test(conflictEvidenceSourceText(item));
+}
+
+function isGovernanceOrTaskRestatement(item) {
+  const text = conflictEvidenceText(item);
+  return GOVERNANCE_OR_TASK_RESTATEMENT_PATTERN.test(text) ||
+    knowledgeTags(item).some((tag) => ["identity", "seed", "world", "governance"].includes(tag)) ||
+    NON_CONFLICT_SEED_ID_PREFIXES.some((prefix) => supersededByForKnowledge(item).toLowerCase().startsWith(prefix));
+}
+
+function scoreableConflictEvidenceGate(item) {
+  const text = conflictEvidenceText(item);
+  const hasThreshold = hasStructuredMetricThreshold(text);
+  const hasConflictSignal = hasExplicitConflictStatement(text) || isConflictInjectionPath(item);
+  if (hasThreshold && hasConflictSignal) {
+    return { scoreable: true, reason: null };
+  }
+  return {
+    scoreable: false,
+    reason: isGovernanceOrTaskRestatement(item) ? "governance_or_task_restatement" : "no_oracle_side",
+  };
+}
+
 function conflictKnowledgeEligibility(item) {
-  const oracleSide = explicitOracleSideForKnowledge(item) ?? oracleSideForKnowledge(item);
   if (isSeedIdentityOrWorldKnowledge(item)) {
-    return { eligible: false, oracleSide, reason: "seed_identity_or_world" };
+    return { eligible: false, oracleSide: null, reason: "seed_identity_or_world" };
   }
   if (isSensorFirewallAuditWrapperKnowledge(item)) {
-    return { eligible: false, oracleSide, reason: "sensor_firewall_audit_wrapper" };
+    return { eligible: false, oracleSide: null, reason: "sensor_firewall_audit_wrapper" };
   }
+  const evidenceGate = scoreableConflictEvidenceGate(item);
+  if (!evidenceGate.scoreable) {
+    return { eligible: false, oracleSide: null, reason: evidenceGate.reason };
+  }
+  const oracleSide = explicitOracleSideForKnowledge(item) ?? inferHealthSignalOracleSideFromText(conflictEvidenceText(item));
   if (!oracleSide) {
     return { eligible: false, oracleSide: null, reason: "no_oracle_side" };
   }
