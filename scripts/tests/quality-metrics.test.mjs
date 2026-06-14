@@ -168,6 +168,21 @@ test("resolutionAccuracy scores same-side duplicates as merge-only dedupe", () =
   assert.equal(bad.scored, 1);
   assert.equal(bad.correct, 0);
   assert.equal(bad.scoredEvents[0].resolutionExpectedAction, "merge_supersede");
+
+  const embeddingMode = scoreResolutionAccuracy([
+    {
+      eventType: "knowledge_review_resolved",
+      reviewId: "kr_dedupe_embedding",
+      primaryKnowledgeId: "kb_sample_0001_ecg_risk",
+      relatedKnowledgeId: "kb_sample_0007_ecg_risk",
+      action: "merge_supersede",
+      survivorKnowledgeId: "kb_sample_0007_ecg_risk",
+    },
+  ], { dedupeMode: "embedding" });
+  assert.equal(embeddingMode.status, "pass");
+  assert.equal(embeddingMode.dedupeMode, "embedding");
+  assert.equal(embeddingMode.scoredEvents[0].dedupeMode, "embedding");
+  assert.match(embeddingMode.scoredEvents[0].scoreableResolutionRule, /embedding_fallback/);
 });
 
 test("resolutionAccuracy reports low scoreable coverage instead of a misleading pass", () => {
@@ -281,6 +296,32 @@ test("latency and efficiency ratios stay null when denominators are zero", () =>
   assert.equal(result.ratios.tokensPerResolvedConflict, null);
   assert.equal(result.ratios.costPerNetActiveKnowledgeUsd, null);
   assert.match(result.measurementNote, /harness/);
+});
+
+test("latency SLO excludes harness polling and only blocks when enforced", () => {
+  const passResult = latencyAndEfficiencyMetrics({
+    events: [
+      { eventType: "api_request_timing", segment: "harness_polling_api_request", durationMs: 120000 },
+      { eventType: "api_request_timing", segment: "knowledge_retrieval", durationMs: 1500 },
+      { eventType: "api_request_timing", segment: "scheduler_tick", durationMs: 2000 },
+    ],
+  });
+
+  assert.equal(passResult.slo.sloStatus, "pass");
+  assert.equal(passResult.slo.sloBlocking, false);
+  assert.deepEqual(passResult.slo.excludedSegments, ["harness_polling_api_request"]);
+  assert.match(passResult.slo.measurementNote, /harness_polling_api_request is excluded/);
+
+  const failResult = latencyAndEfficiencyMetrics({
+    enforceLatencySlo: true,
+    events: [
+      { eventType: "api_request_timing", segment: "knowledge_retrieval", durationMs: 3000 },
+      { eventType: "api_request_timing", segment: "scheduler_tick", durationMs: 2000 },
+    ],
+  });
+
+  assert.equal(failResult.slo.sloStatus, "fail");
+  assert.equal(failResult.slo.sloBlocking, true);
 });
 
 test("confidenceCalibration computes ECE from scored oracle knowledge", () => {

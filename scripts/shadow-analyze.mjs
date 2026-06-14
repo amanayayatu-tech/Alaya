@@ -26,6 +26,26 @@ function readJsonl(path) {
     });
 }
 
+function parseArgs(argv) {
+  const out = { _: [] };
+  for (const arg of argv) {
+    if (!arg.startsWith("--")) {
+      out._.push(arg);
+      continue;
+    }
+    const eq = arg.indexOf("=");
+    if (eq === -1) out[arg.slice(2)] = "true";
+    else out[arg.slice(2, eq)] = arg.slice(eq + 1);
+  }
+  return out;
+}
+
+function boolArg(args, name, fallback = false) {
+  const raw = args[name];
+  if (raw == null) return fallback;
+  return ["1", "true", "yes", "on"].includes(String(raw).toLowerCase());
+}
+
 function readCsv(path) {
   if (!existsSync(path)) return [];
   const lines = readFileSync(path, "utf8").trim().split(/\r?\n/).filter(Boolean);
@@ -230,7 +250,8 @@ function topCounts(counts, limit = 5) {
 }
 
 async function main() {
-  const logDir = resolve(process.argv[2] || "");
+  const args = parseArgs(process.argv.slice(2));
+  const logDir = resolve(args._[0] || args["log-dir"] || "");
   assert.ok(logDir && existsSync(logDir), `log directory not found: ${logDir}`);
   try {
     globalThis.__betterSqlite3 = (await import("better-sqlite3")).default;
@@ -339,6 +360,9 @@ async function main() {
     events,
     samples,
     llmCalls: llmCallRows,
+    faithfulnessJudge: args["faithfulness-judge"] || "lexical",
+    dedupeMode: args["dedupe-mode"] || "exact",
+    enforceLatencySlo: boolArg(args, "enforce-latency-slo", false),
   });
   const qualityPath = join(logDir, "quality_summary.json");
   writeFileSync(qualityPath, JSON.stringify({
@@ -351,6 +375,7 @@ async function main() {
       rss: "monitor_log.csv:appRssMb",
     },
     notes: [
+      ...(Array.isArray(qualitySummary.notes) ? qualitySummary.notes : []),
       "decisionTsr is a single-scenario pass@1 oracle-state check, not an independent reasoning benchmark.",
       "pass^k multi-seed reliability is intentionally deferred to v2.",
       "API latency is runner/harness-observed polling and control request latency under validation load, not an isolated production retrieval SLO.",
@@ -392,6 +417,8 @@ async function main() {
 
   const decision = qualitySummary.decisionTsr;
   const resolution = qualitySummary.resolutionAccuracy;
+  const calibration = qualitySummary.confidenceCalibration;
+  const faithfulness = qualitySummary.faithfulness;
   const latency = qualitySummary.latencyAndEfficiency;
   const rssSlope = qualitySummary.rssSlopeMbPerHour;
   const qualityRows = [
@@ -403,7 +430,19 @@ async function main() {
       : resolution.status === "low_coverage"
         ? lowCoverage(`accuracy=${resolution.accuracy} scored=${resolution.scored} unscored=${resolution.unscored} coverage=${resolution.scoreableCoverage} threshold=${resolution.scoreableCoverageThreshold} unscoredTop=${topCounts(resolution.unscoredPairTypeCounts)}`)
         : pass(resolution.passed, `accuracy=${resolution.accuracy} scored=${resolution.scored} unscored=${resolution.unscored} coverage=${resolution.scoreableCoverage} unscoredTop=${topCounts(resolution.unscoredPairTypeCounts)}`)],
-    ["latencyAndEfficiency", info(`api_harness_p95=${latency.apiRequest.p95Ms ?? "n/a"}ms llm_p95=${latency.llmOverall.p95Ms ?? "n/a"}ms costPerCycle=${latency.ratios.costPerClosedCycleUsd ?? "N/A"} tokensPerConflict=${latency.ratios.tokensPerResolvedConflict ?? "N/A"}; harness polling/control, not production SLO`)],
+    ["confidenceCalibration", calibration.status === "insufficient_evidence"
+      ? na(`ece=${calibration.ece ?? "n/a"} scored=${calibration.scored} unscored=${calibration.unscored}`)
+      : calibration.status === "low_coverage"
+        ? lowCoverage(`ece=${calibration.ece ?? "n/a"} scored=${calibration.scored} unscored=${calibration.unscored} coverage=${calibration.scoreableCoverage}`)
+        : pass(calibration.status === "pass" || calibration.status === "warn", `status=${calibration.status} ece=${calibration.ece ?? "n/a"} scored=${calibration.scored} buckets=${calibration.reliabilityTable.length}`)],
+    ["faithfulness", faithfulness.status === "unavailable" || faithfulness.status === "insufficient_evidence"
+      ? na(`faithfulness=${faithfulness.faithfulness ?? "n/a"} judge=${faithfulness.judgeMode} scored=${faithfulness.scored}`)
+      : faithfulness.status === "low_coverage"
+        ? lowCoverage(`faithfulness=${faithfulness.faithfulness ?? "n/a"} coverage=${faithfulness.scoreableCoverage} unsupported=${faithfulness.unsupported}`)
+        : pass(faithfulness.status === "pass" || faithfulness.status === "warn", `status=${faithfulness.status} faithfulness=${faithfulness.faithfulness ?? "n/a"} hallucination=${faithfulness.hallucinationRate ?? "n/a"} unsupported=${faithfulness.unsupported}`)],
+    ["latencyAndEfficiency", latency.slo?.sloBlocking
+      ? pass(false, `api_harness_p95=${latency.apiRequest.p95Ms ?? "n/a"}ms sloStatus=${latency.slo.sloStatus}; ${latency.slo.measurementNote}`)
+      : info(`api_harness_p95=${latency.apiRequest.p95Ms ?? "n/a"}ms llm_p95=${latency.llmOverall.p95Ms ?? "n/a"}ms costPerCycle=${latency.ratios.costPerClosedCycleUsd ?? "N/A"} tokensPerConflict=${latency.ratios.tokensPerResolvedConflict ?? "N/A"}; sloStatus=${latency.slo?.sloStatus ?? "n/a"} sloBlocking=${latency.slo?.sloBlocking ?? false}; harness polling/control, not production SLO`)],
     ["rssSlopeUnder50MbPerHour", rssSlope == null
       ? na("need at least two RSS samples")
       : pass(qualitySummary.rssSlopeUnder50MbPerHour, `slope=${rssSlope} MB/h threshold<${qualitySummary.rssSlopeThresholdMbPerHour}`)],

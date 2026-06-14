@@ -955,6 +955,106 @@ function shouldHoldConflictResolution(state) {
   return scenario === "conflict-flood" && state.currentSample <= conflictFloodHoldSamples;
 }
 
+function oracleDisposition(side) {
+  return oracleMetadataForSide(side)?.expectedDisposition ?? "";
+}
+
+function sideShouldBeRetained(side) {
+  return /^retained/.test(oracleDisposition(side));
+}
+
+function sideShouldBeRemoved(side) {
+  return /superseded|quarantined|deprecated/.test(oracleDisposition(side));
+}
+
+function resolutionBodyForAction(review, action) {
+  if (action === "merge_supersede" && review.relatedKnowledgeId) {
+    return {
+      action,
+      survivorKnowledgeId: review.relatedKnowledgeId,
+      rationale: `Health Signal validation human proxy via ${decisionVia}: merge duplicate/conflicting evidence by preserving the oracle-selected survivor.`,
+    };
+  }
+  if (action === "approve_as_current" || action === "reject_conflict") {
+    return {
+      action,
+      rationale: `Health Signal validation human proxy via ${decisionVia}: retain the primary item because the independent oracle expects this side to remain reusable.`,
+    };
+  }
+  return {
+    action: "quarantine",
+    rationale: `Health Signal validation human proxy via ${decisionVia}: quarantine the primary item because the independent oracle expects the other side to remain reusable.`,
+  };
+}
+
+function plannedConflictResolution(review, primaryOracleSide, relatedOracleSide) {
+  const candidateActions = [
+    "approve_as_current",
+    "quarantine",
+    "merge_supersede",
+  ];
+  const candidates = candidateActions
+    .filter((action) => action !== "merge_supersede" || review.relatedKnowledgeId)
+    .map((action) => {
+      const body = resolutionBodyForAction(review, action);
+      const score = scoreResolutionEvent({
+        reviewId: review.id,
+        primaryKnowledgeId: review.primaryKnowledgeId,
+        relatedKnowledgeId: review.relatedKnowledgeId,
+        primaryOracleSide,
+        relatedOracleSide,
+        action: body.action,
+        survivorKnowledgeId: body.survivorKnowledgeId ?? null,
+      });
+      return { body, score };
+    });
+  const scoreableCorrect = candidates.find((candidate) => candidate.score.resolutionScoreable && candidate.score.resolutionCorrect);
+  if (scoreableCorrect) {
+    return {
+      body: scoreableCorrect.body,
+      score: scoreableCorrect.score,
+      postQuarantineRelated: scoreableCorrect.body.action === "approve_as_current" && sideShouldBeRemoved(relatedOracleSide),
+      planReason: "scoreable_oracle_expected_winner",
+    };
+  }
+
+  const primaryRetained = sideShouldBeRetained(primaryOracleSide);
+  const relatedRetained = sideShouldBeRetained(relatedOracleSide);
+  const primaryRemoved = sideShouldBeRemoved(primaryOracleSide);
+  const relatedRemoved = sideShouldBeRemoved(relatedOracleSide);
+  let body = null;
+  let postQuarantineRelated = false;
+  let planReason = "fallback_conservative_quarantine";
+  if (primaryRetained && !relatedRetained) {
+    body = resolutionBodyForAction(review, "approve_as_current");
+    postQuarantineRelated = relatedRemoved;
+    planReason = "expected_disposition_retain_primary";
+  } else if (relatedRetained && !primaryRetained) {
+    body = resolutionBodyForAction(review, "quarantine");
+    planReason = "expected_disposition_retain_related";
+  } else if (primaryRemoved && relatedRemoved) {
+    body = resolutionBodyForAction(review, "quarantine");
+    postQuarantineRelated = Boolean(review.relatedKnowledgeId);
+    planReason = "expected_disposition_remove_both_nonfinal_sides";
+  } else {
+    const action = primaryOracleSide && relatedOracleSide && primaryOracleSide === relatedOracleSide
+      ? "merge_supersede"
+      : "quarantine";
+    body = resolutionBodyForAction(review, action);
+  }
+
+  const score = scoreResolutionEvent({
+    reviewId: review.id,
+    primaryKnowledgeId: review.primaryKnowledgeId,
+    relatedKnowledgeId: review.relatedKnowledgeId,
+    primaryOracleSide,
+    relatedOracleSide,
+    action: body.action,
+    survivorKnowledgeId: body.survivorKnowledgeId ?? null,
+  });
+  return { body, score, postQuarantineRelated, planReason };
+}
+
 async function resolveConflictReviews(baseUrl, projectId, state, options = {}) {
   if (state.resolvedConflictReviews >= resolveConflictReviewsTarget) return 0;
   const maxResolutions = Number.isFinite(options.maxResolutions)
@@ -983,33 +1083,28 @@ async function resolveConflictReviews(baseUrl, projectId, state, options = {}) {
     }
     const primaryOracleSide = inferOracleSideFromValue(review.primaryKnowledgeId);
     const relatedOracleSide = inferOracleSideFromValue(review.relatedKnowledgeId);
-    const isSameSideDuplicate = primaryOracleSide && relatedOracleSide && primaryOracleSide === relatedOracleSide;
-    const action = isSameSideDuplicate
-      ? "merge_supersede"
-      : state.resolvedConflictReviews % 2 === 0 ? "quarantine" : "merge_supersede";
-    const body = action === "merge_supersede" && review.relatedKnowledgeId
-      ? {
-          action,
-          survivorKnowledgeId: review.relatedKnowledgeId,
-          rationale: `Health Signal validation human proxy via ${decisionVia}: resolve conflict by preserving related item as survivor after recording contradiction.`,
-        }
-      : {
-          action: "quarantine",
-          rationale: `Health Signal validation human proxy via ${decisionVia}: quarantine weaker conflicting item to verify conflict convergence.`,
-        };
-    const resolutionScore = scoreResolutionEvent({
-      reviewId: review.id,
-      primaryKnowledgeId: review.primaryKnowledgeId,
-      relatedKnowledgeId: review.relatedKnowledgeId,
-      primaryOracleSide,
-      relatedOracleSide,
-      action: body.action,
-      survivorKnowledgeId: body.survivorKnowledgeId ?? null,
-    });
+    const resolutionPlan = plannedConflictResolution(review, primaryOracleSide, relatedOracleSide);
+    const body = resolutionPlan.body;
+    const resolutionScore = resolutionPlan.score;
     const resolved = await requestJson(baseUrl, `/api/knowledge-reviews/${review.id}/resolve`, {
       method: "POST",
       body,
     });
+    if (resolutionPlan.postQuarantineRelated && review.relatedKnowledgeId) {
+      await requestJson(baseUrl, `/api/knowledge/${review.relatedKnowledgeId}/quarantine`, {
+        method: "POST",
+        body: {
+          rationale: `Health Signal validation human proxy via ${decisionVia}: quarantine related non-final oracle side after retaining the primary winner.`,
+        },
+      });
+      event("knowledge_review_related_quarantined", {
+        reviewId: review.id,
+        relatedKnowledgeId: review.relatedKnowledgeId,
+        relatedOracleSide,
+        planReason: resolutionPlan.planReason,
+        via: decisionVia,
+      });
+    }
     state.resolvedConflictReviews += 1;
     resolvedThisCall += 1;
     event("knowledge_review_resolved", {
@@ -1024,6 +1119,8 @@ async function resolveConflictReviews(baseUrl, projectId, state, options = {}) {
       ...resolutionScore,
       status: resolved.status,
       via: decisionVia,
+      planReason: resolutionPlan.planReason,
+      postQuarantineRelated: Boolean(resolutionPlan.postQuarantineRelated),
     });
   }
   return resolvedThisCall;

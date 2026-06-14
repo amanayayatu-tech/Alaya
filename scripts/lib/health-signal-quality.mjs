@@ -60,6 +60,10 @@ const RESOLUTION_TIER_LABELS = Object.freeze({
 export const RESOLUTION_SCOREABLE_COVERAGE_THRESHOLD = 0.6;
 export const CALIBRATION_SCOREABLE_COVERAGE_THRESHOLD = 0.6;
 export const FAITHFULNESS_SCOREABLE_COVERAGE_THRESHOLD = 0.6;
+export const LATENCY_SLO_THRESHOLDS_MS = Object.freeze({
+  knowledge_retrieval: 2000,
+  scheduler_tick: 30000,
+});
 
 export function oracleMetadataForSide(side) {
   const normalized = String(side ?? "").toLowerCase();
@@ -556,7 +560,7 @@ function unorderedResolutionPairType(primarySide, relatedSide) {
   return [primarySide ?? "unknown", relatedSide ?? "unknown"].sort().join("|");
 }
 
-function expectedWinnerSide(leftSide, rightSide) {
+function expectedWinnerSide(leftSide, rightSide, { dedupeMode = "exact" } = {}) {
   const leftTier = resolutionTier(leftSide);
   const rightTier = resolutionTier(rightSide);
   if (!leftTier || !rightTier) return null;
@@ -564,9 +568,12 @@ function expectedWinnerSide(leftSide, rightSide) {
   if (leftSide === rightSide) {
     return {
       winner: leftSide,
-      rule: `duplicate_${leftSide}_merge_supersede`,
+      rule: dedupeMode === "exact" ? `duplicate_${leftSide}_merge_supersede` : `duplicate_${leftSide}_${dedupeMode}_fallback_merge_supersede`,
       duplicate: true,
-      rationale: "同侧 pair 是重复项而非真实业务冲突；期望通过 merge_supersede 去重，quarantine 同侧项会丢失有效证据。",
+      dedupeMode,
+      rationale: dedupeMode === "exact"
+        ? "同侧 pair 是重复项而非真实业务冲突；期望通过 merge_supersede 去重，quarantine 同侧项会丢失有效证据。"
+        : `${dedupeMode} dedupe mode is reserved as a v2 interface; current harness scoring falls back to exact same-side matching without external dependencies.`,
     };
   }
 
@@ -629,10 +636,11 @@ function actualWinnerSide(event, primarySide, relatedSide) {
   return null;
 }
 
-export function scoreResolutionEvent(event) {
+export function scoreResolutionEvent(event, options = {}) {
+  const dedupeMode = options.dedupeMode ?? "exact";
   const primarySide = inferOracleSideFromValue(event.primaryOracleSide ?? event.primarySide ?? event.primaryKnowledgeId);
   const relatedSide = inferOracleSideFromValue(event.relatedOracleSide ?? event.relatedSide ?? event.relatedKnowledgeId);
-  const expected = expectedWinnerSide(primarySide, relatedSide);
+  const expected = expectedWinnerSide(primarySide, relatedSide, { dedupeMode });
   const actual = actualWinnerSide(event, primarySide, relatedSide);
   const action = String(event.action ?? "");
   const scoreable = Boolean(expected && (expected.duplicate || actual));
@@ -651,6 +659,7 @@ export function scoreResolutionEvent(event) {
     relatedResolutionTier: relatedSide ? RESOLUTION_TIER_LABELS[resolutionTier(relatedSide)] ?? null : null,
     expectedDecision: EXPECTED_HEALTH_SIGNAL_DECISION,
     expectedDisposition: primarySide ? oracleMetadataForSide(primarySide)?.expectedDisposition ?? null : null,
+    dedupeMode,
     scoreableResolutionRule: expected?.rule ?? null,
     scoreableResolutionRationale: expected?.rationale ?? null,
     resolutionUnscoredReason: expected ? null : unscoredResolutionReason(primarySide, relatedSide),
@@ -672,12 +681,13 @@ function countBy(items, keyFn) {
   return Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])));
 }
 
-export function scoreResolutionAccuracy(events = []) {
+export function scoreResolutionAccuracy(events = [], options = {}) {
+  const dedupeMode = options.dedupeMode ?? "exact";
   const resolutionEvents = events.filter((event) => event?.eventType === "knowledge_review_resolved");
   const scored = [];
   const unscored = [];
   for (const event of resolutionEvents) {
-    const result = scoreResolutionEvent(event);
+    const result = scoreResolutionEvent(event, { dedupeMode });
     if (result.resolutionScoreable) scored.push(result);
     else unscored.push(result);
   }
@@ -701,6 +711,7 @@ export function scoreResolutionAccuracy(events = []) {
     scoreableCoverage,
     scoreableCoverageThreshold: RESOLUTION_SCOREABLE_COVERAGE_THRESHOLD,
     blockingEligible: scored.length > 0 && !lowCoverage,
+    dedupeMode,
     pairTypeCounts: countBy([...scored, ...unscored], (item) => item.resolutionUnorderedPairType),
     scoredPairTypeCounts: countBy(scored, (item) => item.resolutionUnorderedPairType),
     unscoredPairTypeCounts: countBy(unscored, (item) => item.resolutionUnorderedPairType),
@@ -773,7 +784,43 @@ function latencyStats(values) {
   };
 }
 
-export function latencyAndEfficiencyMetrics({ events = [], samples = [], llmCalls = [] } = {}) {
+function latencySlo(apiRequestBySegment, { enforceLatencySlo = false } = {}) {
+  const segments = Object.entries(LATENCY_SLO_THRESHOLDS_MS).map(([segment, p95ThresholdMs]) => {
+    const stats = apiRequestBySegment[segment] ?? latencyStats([]);
+    const p95Ms = stats.p95Ms;
+    let status = "unavailable";
+    if (p95Ms != null) {
+      if (p95Ms < p95ThresholdMs) status = "pass";
+      else if (p95Ms < p95ThresholdMs * 1.25) status = "warn";
+      else status = "fail";
+    }
+    return {
+      segment,
+      sampleSize: stats.sampleSize,
+      p95Ms,
+      p95ThresholdMs,
+      status,
+    };
+  });
+  const measured = segments.filter((segment) => segment.status !== "unavailable");
+  let sloStatus = "unavailable";
+  if (measured.length > 0) {
+    if (measured.some((segment) => segment.status === "fail")) sloStatus = "fail";
+    else if (measured.some((segment) => segment.status === "warn")) sloStatus = "warn";
+    else sloStatus = "pass";
+  }
+  return {
+    sloStatus,
+    sloBlocking: Boolean(enforceLatencySlo && sloStatus === "fail"),
+    enforceLatencySlo: Boolean(enforceLatencySlo),
+    thresholdsMs: LATENCY_SLO_THRESHOLDS_MS,
+    includedSegments: segments,
+    excludedSegments: ["harness_polling_api_request"],
+    measurementNote: "harness_polling_api_request is excluded: harness polling is not a production SLO; knowledge_retrieval and scheduler_tick are SLO-observed segments.",
+  };
+}
+
+export function latencyAndEfficiencyMetrics({ events = [], samples = [], llmCalls = [], enforceLatencySlo = false } = {}) {
   const apiTimings = events
     .filter((event) => event.eventType === "api_request_timing")
     .map((event) => Number(event.durationMs));
@@ -799,10 +846,12 @@ export function latencyAndEfficiencyMetrics({ events = [], samples = [], llmCall
   const dbCost = llmCalls.reduce((sum, call) => sum + (Number(field(call, "estimatedCost", "estimated_cost")) || 0), 0);
   const sampleCost = Number(last.llmEstimatedCostUsd);
   const totalCostUsd = +(dbCost || (Number.isFinite(sampleCost) ? sampleCost : 0)).toFixed(6);
+  const apiRequestBySegment = Object.fromEntries(Object.entries(apiTimingsBySegment).map(([segment, values]) => [segment, latencyStats(values)]));
   return {
     measurementNote: "API request latency is runner/harness-observed latency under validation polling load, not an isolated production retrieval SLO.",
     apiRequest: latencyStats(apiTimings),
-    apiRequestBySegment: Object.fromEntries(Object.entries(apiTimingsBySegment).map(([segment, values]) => [segment, latencyStats(values)])),
+    apiRequestBySegment,
+    slo: latencySlo(apiRequestBySegment, { enforceLatencySlo }),
     llmOverall: latencyStats(llmLatencies),
     llmAgentP95Ms: Object.fromEntries(Object.entries(byAgent).map(([agent, values]) => [agent, percentile(values, 95)])),
     totals: {
@@ -823,18 +872,27 @@ export function latencyAndEfficiencyMetrics({ events = [], samples = [], llmCall
   };
 }
 
-export function summarizeHealthSignalQuality({ knowledgeItems = [], events = [], samples = [], llmCalls = [], evidenceCorpus = [], faithfulnessJudge = "lexical", passKAggregate = null } = {}) {
+export function summarizeHealthSignalQuality({ knowledgeItems = [], events = [], samples = [], llmCalls = [], evidenceCorpus = [], faithfulnessJudge = "lexical", passKAggregate = null, dedupeMode = "exact", enforceLatencySlo = false } = {}) {
   const rssSlope = rssSlopeMbPerHour(samples);
   return {
     generatedAt: new Date().toISOString(),
     expectedDecision: EXPECTED_HEALTH_SIGNAL_DECISION,
     decisionTsr: evaluateDecisionTsr(knowledgeItems, { passKAggregate }),
-    resolutionAccuracy: scoreResolutionAccuracy(events),
+    resolutionAccuracy: scoreResolutionAccuracy(events, { dedupeMode }),
     confidenceCalibration: evaluateConfidenceCalibration(knowledgeItems),
     faithfulness: evaluateFaithfulness({ knowledgeItems, events, evidenceCorpus, judgeMode: faithfulnessJudge }),
-    latencyAndEfficiency: latencyAndEfficiencyMetrics({ events, samples, llmCalls }),
+    latencyAndEfficiency: latencyAndEfficiencyMetrics({ events, samples, llmCalls, enforceLatencySlo }),
     rssSlopeMbPerHour: rssSlope,
     rssSlopeThresholdMbPerHour: 50,
     rssSlopeUnder50MbPerHour: rssSlope == null ? null : rssSlope < 50,
+    notes: [
+      {
+        type: "benchmark_mapping",
+        decisionTsr: "task-success-rate style single-scenario oracle check, similar to tau-bench pass@1/pass^k reliability framing",
+        resolutionAccuracy: "conflict resolution / implicit inference accuracy over deterministic oracle pair rules",
+        faithfulness: "claim-level lexical NLI proxy for RAGAS/TruLens-style faithfulness; LLM judge interface is reserved but off by default",
+        confidenceCalibration: "expected calibration error / reliability table over confidence_score or extracted confidence text",
+      },
+    ],
   };
 }
