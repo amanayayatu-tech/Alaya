@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import Database from "better-sqlite3";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -73,6 +74,56 @@ function analyze(dir) {
   });
 }
 
+function createQualityDb(dir, knowledgeRows = []) {
+  const db = new Database(join(dir, "health-signal.db"));
+  db.exec(`
+    CREATE TABLE knowledge_items (
+      id TEXT,
+      title TEXT,
+      content TEXT,
+      notes TEXT,
+      source_ref TEXT,
+      semantic_key TEXT,
+      tags TEXT,
+      status TEXT,
+      superseded_by TEXT,
+      confidence_score REAL
+    );
+    CREATE TABLE event_log (
+      op TEXT,
+      table_name TEXT,
+      before TEXT,
+      after TEXT,
+      actor TEXT
+    );
+    CREATE TABLE llm_calls (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent TEXT,
+      latency_ms INTEGER,
+      input_token_count INTEGER,
+      output_token_count INTEGER,
+      token_count INTEGER,
+      estimated_cost REAL
+    );
+  `);
+  const insertKnowledge = db.prepare(`
+    INSERT INTO knowledge_items (id,title,content,notes,source_ref,semantic_key,tags,status,superseded_by,confidence_score)
+    VALUES (@id,@title,@content,@notes,@source_ref,@semantic_key,@tags,@status,@superseded_by,@confidence_score)
+  `);
+  for (const row of knowledgeRows) {
+    insertKnowledge.run({
+      notes: "",
+      source_ref: "",
+      semantic_key: "",
+      tags: "[]",
+      superseded_by: "",
+      confidence_score: 0.8,
+      ...row,
+    });
+  }
+  db.close();
+}
+
 test("shadow analyzer passes complete fixture and marks zero early backlog as N/A", () => {
   const dir = makeLogDir("shadow-pass");
   const result = analyze(dir);
@@ -105,6 +156,152 @@ test("shadow analyzer fails incomplete/crashed fixture", () => {
   assert.match(report, /Summary: FAIL/);
   assert.match(report, /runnerCrashedZero \| FAIL/);
   assert.match(report, /durationAtLeast24h \| FAIL/);
+});
+
+test("shadow analyzer fails when decisionTsr finds active unsuperseded ppg_only knowledge", () => {
+  const dir = makeLogDir("shadow-quality-decision-red");
+  createQualityDb(dir, [
+    {
+      id: "kb_gate_sample_0001_ppg_support",
+      title: "PPG 优先证据：成本与续航匹配",
+      content: "当前最优选型决策：优先 PPG，置信度 0.64。",
+      status: "active",
+    },
+    {
+      id: "kb_gate_sample_0005_hybrid_support",
+      title: "混合方案证据：PPG 连续 + ECG 复核",
+      content: "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。",
+      status: "active",
+    },
+  ]);
+
+  const result = analyze(dir);
+  assert.equal(result.status, 1);
+  const report = readFileSync(join(dir, "SHADOW_FINDINGS.md"), "utf8");
+  const quality = JSON.parse(readFileSync(join(dir, "quality_summary.json"), "utf8"));
+  assert.match(report, /decisionTsr \| FAIL/);
+  assert.equal(quality.decisionTsr.status, "fail");
+  assert.equal(quality.decisionTsr.disallowedFinalCount, 1);
+});
+
+test("shadow analyzer fails when resolutionAccuracy preserves the weaker side", () => {
+  const dir = makeLogDir("shadow-quality-resolution-red");
+  writeFileSync(join(dir, "events.jsonl"), [
+    JSON.stringify({
+      eventType: "knowledge_review_resolved",
+      reviewId: "kr_bad_ppg",
+      primaryKnowledgeId: "kb_sample_0003_ppg_risk",
+      relatedKnowledgeId: "kb_sample_0001_ppg_support",
+      action: "merge_supersede",
+      survivorKnowledgeId: "kb_sample_0001_ppg_support",
+    }),
+  ].join("\n") + "\n");
+
+  const result = analyze(dir);
+  assert.equal(result.status, 1);
+  const report = readFileSync(join(dir, "SHADOW_FINDINGS.md"), "utf8");
+  const quality = JSON.parse(readFileSync(join(dir, "quality_summary.json"), "utf8"));
+  assert.match(report, /resolutionAccuracy \| FAIL/);
+  assert.equal(quality.resolutionAccuracy.status, "fail");
+  assert.equal(quality.resolutionAccuracy.scored, 1);
+  assert.equal(quality.resolutionAccuracy.correct, 0);
+});
+
+test("shadow analyzer marks resolutionAccuracy low coverage without failing the run", () => {
+  const dir = makeLogDir("shadow-quality-resolution-low-coverage");
+  writeFileSync(join(dir, "events.jsonl"), [
+    JSON.stringify({
+      eventType: "knowledge_review_resolved",
+      reviewId: "kr_good",
+      primaryKnowledgeId: "kb_sample_0001_ppg_support",
+      relatedKnowledgeId: "kb_sample_0003_ppg_risk",
+      action: "merge_supersede",
+      survivorKnowledgeId: "kb_sample_0003_ppg_risk",
+    }),
+    JSON.stringify({
+      eventType: "knowledge_review_resolved",
+      reviewId: "kr_unknown_1",
+      primaryKnowledgeId: "kb_generic_a",
+      relatedKnowledgeId: "kb_generic_b",
+      action: "quarantine",
+    }),
+  ].join("\n") + "\n");
+
+  const result = analyze(dir);
+  assert.equal(result.status, 0, result.stderr);
+  const report = readFileSync(join(dir, "SHADOW_FINDINGS.md"), "utf8");
+  const quality = JSON.parse(readFileSync(join(dir, "quality_summary.json"), "utf8"));
+  assert.match(report, /resolutionAccuracy \| LOW_COVERAGE/);
+  assert.equal(quality.resolutionAccuracy.status, "low_coverage");
+  assert.equal(quality.resolutionAccuracy.blockingEligible, false);
+});
+
+test("shadow analyzer marks calibration and faithfulness low coverage without failing the run", () => {
+  const dir = makeLogDir("shadow-quality-conflict-quality-low-coverage");
+  writeFileSync(join(dir, "events.jsonl"), [
+    JSON.stringify({
+      eventType: "contradiction_feedback_injected",
+      evidenceText: [
+        "混合方案证据：PPG 连续 + ECG 复核。",
+        "hybrid_decision_confidence >= 0.81。",
+        "明确冲突：该结论与混合方案反证互相矛盾。",
+        "当前最优选型决策：PPG+ECG 分层方案，置信度 0.8。",
+      ].join("\n"),
+    }),
+  ].join("\n") + "\n");
+  createQualityDb(dir, [
+    {
+      id: "kb_proj_runtime_hybrid_support_001",
+      title: "运行知识: 混合方案",
+      source_ref: "sample_0005_hybrid_support",
+      content: [
+        "混合方案证据：PPG 连续 + ECG 复核。",
+        "hybrid_decision_confidence >= 0.81。",
+        "明确冲突：该结论与混合方案反证互相矛盾。",
+        "当前最优选型决策：PPG+ECG 分层方案，置信度 0.8。",
+      ].join("\n"),
+      status: "active",
+      confidence_score: 0.8,
+    },
+    {
+      id: "kb_generic_gray_001",
+      title: "通用灰区知识",
+      content: "普通运行备注，不属于 Health Signal 冲突评估对象。",
+      status: "active",
+      confidence_score: 0.5,
+    },
+    {
+      id: "kb_generic_gray_002",
+      title: "通用灰区知识",
+      content: "普通运行备注，不属于 Health Signal 冲突评估对象。",
+      status: "active",
+      confidence_score: 0.5,
+    },
+    {
+      id: "kb_generic_gray_003",
+      title: "通用灰区知识",
+      content: "普通运行备注，不属于 Health Signal 冲突评估对象。",
+      status: "active",
+      confidence_score: 0.5,
+    },
+  ]);
+
+  const result = analyze(dir);
+  assert.equal(result.status, 0, result.stderr);
+  const report = readFileSync(join(dir, "SHADOW_FINDINGS.md"), "utf8");
+  const quality = JSON.parse(readFileSync(join(dir, "quality_summary.json"), "utf8"));
+  assert.match(report, /Summary: PASS/);
+  assert.match(report, /confidenceCalibration \| LOW_COVERAGE/);
+  assert.match(report, /faithfulness \| LOW_COVERAGE/);
+  assert.match(report, /eligible=1 denominator=1/);
+  assert.equal(quality.confidenceCalibration.status, "low_coverage");
+  assert.equal(quality.confidenceCalibration.blockingEligible, false);
+  assert.equal(quality.confidenceCalibration.eligible, 1);
+  assert.equal(quality.confidenceCalibration.denominator, 1);
+  assert.equal(quality.faithfulness.status, "low_coverage");
+  assert.equal(quality.faithfulness.blockingEligible, false);
+  assert.equal(quality.faithfulness.eligible, 1);
+  assert.equal(quality.faithfulness.denominator, 1);
 });
 
 test("shadow analyzer reconstructs duration and A-class assessment from raw logs when summary.json is missing", () => {

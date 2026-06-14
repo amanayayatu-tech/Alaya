@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { summarizeHealthSignalQuality } from "./lib/health-signal-quality.mjs";
 
 function readJson(path, fallback = null) {
   try {
@@ -23,6 +24,26 @@ function readJsonl(path) {
         return { eventType: "unparseable_jsonl", raw: line };
       }
     });
+}
+
+function parseArgs(argv) {
+  const out = { _: [] };
+  for (const arg of argv) {
+    if (!arg.startsWith("--")) {
+      out._.push(arg);
+      continue;
+    }
+    const eq = arg.indexOf("=");
+    if (eq === -1) out[arg.slice(2)] = "true";
+    else out[arg.slice(2, eq)] = arg.slice(eq + 1);
+  }
+  return out;
+}
+
+function boolArg(args, name, fallback = false) {
+  const raw = args[name];
+  if (raw == null) return fallback;
+  return ["1", "true", "yes", "on"].includes(String(raw).toLowerCase());
 }
 
 function readCsv(path) {
@@ -58,6 +79,14 @@ function na(observed = "") {
   return { status: "N/A", observed };
 }
 
+function info(observed = "") {
+  return { status: "INFO", observed };
+}
+
+function lowCoverage(observed = "") {
+  return { status: "LOW_COVERAGE", observed };
+}
+
 function countDb(dbPath, sql) {
   if (!dbPath || !existsSync(dbPath)) return null;
   const Database = globalThis.__betterSqlite3;
@@ -68,6 +97,21 @@ function countDb(dbPath, sql) {
     return Number(row?.count ?? 0);
   } finally {
     db.close();
+  }
+}
+
+function allDb(dbPath, sql) {
+  if (!dbPath || !existsSync(dbPath)) return [];
+  const Database = globalThis.__betterSqlite3;
+  if (!Database) return [];
+  let db;
+  try {
+    db = new Database(dbPath, { readonly: true });
+    return db.prepare(sql).all();
+  } catch {
+    return [];
+  } finally {
+    db?.close();
   }
 }
 
@@ -122,7 +166,8 @@ function reconstructAssessment(samples, events) {
   const totalClosed = Number(last.cyclesClosed) || 0;
   const earlyGateAvg = avg(samples.slice(0, Math.max(1, Math.floor(samples.length / 4))).map((s) => Number(s.pendingGates) || 0));
   const lateGateAvg = avg(samples.slice(Math.floor(samples.length / 2)).map((s) => Number(s.pendingGates) || 0));
-  const humanGateDrop = earlyGateAvg > 0 ? +((earlyGateAvg - lateGateAvg) / earlyGateAvg).toFixed(3) : null;
+  const humanGateDropEligible = earlyGateAvg >= 1;
+  const humanGateDrop = humanGateDropEligible ? +((earlyGateAvg - lateGateAvg) / earlyGateAvg).toFixed(3) : null;
   const minActive = Math.min(...samples.map((s) => Number(s.activeCount)).filter(Number.isFinite));
   const tokenEvents = events
     .filter((eventItem) => eventItem.eventType === "metrics_sample" && eventItem.llmTokenSourceStats)
@@ -141,7 +186,7 @@ function reconstructAssessment(samples, events) {
       semanticContradictionBypassZero: semanticBypassCount === 0,
       conflictAtLeast5: maxConflict >= 5,
       conflictResolvedAtLeast3: maxResolved >= 3,
-      humanGateDropAtLeast30pct: humanGateDrop != null ? humanGateDrop >= 0.3 : false,
+      humanGateDropAtLeast30pct: humanGateDropEligible ? humanGateDrop >= 0.3 : null,
       stallGuardUnder5pct: totalClosed > 0 ? maxStall / totalClosed < 0.05 : false,
     },
     observed: {
@@ -153,6 +198,8 @@ function reconstructAssessment(samples, events) {
       maxResolvedConflictReviews: maxResolved,
       earlyPendingGateAverage: earlyGateAvg,
       latePendingGateAverage: lateGateAvg,
+      humanGateDropEligible,
+      humanGateDropEligibilityThreshold: "earlyPendingGateAverage >= 1",
       humanGatePendingDropRatio: humanGateDrop,
       maxStallGuardCount: maxStall,
       cyclesClosed: totalClosed,
@@ -195,8 +242,25 @@ function renderTable(rows) {
   ].join("\n");
 }
 
+function topCounts(counts, limit = 5) {
+  const entries = Object.entries(counts ?? {})
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit);
+  return entries.length ? entries.map(([key, value]) => `${key}:${value}`).join(", ") : "none";
+}
+
+function formatExcludedAsNonConflict(summary) {
+  const count = summary?.count ?? 0;
+  if (count === 0) return "count=0";
+  const examples = Array.isArray(summary?.exampleIds) && summary.exampleIds.length > 0
+    ? summary.exampleIds.slice(0, 8).join(",")
+    : "none";
+  return `count=${count} reasons=${topCounts(summary?.reasonCounts, 8)} examples=${examples}`;
+}
+
 async function main() {
-  const logDir = resolve(process.argv[2] || "");
+  const args = parseArgs(process.argv.slice(2));
+  const logDir = resolve(args._[0] || args["log-dir"] || "");
   assert.ok(logDir && existsSync(logDir), `log directory not found: ${logDir}`);
   try {
     globalThis.__betterSqlite3 = (await import("better-sqlite3")).default;
@@ -290,6 +354,43 @@ async function main() {
   const finalSnapshotGray = metricValue(finalSnapshot, "alaya_gray_active_count");
   const finalDbErrors = countDb(dbPath, "SELECT COUNT(*) AS count FROM event_log WHERE op='error' OR op='sync_error'");
   const finalSnapshotErrors = metricValue(finalSnapshot, "alaya_errors_total");
+  const knowledgeRows = allDb(dbPath, `
+    SELECT id, title, content, notes, source_ref, semantic_key, tags, status, superseded_by, confidence_score
+    FROM knowledge_items
+    ORDER BY rowid ASC
+  `);
+  const llmCallRows = allDb(dbPath, `
+    SELECT agent, latency_ms, input_token_count, output_token_count, token_count, estimated_cost
+    FROM llm_calls
+    ORDER BY id ASC
+  `);
+  const qualitySummary = summarizeHealthSignalQuality({
+    knowledgeItems: knowledgeRows,
+    events,
+    samples,
+    llmCalls: llmCallRows,
+    faithfulnessJudge: args["faithfulness-judge"] || "lexical",
+    dedupeMode: args["dedupe-mode"] || "exact",
+    enforceLatencySlo: boolArg(args, "enforce-latency-slo", false),
+  });
+  const qualityPath = join(logDir, "quality_summary.json");
+  writeFileSync(qualityPath, JSON.stringify({
+    ...qualitySummary,
+    sources: {
+      knowledge: knowledgeRows.length > 0 ? "health-signal.db:knowledge_items" : "unavailable",
+      llmCalls: llmCallRows.length > 0 ? "health-signal.db:llm_calls" : "unavailable",
+      resolutionEvents: "events.jsonl:knowledge_review_resolved",
+      apiRequestLatency: "events.jsonl:api_request_timing",
+      rss: "monitor_log.csv:appRssMb",
+    },
+    notes: [
+      ...(Array.isArray(qualitySummary.notes) ? qualitySummary.notes : []),
+      "decisionTsr is a single-scenario pass@1 oracle-state check, not an independent reasoning benchmark.",
+      "pass^k multi-seed reliability is intentionally deferred to v2.",
+      "API latency is runner/harness-observed polling and control request latency under validation load, not an isolated production retrieval SLO.",
+      "Resolution accuracy is blocking only when scoreable coverage meets the configured threshold.",
+    ],
+  }, null, 2));
   const meaningBudgetRows = snapshotJson.map((row) => row.opsMetrics?.meaningGateBudget).filter(Boolean);
   const overBudgetRows = meaningBudgetRows.filter((row) => row.overBudget);
 
@@ -300,7 +401,7 @@ async function main() {
     ["semanticContradictionBypassZero", pass(Boolean(finalCriteria.semanticContradictionBypassZero), `count=${observed.semanticContradictionBypassCount ?? "n/a"}`)],
     ["conflictAtLeast5", pass(Boolean(finalCriteria.conflictAtLeast5), `max=${observed.maxConflictCount ?? "n/a"}`)],
     ["conflictResolvedAtLeast3", pass(Boolean(finalCriteria.conflictResolvedAtLeast3), `resolved=${observed.maxResolvedConflictReviews ?? "n/a"}`)],
-    ["humanGateDropAtLeast30pct", earlyBacklog === 0 ? na("early backlog=0 per Phase 2/3/4 precedent") : pass(Boolean(finalCriteria.humanGateDropAtLeast30pct), `drop=${observed.humanGatePendingDropRatio ?? "n/a"}`)],
+    ["humanGateDropAtLeast30pct", earlyBacklog < 1 ? na("early pending average <1; backlog too small for drop-rate judgment") : pass(Boolean(finalCriteria.humanGateDropAtLeast30pct), `drop=${observed.humanGatePendingDropRatio ?? "n/a"}`)],
     ["stallGuardUnder5pct", pass(Boolean(finalCriteria.stallGuardUnder5pct), `max=${observed.maxStallGuardCount ?? "n/a"} cycles=${observed.cyclesClosed ?? "n/a"}`)],
     ["sampleFailedZero", pass(sampleFailed.length === 0, `sample_failed=${sampleFailed.length}`)],
   ];
@@ -323,7 +424,40 @@ async function main() {
     ["phase3ProposalCountersPresent", pass(snapshotTexts.some((text) => text.includes("alaya_distiller_proposals_total")), "proposal counter exported")],
   ];
 
-  const allRows = [...aClass, ...shadowChecks];
+  const decision = qualitySummary.decisionTsr;
+  const resolution = qualitySummary.resolutionAccuracy;
+  const calibration = qualitySummary.confidenceCalibration;
+  const faithfulness = qualitySummary.faithfulness;
+  const latency = qualitySummary.latencyAndEfficiency;
+  const rssSlope = qualitySummary.rssSlopeMbPerHour;
+  const qualityRows = [
+    ["decisionTsr", decision.status === "insufficient_evidence"
+      ? na("no active/strong DB knowledge available; measures preset oracle card state, pass@1 only")
+      : pass(decision.passed, `expected=${decision.expectedDecision} hybrid=${decision.hybridLayeredCount} disallowed=${decision.disallowedFinalCount} eligible=${decision.eligibleKnowledgeCount}; pass@1 single scenario`)],
+    ["resolutionAccuracy", resolution.status === "insufficient_evidence"
+      ? na(`scored=${resolution.scored} unscored=${resolution.unscored} unscoredTop=${topCounts(resolution.unscoredPairTypeCounts)}`)
+      : resolution.status === "low_coverage"
+        ? lowCoverage(`accuracy=${resolution.accuracy} scored=${resolution.scored} unscored=${resolution.unscored} coverage=${resolution.scoreableCoverage} threshold=${resolution.scoreableCoverageThreshold} unscoredTop=${topCounts(resolution.unscoredPairTypeCounts)}`)
+        : pass(resolution.passed, `accuracy=${resolution.accuracy} scored=${resolution.scored} unscored=${resolution.unscored} coverage=${resolution.scoreableCoverage} unscoredTop=${topCounts(resolution.unscoredPairTypeCounts)}`)],
+    ["confidenceCalibration", calibration.status === "insufficient_evidence"
+      ? na(`ece=${calibration.ece ?? "n/a"} scored=${calibration.scored} unscored=${calibration.unscored} eligible=${calibration.eligible ?? "n/a"} denominator=${calibration.denominator ?? calibration.scoreableDenominator ?? "n/a"} excluded=${calibration.excludedAsNonConflict?.count ?? 0}`)
+      : calibration.status === "low_coverage"
+        ? lowCoverage(`ece=${calibration.ece ?? "n/a"} scored=${calibration.scored} unscored=${calibration.unscored} eligible=${calibration.eligible ?? "n/a"} denominator=${calibration.denominator ?? calibration.scoreableDenominator ?? "n/a"} minEligible=${calibration.minEligible ?? "n/a"} coverage=${calibration.scoreableCoverage} unscoredReasons=${topCounts(calibration.unscoredReasonCounts)} excluded=${calibration.excludedAsNonConflict?.count ?? 0}`)
+        : pass(calibration.status === "pass" || calibration.status === "warn", `status=${calibration.status} ece=${calibration.ece ?? "n/a"} scored=${calibration.scored} eligible=${calibration.eligible ?? "n/a"} denominator=${calibration.denominator ?? calibration.scoreableDenominator ?? "n/a"} coverage=${calibration.scoreableCoverage} buckets=${calibration.reliabilityTable.length} unscoredReasons=${topCounts(calibration.unscoredReasonCounts)} excluded=${calibration.excludedAsNonConflict?.count ?? 0}`)],
+    ["faithfulness", faithfulness.status === "unavailable" || faithfulness.status === "insufficient_evidence"
+      ? na(`faithfulness=${faithfulness.faithfulness ?? "n/a"} judge=${faithfulness.judgeMode} scored=${faithfulness.scored} scoreableKnowledge=${faithfulness.scoreableKnowledgeItems ?? "n/a"} eligible=${faithfulness.eligible ?? "n/a"} denominator=${faithfulness.denominator ?? faithfulness.scoreableDenominator ?? "n/a"} excluded=${faithfulness.excludedAsNonConflict?.count ?? 0}`)
+      : faithfulness.status === "low_coverage"
+        ? lowCoverage(`faithfulness=${faithfulness.faithfulness ?? "n/a"} scored=${faithfulness.scored} scoreableKnowledge=${faithfulness.scoreableKnowledgeItems ?? "n/a"} eligible=${faithfulness.eligible ?? "n/a"} denominator=${faithfulness.denominator ?? faithfulness.scoreableDenominator ?? "n/a"} minEligible=${faithfulness.minEligible ?? "n/a"} coverage=${faithfulness.scoreableCoverage} unsupported=${faithfulness.unsupported} indeterminateReasons=${topCounts(faithfulness.indeterminateReasonCounts ?? faithfulness.indeterminateReasons)} excluded=${faithfulness.excludedAsNonConflict?.count ?? 0}`)
+        : pass(faithfulness.status === "pass" || faithfulness.status === "warn", `status=${faithfulness.status} faithfulness=${faithfulness.faithfulness ?? "n/a"} hallucination=${faithfulness.hallucinationRate ?? "n/a"} scored=${faithfulness.scored} scoreableKnowledge=${faithfulness.scoreableKnowledgeItems ?? "n/a"} eligible=${faithfulness.eligible ?? "n/a"} denominator=${faithfulness.denominator ?? faithfulness.scoreableDenominator ?? "n/a"} coverage=${faithfulness.scoreableCoverage} unsupported=${faithfulness.unsupported} indeterminateReasons=${topCounts(faithfulness.indeterminateReasonCounts ?? faithfulness.indeterminateReasons)} excluded=${faithfulness.excludedAsNonConflict?.count ?? 0}`)],
+    ["latencyAndEfficiency", latency.slo?.sloBlocking
+      ? pass(false, `api_harness_p95=${latency.apiRequest.p95Ms ?? "n/a"}ms sloStatus=${latency.slo.sloStatus}; ${latency.slo.measurementNote}`)
+      : info(`api_harness_p95=${latency.apiRequest.p95Ms ?? "n/a"}ms llm_p95=${latency.llmOverall.p95Ms ?? "n/a"}ms costPerCycle=${latency.ratios.costPerClosedCycleUsd ?? "N/A"} tokensPerConflict=${latency.ratios.tokensPerResolvedConflict ?? "N/A"}; sloStatus=${latency.slo?.sloStatus ?? "n/a"} sloBlocking=${latency.slo?.sloBlocking ?? false}; harness polling/control, not production SLO`)],
+    ["rssSlopeUnder50MbPerHour", rssSlope == null
+      ? na("need at least two RSS samples")
+      : pass(qualitySummary.rssSlopeUnder50MbPerHour, `slope=${rssSlope} MB/h threshold<${qualitySummary.rssSlopeThresholdMbPerHour}`)],
+  ];
+
+  const allRows = [...aClass, ...shadowChecks, ...qualityRows];
   const failing = allRows.filter(([, result]) => result.status === "FAIL");
   const findingsPath = join(logDir, "SHADOW_FINDINGS.md");
   const report = [
@@ -342,6 +476,20 @@ async function main() {
     "## Shadow Checks",
     "",
     renderTable(shadowChecks),
+    "",
+    "## Quality Metrics",
+    "",
+    renderTable(qualityRows),
+    "",
+    "Notes: `decisionTsr` is a deterministic pass@1 check for the preset Health Signal oracle state, not proof of independent reasoning. `resolutionAccuracy` is blocking only when scoreable coverage is at or above its threshold; low coverage is reported separately to avoid a misleading 100% on a tiny scored subset. API latency is harness polling/control latency under runner load, not production retrieval SLO.",
+    "",
+    `Resolution pair distribution: scoredTop=${topCounts(resolution.scoredPairTypeCounts, 8)}; unscoredTop=${topCounts(resolution.unscoredPairTypeCounts, 8)}; unscoredReasons=${topCounts(resolution.unscoredReasonCounts, 8)}.`,
+    `Calibration unscored reasons: ${topCounts(calibration.unscoredReasonCounts, 8)}.`,
+    `Calibration excluded non-conflict: ${formatExcludedAsNonConflict(calibration.excludedAsNonConflict)}.`,
+    `Faithfulness indeterminate reasons: ${topCounts(faithfulness.indeterminateReasonCounts ?? faithfulness.indeterminateReasons, 8)}.`,
+    `Faithfulness excluded non-conflict: ${formatExcludedAsNonConflict(faithfulness.excludedAsNonConflict)}.`,
+    "",
+    `Quality summary: ${qualityPath}`,
     "",
     "## Snapshot / DB Cross-check",
     "",

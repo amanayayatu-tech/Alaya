@@ -29,6 +29,8 @@ import type { HumanGateItem, KnowledgeItem } from "@shared/schema";
 import { SCENARIO, scenarioForCycle, type ScenarioRound } from "./scenario";
 
 type LlmCaller = typeof callLlm;
+const DIRECTION_GATE_KNOWLEDGE_REFS_LIMIT = 12;
+const PLAN_CYCLE_ACTIVE_KNOWLEDGE_LIMIT = 50;
 
 // Deterministic explicit scenario. Missing future rounds must not reuse the last
 // template, otherwise the audit trail can look valid while semantic compounding stalls.
@@ -184,6 +186,17 @@ function activeKnowledge(projectId: string): KnowledgeItem[] {
   return storage.listKnowledge(projectId)
     .filter((k) => !k.supersededBy)
     .filter((k) => ["active", "strong"].includes(k.status));
+}
+
+function activeKnowledgeForPrompt(projectId: string): KnowledgeItem[] {
+  return activeKnowledge(projectId)
+    .sort((a, b) => {
+      if (a.status !== b.status) return a.status === "strong" ? -1 : b.status === "strong" ? 1 : 0;
+      if (a.confidenceScore !== b.confidenceScore) return b.confidenceScore - a.confidenceScore;
+      if ((a.createdByCycle ?? 0) !== (b.createdByCycle ?? 0)) return (b.createdByCycle ?? 0) - (a.createdByCycle ?? 0);
+      return a.id.localeCompare(b.id);
+    })
+    .slice(0, PLAN_CYCLE_ACTIVE_KNOWLEDGE_LIMIT);
 }
 
 // Convert core KnowledgeItem (tags: string[]) <-> DB KnowledgeItem (tags: json text)
@@ -381,7 +394,8 @@ function distillerDraftOutput(sc: ScenarioRound, claimError: number): Record<str
 function safeKnowledgeRefs(projectId: string, proposed: unknown, fallback: string[]): string[] {
   const allowed = new Set(activeKnowledge(projectId).map((k) => k.id));
   const refs = stringArray(proposed).filter((id) => allowed.has(id));
-  return refs.length > 0 || fallback.length === 0 ? refs : fallback;
+  const selected = refs.length > 0 || fallback.length === 0 ? refs : fallback;
+  return selected.slice(0, DIRECTION_GATE_KNOWLEDGE_REFS_LIMIT);
 }
 
 function scenarioKnowledgeQuery(sc: ScenarioRound, extra = ""): string {
@@ -760,7 +774,7 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
     reasoning = `第 ${sc.index} 轮:基于 onboarding seed 与上轮误差生成目标`;
   }
 
-  const usableKnowledge = activeKnowledge(projectId);
+  const usableKnowledge = activeKnowledgeForPrompt(projectId);
   const priorKnowledge = buildKnowledgeContext(
     scenarioKnowledgeQuery(sc, `${goal}\n${belief}\n${prediction}\n${action}`),
     projectId,
