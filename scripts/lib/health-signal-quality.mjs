@@ -59,6 +59,7 @@ const RESOLUTION_TIER_LABELS = Object.freeze({
 });
 export const RESOLUTION_SCOREABLE_COVERAGE_THRESHOLD = 0.6;
 export const CALIBRATION_SCOREABLE_COVERAGE_THRESHOLD = 0.6;
+export const FAITHFULNESS_SCOREABLE_COVERAGE_THRESHOLD = 0.6;
 
 export function oracleMetadataForSide(side) {
   const normalized = String(side ?? "").toLowerCase();
@@ -111,10 +112,20 @@ function normalizeSpace(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
+function normalizeLexical(value) {
+  return normalizeSpace(value)
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[“”"']/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function textForKnowledge(item) {
   return normalizeSpace([
     field(item, "id"),
     field(item, "title"),
+    field(item, "text"),
     field(item, "content"),
     field(item, "notes"),
     field(item, "sourceRef", "source_ref"),
@@ -312,6 +323,200 @@ export function evaluateConfidenceCalibration(knowledgeItems = [], options = {})
     unscoredReasonCounts: countBy(unscored, (item) => item.unscoredReason ?? "unknown"),
     scoredKnowledge: scored.slice(0, 20),
     unscoredExamples: unscored.slice(0, 20),
+  };
+}
+
+function evidenceCorpusFromEvents(events = []) {
+  return events
+    .filter((event) => event?.eventType === "contradiction_feedback_injected")
+    .flatMap((event) => [
+      field(event, "evidenceText", "text", "content", "body"),
+      field(event, "evidenceTitle", "title"),
+    ])
+    .filter((value) => String(value ?? "").trim());
+}
+
+function normalizeEvidenceCorpus({ evidenceCorpus = [], events = [] } = {}) {
+  const explicit = Array.isArray(evidenceCorpus) ? evidenceCorpus : [evidenceCorpus];
+  const source = explicit.some((item) => String(item ?? "").trim())
+    ? explicit
+    : evidenceCorpusFromEvents(events);
+  return source
+    .flatMap((item) => {
+      if (item == null) return [];
+      if (typeof item === "object") {
+        return [
+          field(item, "text", "content", "body"),
+          field(item, "title"),
+        ];
+      }
+      return [item];
+    })
+    .flatMap((text) => splitClaims(text))
+    .map((claim) => normalizeLexical(claim))
+    .filter(Boolean);
+}
+
+function splitClaims(text) {
+  return String(text ?? "")
+    .split(/[\n。；;!?！？]+/g)
+    .map((claim) => claim.replace(/^[-*•\d\s.)、]+/, "").trim())
+    .filter((claim) => claim.length >= 4);
+}
+
+function faithfulnessAnchors(claim) {
+  const normalized = normalizeLexical(claim);
+  const anchors = [];
+  for (const match of normalized.matchAll(/\b(?:ppg_priority_score|hybrid_decision_confidence)\s*(?:>=|<=|=)\s*0(?:\.\d+)?\b/g)) {
+    anchors.push(match[0]);
+  }
+  for (const match of normalized.matchAll(/(?:置信度|confidence(?:_score)?)\s*[:：]?\s*(?:0(?:\.\d+)?|1(?:\.0+)?|\.\d+)/g)) {
+    anchors.push(match[0]);
+  }
+  for (const phrase of [
+    "ppg 优先",
+    "ecg 优先",
+    "ppg+ecg 分层方案",
+    "ppg + ecg",
+    "混合方案",
+    "反对混合方案",
+    "ppg 风险",
+    "ecg 风险",
+    "医疗级判定需要 ecg",
+    "nmpa 三类",
+    "¥899",
+    "7 天续航",
+  ]) {
+    if (normalized.includes(phrase)) anchors.push(phrase);
+  }
+  for (const match of normalized.matchAll(/(?:¥\s*)?\b\d+(?:\.\d+)?%?\b/g)) {
+    anchors.push(match[0].replace(/\s+/g, ""));
+  }
+  return Array.from(new Set(anchors.filter(Boolean)));
+}
+
+function scoreFaithfulnessClaim(claim, corpusLines, corpusJoined) {
+  const normalized = normalizeLexical(claim);
+  if (!normalized) return { scoreable: false, supported: false, reason: "empty_claim" };
+  if (corpusLines.some((line) => line.includes(normalized)) || corpusJoined.includes(normalized)) {
+    return { scoreable: true, supported: true, reason: "exact_or_substring_match" };
+  }
+  const anchors = faithfulnessAnchors(normalized);
+  if (anchors.length === 0) return { scoreable: false, supported: false, reason: "no_deterministic_anchor" };
+  const supportedAnchors = anchors.filter((anchor) => corpusJoined.includes(anchor));
+  const numericAnchors = anchors.filter((anchor) => /(?:\d|¥)/.test(anchor));
+  const decisiveAnchors = anchors.filter((anchor) => !/(?:\b\d|置信度|confidence)/.test(anchor));
+  const supported = (
+    supportedAnchors.length === anchors.length ||
+    (numericAnchors.length > 0 && numericAnchors.every((anchor) => corpusJoined.includes(anchor)) && decisiveAnchors.length === 0) ||
+    (decisiveAnchors.length > 0 && decisiveAnchors.every((anchor) => corpusJoined.includes(anchor)))
+  );
+  return {
+    scoreable: true,
+    supported,
+    reason: supported ? "anchor_match" : "unsupported_anchor",
+    anchors,
+    supportedAnchors,
+  };
+}
+
+export function evaluateFaithfulness({ knowledgeItems = [], evidenceCorpus = [], events = [], judgeMode = "lexical" } = {}) {
+  if (judgeMode === "llm") {
+    return {
+      status: "unavailable",
+      judgeMode: "llm",
+      faithfulness: null,
+      hallucinationRate: null,
+      threshold: 0.95,
+      stretchMedicalTarget: 0.98,
+      scored: 0,
+      supported: 0,
+      unsupported: 0,
+      indeterminate: 0,
+      totalClaims: 0,
+      scoreableCoverage: null,
+      scoreableCoverageThreshold: FAITHFULNESS_SCOREABLE_COVERAGE_THRESHOLD,
+      blockingEligible: false,
+      unsupportedClaims: [],
+      note: "LLM judge mode is reserved for a future claim-level NLI path; default lexical mode makes no LLM calls.",
+    };
+  }
+
+  const corpusLines = normalizeEvidenceCorpus({ evidenceCorpus, events });
+  if (corpusLines.length === 0) {
+    return {
+      status: "unavailable",
+      judgeMode: "lexical",
+      faithfulness: null,
+      hallucinationRate: null,
+      threshold: 0.95,
+      stretchMedicalTarget: 0.98,
+      scored: 0,
+      supported: 0,
+      unsupported: 0,
+      indeterminate: 0,
+      totalClaims: 0,
+      evidenceClaimCount: 0,
+      scoreableCoverage: null,
+      scoreableCoverageThreshold: FAITHFULNESS_SCOREABLE_COVERAGE_THRESHOLD,
+      blockingEligible: false,
+      unsupportedClaims: [],
+      note: "No evidence corpus was available from runner templates or contradiction_feedback_injected events.",
+    };
+  }
+
+  const corpusJoined = corpusLines.join("\n");
+  const eligible = knowledgeItems.filter((item) => ACTIVE_STATUSES.has(statusForKnowledge(item)));
+  const scoredClaims = [];
+  const indeterminateClaims = [];
+  for (const item of eligible) {
+    const text = textForKnowledge(item);
+    for (const claim of splitClaims(text)) {
+      const result = scoreFaithfulnessClaim(claim, corpusLines, corpusJoined);
+      const row = {
+        knowledgeId: knowledgeId(item),
+        oracleSide: inferOracleSideFromValue(item),
+        claim,
+        reason: result.reason,
+        anchors: result.anchors ?? [],
+        supportedAnchors: result.supportedAnchors ?? [],
+      };
+      if (!result.scoreable) indeterminateClaims.push(row);
+      else scoredClaims.push({ ...row, supported: result.supported });
+    }
+  }
+
+  const supported = scoredClaims.filter((claim) => claim.supported).length;
+  const unsupported = scoredClaims.length - supported;
+  const totalClaims = scoredClaims.length + indeterminateClaims.length;
+  const scoreableCoverage = totalClaims === 0 ? null : +(scoredClaims.length / totalClaims).toFixed(6);
+  const lowCoverage = scoreableCoverage != null && scoreableCoverage < FAITHFULNESS_SCOREABLE_COVERAGE_THRESHOLD;
+  const faithfulness = scoredClaims.length === 0 ? null : +(supported / scoredClaims.length).toFixed(6);
+  const hallucinationRate = faithfulness == null ? null : +(1 - faithfulness).toFixed(6);
+  let status = "insufficient_evidence";
+  if (totalClaims > 0 && lowCoverage) status = "low_coverage";
+  else if (scoredClaims.length > 0 && faithfulness >= 0.95) status = "pass";
+  else if (scoredClaims.length > 0 && faithfulness >= 0.9) status = "warn";
+  else if (scoredClaims.length > 0) status = "fail";
+
+  return {
+    status,
+    judgeMode: "lexical",
+    faithfulness,
+    hallucinationRate,
+    threshold: 0.95,
+    stretchMedicalTarget: 0.98,
+    scored: scoredClaims.length,
+    supported,
+    unsupported,
+    indeterminate: indeterminateClaims.length,
+    totalClaims,
+    evidenceClaimCount: corpusLines.length,
+    scoreableCoverage,
+    scoreableCoverageThreshold: FAITHFULNESS_SCOREABLE_COVERAGE_THRESHOLD,
+    blockingEligible: scoredClaims.length > 0 && !lowCoverage,
+    unsupportedClaims: scoredClaims.filter((claim) => !claim.supported).slice(0, 50),
+    indeterminateExamples: indeterminateClaims.slice(0, 20),
   };
 }
 
@@ -594,7 +799,7 @@ export function latencyAndEfficiencyMetrics({ events = [], samples = [], llmCall
   };
 }
 
-export function summarizeHealthSignalQuality({ knowledgeItems = [], events = [], samples = [], llmCalls = [] } = {}) {
+export function summarizeHealthSignalQuality({ knowledgeItems = [], events = [], samples = [], llmCalls = [], evidenceCorpus = [], faithfulnessJudge = "lexical" } = {}) {
   const rssSlope = rssSlopeMbPerHour(samples);
   return {
     generatedAt: new Date().toISOString(),
@@ -602,6 +807,7 @@ export function summarizeHealthSignalQuality({ knowledgeItems = [], events = [],
     decisionTsr: evaluateDecisionTsr(knowledgeItems),
     resolutionAccuracy: scoreResolutionAccuracy(events),
     confidenceCalibration: evaluateConfidenceCalibration(knowledgeItems),
+    faithfulness: evaluateFaithfulness({ knowledgeItems, events, evidenceCorpus, judgeMode: faithfulnessJudge }),
     latencyAndEfficiency: latencyAndEfficiencyMetrics({ events, samples, llmCalls }),
     rssSlopeMbPerHour: rssSlope,
     rssSlopeThresholdMbPerHour: 50,

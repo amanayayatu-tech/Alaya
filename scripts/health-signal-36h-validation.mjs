@@ -780,6 +780,8 @@ async function injectContradictionEvidence(baseUrl, projectId, sample) {
     sample,
     side: template.side,
     externalId,
+    evidenceTitle: template.title,
+    evidenceText: template.text,
     ...oracleEventFields(template.side),
     imported: result.imported,
     skipped: result.skipped,

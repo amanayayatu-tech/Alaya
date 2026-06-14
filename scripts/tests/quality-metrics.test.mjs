@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   evaluateConfidenceCalibration,
   evaluateDecisionTsr,
+  evaluateFaithfulness,
   latencyAndEfficiencyMetrics,
   rssSlopeMbPerHour,
   scoreResolutionAccuracy,
@@ -332,6 +333,91 @@ test("confidenceCalibration returns null ECE when no scoreable denominator exist
   assert.equal(result.scoreableCoverage, 0);
   assert.equal(result.blockingEligible, false);
   assert.deepEqual(result.reliabilityTable, []);
+});
+
+test("faithfulness passes when active claims are supported by evidence corpus", () => {
+  const result = evaluateFaithfulness({
+    evidenceCorpus: [
+      [
+        "混合方案：PPG 用于低功耗连续静息心率趋势，ECG 用于疑似异常时主动复核和医疗级证据补强。",
+        "hybrid_decision_confidence >= 0.81。",
+        "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。",
+      ].join("\n"),
+    ],
+    knowledgeItems: [
+      {
+        id: "kb_sample_hybrid_support",
+        status: "active",
+        content: [
+          "混合方案：PPG 用于低功耗连续静息心率趋势，ECG 用于疑似异常时主动复核和医疗级证据补强。",
+          "hybrid_decision_confidence >= 0.81。",
+          "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。",
+        ].join("\n"),
+      },
+    ],
+  });
+
+  assert.equal(result.status, "pass");
+  assert.equal(result.judgeMode, "lexical");
+  assert.equal(result.faithfulness, 1);
+  assert.equal(result.hallucinationRate, 0);
+  assert.equal(result.unsupportedClaims.length, 0);
+  assert.equal(result.blockingEligible, true);
+});
+
+test("faithfulness flags unsupported injected-looking claims", () => {
+  const result = evaluateFaithfulness({
+    evidenceCorpus: [
+      "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低，更容易满足 ¥899 定价与 7 天续航。",
+      "当前最优选型决策：优先 PPG，置信度 0.64。",
+    ],
+    knowledgeItems: [
+      {
+        id: "kb_sample_ppg_support",
+        status: "active",
+        content: [
+          "当前最优选型决策：优先 PPG，置信度 0.64。",
+          "新增主张：已经完成 FDA Class III 认证，置信度 0.92。",
+        ].join("\n"),
+      },
+    ],
+  });
+
+  assert.equal(result.status, "fail");
+  assert.equal(result.supported, 1);
+  assert.equal(result.unsupported, 1);
+  assert.equal(result.hallucinationRate, 0.5);
+  assert.match(result.unsupportedClaims[0].claim, /FDA Class III/);
+});
+
+test("faithfulness reports low coverage and unavailable evidence honestly", () => {
+  const lowCoverage = evaluateFaithfulness({
+    evidenceCorpus: ["PPG 优先：光学 PPG 在静息心率监测下功耗低。"],
+    knowledgeItems: [
+      {
+        id: "kb_notes",
+        status: "active",
+        content: [
+          "需要后续人工复查。",
+          "PPG 优先：光学 PPG 在静息心率监测下功耗低。",
+          "这是一条没有确定性锚点的流程备注。",
+        ].join("\n"),
+      },
+    ],
+  });
+  assert.equal(lowCoverage.status, "low_coverage");
+  assert.equal(lowCoverage.blockingEligible, false);
+  assert.equal(lowCoverage.scoreableCoverage, 0.333333);
+
+  const unavailable = evaluateFaithfulness({
+    evidenceCorpus: [],
+    knowledgeItems: [
+      { id: "kb_sample_hybrid_support", status: "active", content: "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。" },
+    ],
+  });
+  assert.equal(unavailable.status, "unavailable");
+  assert.equal(unavailable.faithfulness, null);
+  assert.equal(unavailable.blockingEligible, false);
 });
 
 test("rssSlopeMbPerHour computes linear memory slope", () => {
