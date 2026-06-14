@@ -10,16 +10,16 @@ import {
   scoreResolutionAccuracy,
 } from "../lib/health-signal-quality.mjs";
 
-function hybridSupportKnowledge(index, overrides = {}) {
+function tieredSupportKnowledge(index, overrides = {}) {
   const sampleId = String(index + 1).padStart(4, "0");
   return {
     id: `kb_proj_runtime_${String(index).padStart(3, "0")}`,
-    sourceRef: `health-signal-contradiction-runner:sample_${sampleId}_hybrid_support`,
+    sourceRef: `equity-thesis-contradiction-runner:sample_${sampleId}_tiered_support`,
     content: [
-      "混合方案：PPG 用于低功耗连续静息心率趋势，ECG 用于疑似异常时主动复核和医疗级证据补强。",
-      "hybrid_decision_confidence >= 0.81。",
-      "明确冲突：该结论与混合方案反证互相矛盾，不能同时作为 active 知识复用。",
-      "当前最优选型决策：PPG+ECG 分层方案，置信度 1.0。",
+      "分层仓位方案：核心多头捕捉基本面上行，空头或现金对冲用于财报波动、估值回撤和事件风险保护。",
+      "tiered_thesis_confidence >= 0.81。",
+      "明确冲突：该结论与分层仓位反证互相矛盾，不能同时作为 active 知识复用。",
+      "当前最优仓位决策：多空分层仓位方案，置信度 1.0。",
     ].join("\n"),
     status: "active",
     confidence_score: 1,
@@ -27,19 +27,19 @@ function hybridSupportKnowledge(index, overrides = {}) {
   };
 }
 
-test("decisionTsr fails when an unsuperseded ppg_only card remains active", () => {
+test("decisionTsr fails when an unsuperseded long_only card remains active", () => {
   const result = evaluateDecisionTsr([
     {
-      id: "kb_gate_sample_0001_ppg_support",
-      title: "PPG 优先证据：成本与续航匹配",
-      content: "当前最优选型决策：优先 PPG，置信度 0.64。",
+      id: "kb_gate_sample_0001_long_support",
+      title: "看多优先证据：基本面上修与估值修复",
+      content: "当前最优仓位决策：优先做多，置信度 0.64。",
       status: "active",
       supersededBy: null,
     },
     {
-      id: "kb_gate_sample_0005_hybrid_support",
-      title: "混合方案证据：PPG 连续 + ECG 复核",
-      content: "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。",
+      id: "kb_gate_sample_0005_tiered_support",
+      title: "分层仓位证据：核心多头 + 空头对冲",
+      content: "当前最优仓位决策：多空分层仓位方案，置信度 0.71。",
       status: "active",
       supersededBy: null,
     },
@@ -47,17 +47,17 @@ test("decisionTsr fails when an unsuperseded ppg_only card remains active", () =
 
   assert.equal(result.status, "fail");
   assert.equal(result.passed, false);
-  assert.equal(result.hybridLayeredCount, 1);
+  assert.equal(result.tieredThesisCount, 1);
   assert.equal(result.disallowedFinalCount, 1);
-  assert.equal(result.disallowedFinalKnowledge[0].decision, "ppg_only");
+  assert.equal(result.disallowedFinalKnowledge[0].decision, "long_only");
   assert.match(result.interpretation, /pass@1/);
 });
 
 test("decisionTsr includes implemented passK when aggregate data is supplied", () => {
   const result = evaluateDecisionTsr([
     {
-      id: "kb_gate_sample_0005_hybrid_support",
-      content: "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。",
+      id: "kb_gate_sample_0005_tiered_support",
+      content: "当前最优仓位决策：多空分层仓位方案，置信度 0.71。",
       status: "active",
     },
   ], {
@@ -81,11 +81,11 @@ test("resolutionAccuracy deducts when the weaker side is preserved", () => {
   const result = scoreResolutionAccuracy([
     {
       eventType: "knowledge_review_resolved",
-      reviewId: "kr_bad_ppg",
-      primaryKnowledgeId: "kb_sample_0003_ppg_risk",
-      relatedKnowledgeId: "kb_sample_0001_ppg_support",
+      reviewId: "kr_bad_long",
+      primaryKnowledgeId: "kb_sample_0003_long_risk",
+      relatedKnowledgeId: "kb_sample_0001_long_support",
       action: "merge_supersede",
-      survivorKnowledgeId: "kb_sample_0001_ppg_support",
+      survivorKnowledgeId: "kb_sample_0001_long_support",
     },
   ]);
 
@@ -101,38 +101,38 @@ test("resolutionAccuracy deducts wrong winners for every expanded tier rule", ()
   const cases = [
     {
       name: "T1 beats T2",
-      primaryKnowledgeId: "kb_sample_hybrid_support",
-      relatedKnowledgeId: "kb_sample_ppg_risk",
-      survivorKnowledgeId: "kb_sample_ppg_risk",
-      expectedRule: "hybrid_support_beats_ppg_risk",
+      primaryKnowledgeId: "kb_sample_tiered_support",
+      relatedKnowledgeId: "kb_sample_long_risk",
+      survivorKnowledgeId: "kb_sample_long_risk",
+      expectedRule: "tiered_support_beats_long_risk",
     },
     {
       name: "T1 beats T3",
-      primaryKnowledgeId: "kb_sample_hybrid_support",
-      relatedKnowledgeId: "kb_sample_ecg_support",
-      survivorKnowledgeId: "kb_sample_ecg_support",
-      expectedRule: "hybrid_support_beats_ecg_support",
+      primaryKnowledgeId: "kb_sample_tiered_support",
+      relatedKnowledgeId: "kb_sample_short_support",
+      survivorKnowledgeId: "kb_sample_short_support",
+      expectedRule: "tiered_support_beats_short_support",
     },
     {
       name: "T1 beats T4",
-      primaryKnowledgeId: "kb_sample_hybrid_support",
-      relatedKnowledgeId: "kb_sample_hybrid_reject",
-      survivorKnowledgeId: "kb_sample_hybrid_reject",
-      expectedRule: "hybrid_support_beats_hybrid_reject",
+      primaryKnowledgeId: "kb_sample_tiered_support",
+      relatedKnowledgeId: "kb_sample_tiered_reject",
+      survivorKnowledgeId: "kb_sample_tiered_reject",
+      expectedRule: "tiered_support_beats_tiered_reject",
     },
     {
       name: "T2 beats cross-family T3",
-      primaryKnowledgeId: "kb_sample_ecg_risk",
-      relatedKnowledgeId: "kb_sample_ppg_support",
-      survivorKnowledgeId: "kb_sample_ppg_support",
-      expectedRule: "ecg_risk_beats_ppg_support",
+      primaryKnowledgeId: "kb_sample_short_risk",
+      relatedKnowledgeId: "kb_sample_long_support",
+      survivorKnowledgeId: "kb_sample_long_support",
+      expectedRule: "short_risk_beats_long_support",
     },
     {
       name: "T2 beats T4",
-      primaryKnowledgeId: "kb_sample_ppg_risk",
-      relatedKnowledgeId: "kb_sample_hybrid_reject",
-      survivorKnowledgeId: "kb_sample_hybrid_reject",
-      expectedRule: "ppg_risk_beats_hybrid_reject",
+      primaryKnowledgeId: "kb_sample_long_risk",
+      relatedKnowledgeId: "kb_sample_tiered_reject",
+      survivorKnowledgeId: "kb_sample_tiered_reject",
+      expectedRule: "long_risk_beats_tiered_reject",
     },
   ];
 
@@ -161,24 +161,24 @@ test("resolutionAccuracy scores same-side duplicates as merge-only dedupe", () =
     {
       eventType: "knowledge_review_resolved",
       reviewId: "kr_dedupe_good",
-      primaryKnowledgeId: "kb_sample_0001_ecg_risk",
-      relatedKnowledgeId: "kb_sample_0007_ecg_risk",
+      primaryKnowledgeId: "kb_sample_0001_short_risk",
+      relatedKnowledgeId: "kb_sample_0007_short_risk",
       action: "merge_supersede",
-      survivorKnowledgeId: "kb_sample_0007_ecg_risk",
+      survivorKnowledgeId: "kb_sample_0007_short_risk",
     },
   ]);
   assert.equal(good.status, "pass");
   assert.equal(good.scored, 1);
   assert.equal(good.correct, 1);
   assert.equal(good.scoredEvents[0].resolutionDuplicatePair, true);
-  assert.equal(good.duplicatePairTypeCounts["ecg_risk|ecg_risk"], 1);
+  assert.equal(good.duplicatePairTypeCounts["short_risk|short_risk"], 1);
 
   const bad = scoreResolutionAccuracy([
     {
       eventType: "knowledge_review_resolved",
       reviewId: "kr_dedupe_bad",
-      primaryKnowledgeId: "kb_sample_0001_ecg_risk",
-      relatedKnowledgeId: "kb_sample_0007_ecg_risk",
+      primaryKnowledgeId: "kb_sample_0001_short_risk",
+      relatedKnowledgeId: "kb_sample_0007_short_risk",
       action: "quarantine",
     },
   ]);
@@ -191,10 +191,10 @@ test("resolutionAccuracy scores same-side duplicates as merge-only dedupe", () =
     {
       eventType: "knowledge_review_resolved",
       reviewId: "kr_dedupe_embedding",
-      primaryKnowledgeId: "kb_sample_0001_ecg_risk",
-      relatedKnowledgeId: "kb_sample_0007_ecg_risk",
+      primaryKnowledgeId: "kb_sample_0001_short_risk",
+      relatedKnowledgeId: "kb_sample_0007_short_risk",
       action: "merge_supersede",
-      survivorKnowledgeId: "kb_sample_0007_ecg_risk",
+      survivorKnowledgeId: "kb_sample_0007_short_risk",
     },
   ], { dedupeMode: "embedding" });
   assert.equal(embeddingMode.status, "pass");
@@ -208,10 +208,10 @@ test("resolutionAccuracy reports low scoreable coverage instead of a misleading 
     {
       eventType: "knowledge_review_resolved",
       reviewId: "kr_good",
-      primaryKnowledgeId: "kb_sample_0001_ppg_support",
-      relatedKnowledgeId: "kb_sample_0003_ppg_risk",
+      primaryKnowledgeId: "kb_sample_0001_long_support",
+      relatedKnowledgeId: "kb_sample_0003_long_risk",
       action: "merge_supersede",
-      survivorKnowledgeId: "kb_sample_0003_ppg_risk",
+      survivorKnowledgeId: "kb_sample_0003_long_risk",
     },
     {
       eventType: "knowledge_review_resolved",
@@ -244,26 +244,26 @@ test("resolutionAccuracy keeps deliberately ambiguous pairs unscored", () => {
     {
       eventType: "knowledge_review_resolved",
       reviewId: "kr_t2_t2",
-      primaryKnowledgeId: "kb_sample_ppg_risk",
-      relatedKnowledgeId: "kb_sample_ecg_risk",
+      primaryKnowledgeId: "kb_sample_long_risk",
+      relatedKnowledgeId: "kb_sample_short_risk",
       action: "merge_supersede",
-      survivorKnowledgeId: "kb_sample_ecg_risk",
+      survivorKnowledgeId: "kb_sample_short_risk",
     },
     {
       eventType: "knowledge_review_resolved",
       reviewId: "kr_t3_t3",
-      primaryKnowledgeId: "kb_sample_ppg_support",
-      relatedKnowledgeId: "kb_sample_ecg_support",
+      primaryKnowledgeId: "kb_sample_long_support",
+      relatedKnowledgeId: "kb_sample_short_support",
       action: "merge_supersede",
-      survivorKnowledgeId: "kb_sample_ecg_support",
+      survivorKnowledgeId: "kb_sample_short_support",
     },
     {
       eventType: "knowledge_review_resolved",
       reviewId: "kr_t3_t4",
-      primaryKnowledgeId: "kb_sample_ppg_support",
-      relatedKnowledgeId: "kb_sample_hybrid_reject",
+      primaryKnowledgeId: "kb_sample_long_support",
+      relatedKnowledgeId: "kb_sample_tiered_reject",
       action: "merge_supersede",
-      survivorKnowledgeId: "kb_sample_hybrid_reject",
+      survivorKnowledgeId: "kb_sample_tiered_reject",
     },
   ]);
 
@@ -273,7 +273,7 @@ test("resolutionAccuracy keeps deliberately ambiguous pairs unscored", () => {
   assert.equal(result.unscored, 3);
   assert.equal(result.unscoredReasonCounts.ambiguous_same_layer_t2_risk_pair, 1);
   assert.equal(result.unscoredReasonCounts.ambiguous_same_layer_t3_support_pair, 1);
-  assert.equal(result.unscoredReasonCounts.ambiguous_t3_support_vs_t4_hybrid_reject, 1);
+  assert.equal(result.unscoredReasonCounts.ambiguous_t3_support_vs_t4_tiered_reject, 1);
 });
 
 test("resolutionAccuracy infers oracle side from legacy knowledge ids", () => {
@@ -281,10 +281,10 @@ test("resolutionAccuracy infers oracle side from legacy knowledge ids", () => {
     {
       eventType: "knowledge_review_resolved",
       reviewId: "kr_legacy",
-      primaryKnowledgeId: "kb_gate_sample_0001_ppg_support",
-      relatedKnowledgeId: "kb_gate_sample_0003_ppg_risk",
+      primaryKnowledgeId: "kb_gate_sample_0001_long_support",
+      relatedKnowledgeId: "kb_gate_sample_0003_long_risk",
       action: "merge_supersede",
-      survivorKnowledgeId: "kb_gate_sample_0003_ppg_risk",
+      survivorKnowledgeId: "kb_gate_sample_0003_long_risk",
     },
   ]);
 
@@ -346,28 +346,28 @@ test("latency SLO excludes harness polling and only blocks when enforced", () =>
 test("confidenceCalibration computes ECE from scored oracle knowledge", () => {
   const result = evaluateConfidenceCalibration([
     {
-      id: "kb_sample_0005_hybrid_support",
-      sourceRef: "health-signal-contradiction-runner:sample_0005_hybrid_support",
-      title: "混合方案证据：PPG 连续 + ECG 复核",
+      id: "kb_sample_0005_tiered_support",
+      sourceRef: "equity-thesis-contradiction-runner:sample_0005_tiered_support",
+      title: "分层仓位证据：核心多头 + 空头对冲",
       content: [
-        "混合方案证据：PPG 连续 + ECG 复核。",
-        "hybrid_decision_confidence >= 0.81。",
-        "明确冲突：该结论与混合方案反证互相矛盾。",
-        "当前最优选型决策：PPG+ECG 分层方案，置信度 0.8。",
+        "分层仓位证据：核心多头 + 空头对冲。",
+        "tiered_thesis_confidence >= 0.81。",
+        "明确冲突：该结论与分层仓位反证互相矛盾。",
+        "当前最优仓位决策：多空分层仓位方案，置信度 0.8。",
       ].join("\n"),
       status: "active",
       supersededBy: null,
       confidence_score: 0.8,
     },
     {
-      id: "kb_sample_0001_ppg_support",
-      sourceRef: "health-signal-contradiction-runner:sample_0001_ppg_support",
-      title: "PPG 优先证据",
+      id: "kb_sample_0001_long_support",
+      sourceRef: "equity-thesis-contradiction-runner:sample_0001_long_support",
+      title: "看多优先证据",
       content: [
-        "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低。",
-        "ppg_priority_score >= 0.78。",
-        "明确冲突：该结论与 ECG 优先互相矛盾。",
-        "当前最优选型决策：优先 PPG，置信度 0.6。",
+        "看多优先：目标公司收入增速、毛利率改善和自由现金流修复共振。",
+        "long_thesis_score >= 0.78。",
+        "明确冲突：该结论与 看空优先互相矛盾。",
+        "当前最优仓位决策：优先做多，置信度 0.6。",
       ].join("\n"),
       status: "active",
       supersededBy: "",
@@ -398,13 +398,13 @@ test("confidenceCalibration computes ECE from scored oracle knowledge", () => {
 test("confidenceCalibration reports low coverage without blocking", () => {
   const result = evaluateConfidenceCalibration([
     {
-      id: "kb_sample_0005_hybrid_support",
-      sourceRef: "health-signal-contradiction-runner:sample_0005_hybrid_support",
+      id: "kb_sample_0005_tiered_support",
+      sourceRef: "equity-thesis-contradiction-runner:sample_0005_tiered_support",
       content: [
-        "混合方案证据：PPG 连续 + ECG 复核。",
-        "hybrid_decision_confidence >= 0.81。",
-        "明确冲突：该结论与混合方案反证互相矛盾。",
-        "当前最优选型决策：PPG+ECG 分层方案，置信度 1.0。",
+        "分层仓位证据：核心多头 + 空头对冲。",
+        "tiered_thesis_confidence >= 0.81。",
+        "明确冲突：该结论与分层仓位反证互相矛盾。",
+        "当前最优仓位决策：多空分层仓位方案，置信度 1.0。",
       ].join("\n"),
       status: "active",
     },
@@ -414,11 +414,11 @@ test("confidenceCalibration reports low coverage without blocking", () => {
       status: "active",
     },
     {
-      id: "kb_proj_ppg_risk_missing_confidence",
+      id: "kb_proj_long_risk_missing_confidence",
       content: [
-        "PPG 风险来自肤色、佩戴松紧、环境光和运动伪影。",
-        "ppg_priority_score <= 0.42。",
-        "明确冲突：该证据削弱之前 PPG 优先结论。",
+        "看多反证来自估值分位过高、盈利兑现滞后和多头拥挤。",
+        "long_thesis_score <= 0.42。",
+        "明确冲突：该证据削弱之前 看多优先结论。",
       ].join("\n"),
       status: "active",
     },
@@ -442,11 +442,11 @@ test("confidenceCalibration reports low coverage without blocking", () => {
 test("confidenceCalibration returns null ECE when oracle samples lack confidence", () => {
   const result = evaluateConfidenceCalibration([
     {
-      id: "kb_proj_ecg_risk_missing_confidence",
+      id: "kb_proj_short_risk_missing_confidence",
       content: [
-        "ECG 风险来自电极接触和主动测量交互。",
-        "ppg_priority_score >= 0.72。",
-        "明确冲突：该证据反驳 ECG 优先。",
+        "看空反证来自空头拥挤和回补风险。",
+        "long_thesis_score >= 0.72。",
+        "明确冲突：该证据反驳 看空优先。",
       ].join("\n"),
       status: "active",
     },
@@ -494,36 +494,36 @@ test("confidenceCalibration excludes governance restatements and keeps kb_proj c
   const result = evaluateConfidenceCalibration([
     {
       id: "kb_seed_identity_001",
-      content: "目标用户 35-50 岁，价格锚定 ¥899，续航红线为 7 天，置信度 0.95。",
+      content: "目标标的流动性合格，单票仓位上限 12%，组合最大回撤预算 8%，置信度 0.95。",
       status: "active",
     },
     {
       id: "kb_proj_market_context",
       title: "种子身份",
-      content: "当前最优选型决策：PPG+ECG 分层方案。须通过 NMPA 三类审批，遇 PPG/ECG 矛盾必须等待人工审核，budget_throttle_effectiveness >= 0.85，置信度 0.88。",
+      content: "当前最优仓位决策：多空分层仓位方案。须遵守仓位上限和回撤预算，遇看多/看空矛盾必须等待人工审核，budget_throttle_effectiveness >= 0.85，置信度 0.88。",
       status: "active",
       tags: ["identity", "seed"],
       supersededBy: "kb_seed_identity_001",
     },
     {
-      id: "kb_proj_conflict_hybrid",
+      id: "kb_proj_conflict_tiered",
       content: [
-        "混合方案证据：PPG 连续趋势 + ECG 二次复核。",
-        "hybrid_decision_confidence >= 0.81。",
-        "明确冲突：该结论与混合方案反证互相矛盾。",
-        "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。",
+        "分层仓位证据：核心多头 + 空头对冲。",
+        "tiered_thesis_confidence >= 0.81。",
+        "明确冲突：该结论与分层仓位反证互相矛盾。",
+        "当前最优仓位决策：多空分层仓位方案，置信度 0.71。",
       ].join("\n"),
       status: "active",
       confidence_score: 0.71,
     },
     {
-      id: "kb_sample_0002_ecg_support",
-      sourceRef: "health-signal-contradiction-runner:sample_0002_ecg_support",
+      id: "kb_sample_0002_short_support",
+      sourceRef: "equity-thesis-contradiction-runner:sample_0002_short_support",
       content: [
-        "ECG 优先：心电信号更可解释。",
-        "ppg_priority_score <= 0.35。",
-        "明确冲突：该结论与 PPG 优先互相矛盾。",
-        "当前最优选型决策：优先 ECG，置信度 0.66。",
+        "看空优先：收入指引下修更有解释力。",
+        "long_thesis_score <= 0.35。",
+        "明确冲突：该结论与 看多优先互相矛盾。",
+        "当前最优仓位决策：优先做空，置信度 0.66。",
       ].join("\n"),
       status: "active",
       confidence_score: 0.66,
@@ -544,28 +544,28 @@ test("confidenceCalibration excludes governance restatements and keeps kb_proj c
   assert.equal(result.excludedAsNonConflict.reasonCounts.governance_or_task_restatement, 1);
   assert.equal(result.excludedAsNonConflict.reasonCounts.no_oracle_side ?? 0, 0);
   assert.equal(result.scoredKnowledge.some((item) => item.knowledgeId === "kb_proj_market_context"), false);
-  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_proj_conflict_hybrid").correct, true);
-  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_sample_0002_ecg_support").correct, false);
+  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_proj_conflict_tiered").correct, true);
+  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_sample_0002_short_support").correct, false);
 });
 
 test("confidenceCalibration excludes sensor firewall audit wrappers from oracle calibration", () => {
   const result = evaluateConfidenceCalibration([
     {
       id: "kb_gate_gate_sensor_recurring_1234",
-      sourceRef: "health-signal-contradiction-runner:sample_0029_hybrid_support",
-      title: "外部反馈: recurring sensor error unknown from health-signal-contradiction-runner",
+      sourceRef: "equity-thesis-contradiction-runner:sample_0029_tiered_support",
+      title: "外部反馈: recurring market signal unknown from equity-thesis-contradiction-runner",
       content: "Human approved meaning gate gate_sensor_recurring_1234.",
       status: "strong",
       confidence_score: 0.98,
       tags: ["meaning_gate", "sensor_firewall", "external_feedback"],
     },
     {
-      id: "kb_gate_sample_0004_ecg_risk",
-      sourceRef: "health-signal-contradiction-runner:sample_0004_ecg_risk",
+      id: "kb_gate_sample_0004_short_risk",
+      sourceRef: "equity-thesis-contradiction-runner:sample_0004_short_risk",
       content: [
-        "ECG 风险：ECG 需要更严格电极接触和主动测量交互，连续 7 天续航与 ¥899 定价下硬件和体验成本更高。",
-        "ppg_priority_score >= 0.72。",
-        "明确冲突：该证据反驳 ECG 优先，必须隔离到冲突审查流程。",
+        "看空反证：空头拥挤、回补风险和潜在上行催化会抬高单边做空的损失概率。",
+        "long_thesis_score >= 0.72。",
+        "明确冲突：该证据反驳 看空优先，必须隔离到冲突审查流程。",
       ].join("\n"),
       status: "strong",
       confidence_score: 0.9,
@@ -580,52 +580,52 @@ test("confidenceCalibration excludes sensor firewall audit wrappers from oracle 
   assert.equal(result.blockingEligible, false);
   assert.equal(result.excludedAsNonConflict.count, 1);
   assert.equal(result.excludedAsNonConflict.reasonCounts.sensor_firewall_audit_wrapper, 1);
-  assert.equal(result.scoredKnowledge[0].knowledgeId, "kb_gate_sample_0004_ecg_risk");
+  assert.equal(result.scoredKnowledge[0].knowledgeId, "kb_gate_sample_0004_short_risk");
 });
 
 test("confidenceCalibration parses decision brief and template fallback confidence without changing correctness", () => {
   const result = evaluateConfidenceCalibration([
     {
-      id: "kb_sample_0005_hybrid_support",
-      sourceRef: "health-signal-contradiction-runner:sample_0005_hybrid_support",
+      id: "kb_sample_0005_tiered_support",
+      sourceRef: "equity-thesis-contradiction-runner:sample_0005_tiered_support",
       content: [
-        "混合方案仍是最终决策。",
-        "hybrid_decision_confidence >= 0.81。",
-        "明确冲突：该结论与混合方案反证互相矛盾。",
-        "当前最优选型决策：PPG+ECG 分层方案。",
+        "分层仓位方案仍是最终决策。",
+        "tiered_thesis_confidence >= 0.81。",
+        "明确冲突：该结论与分层仓位反证互相矛盾。",
+        "当前最优仓位决策：多空分层仓位方案。",
       ].join("\n"),
       status: "active",
       decision_brief: {
-        claim: "混合方案仍是最终决策",
+        claim: "分层仓位方案仍是最终决策",
         confidence: 0.72,
       },
     },
     {
-      id: "kb_gate_sample_0001_ppg_support",
-      sourceRef: "health-signal-contradiction-runner:sample_0001_ppg_support",
+      id: "kb_gate_sample_0001_long_support",
+      sourceRef: "equity-thesis-contradiction-runner:sample_0001_long_support",
       content: [
-        "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低。",
-        "ppg_priority_score >= 0.78。",
-        "明确冲突：该结论与 ECG 优先互相矛盾。",
-        "当前最优选型决策：优先 PPG。",
+        "看多优先：目标公司收入增速、毛利率改善和自由现金流修复共振。",
+        "long_thesis_score >= 0.78。",
+        "明确冲突：该结论与 看空优先互相矛盾。",
+        "当前最优仓位决策：优先做多。",
       ].join("\n"),
       status: "active",
     },
     {
-      id: "kb_proj_ecg_risk_missing_confidence",
+      id: "kb_proj_short_risk_missing_confidence",
       content: [
-        "ECG 风险存在，但缺少置信度。",
-        "ppg_priority_score >= 0.72。",
-        "明确冲突：该证据反驳 ECG 优先。",
+        "看空反证存在，但缺少置信度。",
+        "long_thesis_score >= 0.72。",
+        "明确冲突：该证据反驳 看空优先。",
       ].join("\n"),
       status: "active",
     },
     {
-      id: "kb_proj_hybrid_reject_missing_confidence",
+      id: "kb_proj_tiered_reject_missing_confidence",
       content: [
-        "混合方案反证存在，但缺少置信度。",
-        "hybrid_decision_confidence <= 0.38。",
-        "明确冲突：该结论与混合方案推荐互相矛盾。",
+        "分层仓位反证存在，但缺少置信度。",
+        "tiered_thesis_confidence <= 0.38。",
+        "明确冲突：该结论与分层仓位方案推荐互相矛盾。",
       ].join("\n"),
       status: "active",
     },
@@ -639,14 +639,14 @@ test("confidenceCalibration parses decision brief and template fallback confiden
   assert.equal(result.denominator, 4);
   assert.equal(result.scoreableCoverage, 0.5);
   assert.equal(result.unscoredReasonCounts.missing_confidence, 2);
-  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_sample_0005_hybrid_support").confidence, 0.72);
-  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_gate_sample_0001_ppg_support").confidence, 0.64);
-  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_gate_sample_0001_ppg_support").correct, false);
+  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_sample_0005_tiered_support").confidence, 0.72);
+  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_gate_sample_0001_long_support").confidence, 0.64);
+  assert.equal(result.scoredKnowledge.find((item) => item.knowledgeId === "kb_gate_sample_0001_long_support").correct, false);
 });
 
 test("confidenceCalibration only blocks when eligible coverage and sample count are sufficient", () => {
   const passResult = evaluateConfidenceCalibration(
-    Array.from({ length: CONFLICT_QUALITY_MIN_ELIGIBLE }, (_, index) => hybridSupportKnowledge(index)),
+    Array.from({ length: CONFLICT_QUALITY_MIN_ELIGIBLE }, (_, index) => tieredSupportKnowledge(index)),
   );
 
   assert.equal(passResult.status, "pass");
@@ -659,12 +659,12 @@ test("confidenceCalibration only blocks when eligible coverage and sample count 
 
   const failResult = evaluateConfidenceCalibration(
     Array.from({ length: CONFLICT_QUALITY_MIN_ELIGIBLE }, (_, index) => ({
-      id: `kb_proj_wrong_ppg_${String(index).padStart(3, "0")}`,
+      id: `kb_proj_wrong_long_${String(index).padStart(3, "0")}`,
       content: [
-        "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低。",
-        "ppg_priority_score >= 0.78。",
-        "明确冲突：该结论与 ECG 优先互相矛盾。",
-        "当前最优选型决策：优先 PPG，置信度 1.0。",
+        "看多优先：目标公司收入增速、毛利率改善和自由现金流修复共振。",
+        "long_thesis_score >= 0.78。",
+        "明确冲突：该结论与 看空优先互相矛盾。",
+        "当前最优仓位决策：优先做多，置信度 1.0。",
       ].join("\n"),
       status: "active",
       confidence_score: 1,
@@ -680,15 +680,15 @@ test("confidenceCalibration only blocks when eligible coverage and sample count 
   const lowCoverage = evaluateConfidenceCalibration(
     Array.from({ length: CONFLICT_QUALITY_MIN_ELIGIBLE }, (_, index) => (
       index < 5
-        ? hybridSupportKnowledge(index)
-        : hybridSupportKnowledge(index, {
+        ? tieredSupportKnowledge(index)
+        : tieredSupportKnowledge(index, {
           sourceRef: "",
           confidence_score: undefined,
           content: [
-            "混合方案：PPG 用于低功耗连续静息心率趋势，ECG 用于疑似异常时主动复核和医疗级证据补强。",
-            "hybrid_decision_confidence >= 0.81。",
-            "明确冲突：该结论与混合方案反证互相矛盾，不能同时作为 active 知识复用。",
-            "当前最优选型决策：PPG+ECG 分层方案。",
+            "分层仓位方案：核心多头捕捉基本面上行，空头或现金对冲用于财报波动、估值回撤和事件风险保护。",
+            "tiered_thesis_confidence >= 0.81。",
+            "明确冲突：该结论与分层仓位反证互相矛盾，不能同时作为 active 知识复用。",
+            "当前最优仓位决策：多空分层仓位方案。",
           ].join("\n"),
         })
     )),
@@ -707,20 +707,20 @@ test("faithfulness passes when active claims are supported by evidence corpus", 
   const result = evaluateFaithfulness({
     evidenceCorpus: [
       [
-        "混合方案：PPG 用于低功耗连续静息心率趋势，ECG 用于疑似异常时主动复核和医疗级证据补强。",
-        "hybrid_decision_confidence >= 0.81。",
-        "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。",
+        "分层仓位方案：核心多头捕捉基本面上行，空头或现金对冲用于财报波动、估值回撤和事件风险保护。",
+        "tiered_thesis_confidence >= 0.81。",
+        "当前最优仓位决策：多空分层仓位方案，置信度 0.71。",
       ].join("\n"),
     ],
     knowledgeItems: [
       {
-        id: "kb_sample_0005_hybrid_support",
-        sourceRef: "health-signal-contradiction-runner:sample_0005_hybrid_support",
+        id: "kb_sample_0005_tiered_support",
+        sourceRef: "equity-thesis-contradiction-runner:sample_0005_tiered_support",
         status: "active",
         content: [
-          "混合方案：PPG 用于低功耗连续静息心率趋势，ECG 用于疑似异常时主动复核和医疗级证据补强。",
-          "hybrid_decision_confidence >= 0.81。",
-          "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。",
+          "分层仓位方案：核心多头捕捉基本面上行，空头或现金对冲用于财报波动、估值回撤和事件风险保护。",
+          "tiered_thesis_confidence >= 0.81。",
+          "当前最优仓位决策：多空分层仓位方案，置信度 0.71。",
         ].join("\n"),
       },
     ],
@@ -742,22 +742,22 @@ test("faithfulness passes when active claims are supported by evidence corpus", 
 test("faithfulness flags unsupported injected-looking claims", () => {
   const result = evaluateFaithfulness({
     evidenceCorpus: [
-      "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低，更容易满足 ¥899 定价与 7 天续航。",
-      "ppg_priority_score >= 0.78。",
-      "明确冲突：该结论与 ECG 优先互相矛盾。",
-      "当前最优选型决策：优先 PPG，置信度 0.64。",
+      "看多优先：目标公司收入增速、毛利率改善和自由现金流修复共振，基本面上行更支持多头仓位。",
+      "long_thesis_score >= 0.78。",
+      "明确冲突：该结论与 看空优先互相矛盾。",
+      "当前最优仓位决策：优先做多，置信度 0.64。",
     ],
     knowledgeItems: [
       {
-        id: "kb_sample_0001_ppg_support",
-        sourceRef: "health-signal-contradiction-runner:sample_0001_ppg_support",
+        id: "kb_sample_0001_long_support",
+        sourceRef: "equity-thesis-contradiction-runner:sample_0001_long_support",
         status: "active",
         content: [
-          "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低，更容易满足 ¥899 定价与 7 天续航。",
-          "ppg_priority_score >= 0.78。",
-          "明确冲突：该结论与 ECG 优先互相矛盾。",
-          "当前最优选型决策：优先 PPG，置信度 0.64。",
-          "新增主张：已经完成 FDA Class III 认证，置信度 0.92。",
+          "看多优先：目标公司收入增速、毛利率改善和自由现金流修复共振，基本面上行更支持多头仓位。",
+          "long_thesis_score >= 0.78。",
+          "明确冲突：该结论与 看空优先互相矛盾。",
+          "当前最优仓位决策：优先做多，置信度 0.64。",
+          "新增主张：已经完成 监管披露合规审查，置信度 0.92。",
         ].join("\n"),
       },
     ],
@@ -768,23 +768,23 @@ test("faithfulness flags unsupported injected-looking claims", () => {
   assert.equal(result.supported, 4);
   assert.equal(result.unsupported, 1);
   assert.equal(result.hallucinationRate, 0.2);
-  assert.match(result.unsupportedClaims[0].claim, /FDA Class III/);
+  assert.match(result.unsupportedClaims[0].claim, /监管披露合规审查/);
 });
 
 test("faithfulness scores Chinese domain phrases without numeric anchors and still catches unsupported claims", () => {
   const result = evaluateFaithfulness({
     evidenceCorpus: [
-      "PPG 风险：肤色、佩戴松紧、环境光和运动伪影会影响 PPG 静息心率可靠性，ppg_priority_score <= 0.42。",
-      "建议：保留 PPG 作为低功耗连续趋势传感器，但医疗级判定需要 ECG 或人工复核。",
+      "看多反证：估值分位过高、盈利兑现滞后和多头拥挤会削弱单边看多结论，long_thesis_score <= 0.42。",
+      "建议：保留核心多头观察仓位，但需要空头或现金对冲控制回撤。",
     ],
     knowledgeItems: [
       {
-        id: "kb_sample_0003_ppg_risk",
-        sourceRef: "health-signal-contradiction-runner:sample_0003_ppg_risk",
+        id: "kb_sample_0003_long_risk",
+        sourceRef: "equity-thesis-contradiction-runner:sample_0003_long_risk",
         status: "active",
         content: [
-          "PPG 风险来自肤色、佩戴松紧、环境光和运动伪影，ppg_priority_score <= 0.42。",
-          "新增主张：PPG 风险已经完成 FDA Class III 认证。",
+          "看多反证来自估值分位过高、盈利兑现滞后和多头拥挤，long_thesis_score <= 0.42。",
+          "新增主张：看多反证已经完成 监管披露合规审查。",
         ].join("\n"),
       },
     ],
@@ -796,24 +796,24 @@ test("faithfulness scores Chinese domain phrases without numeric anchors and sti
   assert.equal(result.supported, 1);
   assert.equal(result.unsupported, 1);
   assert.equal(result.scoreableCoverage, 1);
-  assert.match(result.unsupportedClaims[0].claim, /FDA Class III/);
-  assert.ok(result.unsupportedClaims[0].anchors.some((anchor) => /fda class iii/.test(anchor)));
+  assert.match(result.unsupportedClaims[0].claim, /监管披露合规审查/);
+  assert.ok(result.unsupportedClaims[0].anchors.some((anchor) => /监管披露合规审查/.test(anchor)));
 });
 
 test("faithfulness only blocks when eligible knowledge coverage and sample count are sufficient", () => {
   const evidenceCorpus = [
-    "混合方案：PPG 用于低功耗连续静息心率趋势，ECG 用于疑似异常时主动复核和医疗级证据补强。",
-    "hybrid_decision_confidence >= 0.81。",
-    "明确冲突：该结论与混合方案反证互相矛盾，不能同时作为 active 知识复用。",
-    "当前最优选型决策：PPG+ECG 分层方案，置信度 1.0。",
-    "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低，更容易满足 ¥899 定价与 7 天续航。",
-    "ppg_priority_score >= 0.78。",
-    "明确冲突：该结论与 ECG 优先互相矛盾。",
-    "当前最优选型决策：优先 PPG，置信度 0.64。",
+    "分层仓位方案：核心多头捕捉基本面上行，空头或现金对冲用于财报波动、估值回撤和事件风险保护。",
+    "tiered_thesis_confidence >= 0.81。",
+    "明确冲突：该结论与分层仓位反证互相矛盾，不能同时作为 active 知识复用。",
+    "当前最优仓位决策：多空分层仓位方案，置信度 1.0。",
+    "看多优先：目标公司收入增速、毛利率改善和自由现金流修复共振，基本面上行更支持多头仓位。",
+    "long_thesis_score >= 0.78。",
+    "明确冲突：该结论与 看空优先互相矛盾。",
+    "当前最优仓位决策：优先做多，置信度 0.64。",
   ];
   const passResult = evaluateFaithfulness({
     evidenceCorpus,
-    knowledgeItems: Array.from({ length: CONFLICT_QUALITY_MIN_ELIGIBLE }, (_, index) => hybridSupportKnowledge(index)),
+    knowledgeItems: Array.from({ length: CONFLICT_QUALITY_MIN_ELIGIBLE }, (_, index) => tieredSupportKnowledge(index)),
   });
 
   assert.equal(passResult.status, "pass");
@@ -827,14 +827,14 @@ test("faithfulness only blocks when eligible knowledge coverage and sample count
   const failResult = evaluateFaithfulness({
     evidenceCorpus,
     knowledgeItems: Array.from({ length: CONFLICT_QUALITY_MIN_ELIGIBLE }, (_, index) => ({
-      id: `kb_proj_ppg_support_${String(index).padStart(3, "0")}`,
+      id: `kb_proj_long_support_${String(index).padStart(3, "0")}`,
       status: "active",
       content: [
-        "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低，更容易满足 ¥899 定价与 7 天续航。",
-        "ppg_priority_score >= 0.78。",
-        "明确冲突：该结论与 ECG 优先互相矛盾。",
-        "当前最优选型决策：优先 PPG，置信度 0.64。",
-        "新增主张：已经完成 FDA Class III 认证，置信度 0.92。",
+        "看多优先：目标公司收入增速、毛利率改善和自由现金流修复共振，基本面上行更支持多头仓位。",
+        "long_thesis_score >= 0.78。",
+        "明确冲突：该结论与 看空优先互相矛盾。",
+        "当前最优仓位决策：优先做多，置信度 0.64。",
+        "新增主张：已经完成 监管披露合规审查，置信度 0.92。",
       ].join("\n"),
     })),
   });
@@ -851,12 +851,12 @@ test("faithfulness only blocks when eligible knowledge coverage and sample count
     evidenceCorpus,
     knowledgeItems: Array.from({ length: CONFLICT_QUALITY_MIN_ELIGIBLE }, (_, index) => (
       index < 5
-        ? hybridSupportKnowledge(index)
+        ? tieredSupportKnowledge(index)
         : {
-          id: `kb_proj_sparse_hybrid_support_${String(index).padStart(3, "0")}`,
-          sourceRef: `health-signal-contradiction-runner:sample_${String(index + 1).padStart(4, "0")}_hybrid_support`,
+          id: `kb_proj_sparse_tiered_support_${String(index).padStart(3, "0")}`,
+          sourceRef: `equity-thesis-contradiction-runner:sample_${String(index + 1).padStart(4, "0")}_tiered_support`,
           status: "active",
-          tags: ["hybrid_decision_confidence>=0.81"],
+          tags: ["tiered_thesis_confidence>=0.81"],
           content: "流程备注等待后续复查。",
         }
     )),
@@ -874,14 +874,14 @@ test("faithfulness only blocks when eligible knowledge coverage and sample count
 test("faithfulness excludes governance restatements and keeps true conflict evidence", () => {
   const result = evaluateFaithfulness({
     evidenceCorpus: [
-      "PPG 风险：肤色、佩戴松紧、环境光和运动伪影会影响 PPG 静息心率可靠性，ppg_priority_score <= 0.42。",
-      "当前最优选型决策：PPG+ECG 分层方案。须通过 NMPA 三类审批，遇 PPG/ECG 矛盾必须等待人工审核。",
+      "看多反证：估值分位过高、盈利兑现滞后和多头拥挤会削弱单边看多结论，long_thesis_score <= 0.42。",
+      "当前最优仓位决策：多空分层仓位方案。须遵守仓位上限和回撤预算，遇看多/看空矛盾必须等待人工审核。",
     ],
     knowledgeItems: [
       {
         id: "kb_seed_world_001",
         status: "active",
-        content: "目标用户 35-50 岁，价格锚定 ¥899，必须达到 7 天续航。",
+        content: "目标标的流动性合格，单票仓位上限 12%，必须控制组合回撤。",
       },
       {
         id: "kb_proj_regulatory_context",
@@ -889,13 +889,13 @@ test("faithfulness excludes governance restatements and keeps true conflict evid
         status: "active",
         tags: ["world", "seed"],
         supersededBy: "kb_seed_world_001",
-        content: "当前最优选型决策：PPG+ECG 分层方案。须通过 NMPA 三类审批，遇 PPG/ECG 矛盾必须等待人工审核，risk_gate_recovery_proof_coverage >= 0.85。",
+        content: "当前最优仓位决策：多空分层仓位方案。须遵守仓位上限和回撤预算，遇看多/看空矛盾必须等待人工审核，risk_gate_recovery_proof_coverage >= 0.85。",
       },
       {
-        id: "kb_sample_0003_ppg_risk",
-        sourceRef: "health-signal-contradiction-runner:sample_0003_ppg_risk",
+        id: "kb_sample_0003_long_risk",
+        sourceRef: "equity-thesis-contradiction-runner:sample_0003_long_risk",
         status: "active",
-        content: "PPG 风险来自肤色、佩戴松紧、环境光和运动伪影，ppg_priority_score <= 0.42。",
+        content: "看多反证来自估值分位过高、盈利兑现滞后和多头拥挤，long_thesis_score <= 0.42。",
       },
     ],
   });
@@ -921,22 +921,22 @@ test("faithfulness excludes governance restatements and keeps true conflict evid
 test("faithfulness strips approval audit wrappers before scoring business claims", () => {
   const result = evaluateFaithfulness({
     evidenceCorpus: [
-      "ECG 反证：功耗/交互/成本压力。",
-      "ECG 风险：ECG 需要更严格电极接触和主动测量交互，连续 7 天续航与 ¥899 定价下硬件和体验成本更高。",
-      "ppg_priority_score >= 0.72。",
-      "明确冲突：该证据反驳 ECG 优先，必须隔离到冲突审查流程。",
+      "看空反证：回补风险与上行催化。",
+      "看空反证：空头拥挤、回补风险和潜在上行催化会抬高单边做空的损失概率。",
+      "long_thesis_score >= 0.72。",
+      "明确冲突：该证据反驳 看空优先，必须隔离到冲突审查流程。",
     ],
     knowledgeItems: [
       {
-        id: "kb_gate_sample_0004_ecg_risk",
-        sourceRef: "health-signal-contradiction-runner:sample_0004_ecg_risk",
-        title: "外部反馈: ECG 反证：功耗/交互/成本压力",
+        id: "kb_gate_sample_0004_short_risk",
+        sourceRef: "equity-thesis-contradiction-runner:sample_0004_short_risk",
+        title: "外部反馈: 看空反证：回补风险与上行催化",
         status: "strong",
         content: [
-          "Human approved meaning gate gate_ext_fb_form_sample_0004_ecg_risk.",
-          "Source: form_feedback sample_0004_ecg_risk.",
-          "Summary: ECG 反证：功耗/交互/成本压力.",
-          "User quote: Form Feedback (health-signal-contradiction-runner sample_0004_ecg_risk): ECG 风险：ECG 需要更严格电极接触和主动测量交互，连续 7 天续航与 ¥899 定价下硬件和体验成本更高。\nppg_priority_score >= 0.72。\n明确冲突：该证据反驳 ECG 优先，必须隔离到冲突审查流程。",
+          "Human approved meaning gate gate_ext_fb_form_sample_0004_short_risk.",
+          "Source: form_feedback sample_0004_short_risk.",
+          "Summary: 看空反证：回补风险与上行催化.",
+          "User quote: Form Feedback (equity-thesis-contradiction-runner sample_0004_short_risk): 看空反证：空头拥挤、回补风险和潜在上行催化会抬高单边做空的损失概率。\nlong_thesis_score >= 0.72。\n明确冲突：该证据反驳 看空优先，必须隔离到冲突审查流程。",
         ].join("\n"),
         notes: "approved via web\nReview kr_1234: survivor retained after absorbing duplicate.\nLibrarian merge: not physically deleted.",
       },
@@ -954,15 +954,15 @@ test("faithfulness strips approval audit wrappers before scoring business claims
 test("faithfulness excludes sensor firewall audit wrappers from claim scoring", () => {
   const result = evaluateFaithfulness({
     evidenceCorpus: [
-      "混合方案证据：PPG 连续 + ECG 复核。",
+      "分层仓位证据：核心多头 + 空头对冲。",
     ],
     knowledgeItems: [
       {
         id: "kb_gate_gate_sensor_recurring_1234",
-        sourceRef: "health-signal-contradiction-runner:sample_0029_hybrid_support",
-        title: "外部反馈: recurring sensor error unknown from health-signal-contradiction-runner",
+        sourceRef: "equity-thesis-contradiction-runner:sample_0029_tiered_support",
+        title: "外部反馈: recurring market signal unknown from equity-thesis-contradiction-runner",
         status: "strong",
-        content: "User quote: recurring sensor error unknown from health-signal-contradiction-runner: 混合方案证据：PPG 连续 + ECG 复核.",
+        content: "User quote: recurring market signal unknown from equity-thesis-contradiction-runner: 分层仓位证据：核心多头 + 空头对冲.",
         tags: ["meaning_gate", "sensor_firewall", "external_feedback"],
       },
     ],
@@ -978,16 +978,16 @@ test("faithfulness excludes sensor firewall audit wrappers from claim scoring", 
 
 test("faithfulness reports low coverage and unavailable evidence honestly", () => {
   const lowCoverage = evaluateFaithfulness({
-    evidenceCorpus: ["PPG 优先：光学 PPG 在静息心率监测下功耗低。"],
+    evidenceCorpus: ["看多优先：目标公司收入增速与自由现金流修复共振。"],
     knowledgeItems: [
       {
-        id: "kb_sample_0001_ppg_support",
-        sourceRef: "health-signal-contradiction-runner:sample_0001_ppg_support",
-        tags: ["ppg_priority_score>=0.78"],
+        id: "kb_sample_0001_long_support",
+        sourceRef: "equity-thesis-contradiction-runner:sample_0001_long_support",
+        tags: ["long_thesis_score>=0.78"],
         status: "active",
         content: [
           "需要后续人工复查。",
-          "PPG 优先：光学 PPG 在静息心率监测下功耗低。",
+          "看多优先：目标公司收入增速与自由现金流修复共振。",
           "这是一条没有确定性锚点的流程备注。",
         ].join("\n"),
       },
@@ -1004,13 +1004,13 @@ test("faithfulness reports low coverage and unavailable evidence honestly", () =
     evidenceCorpus: [],
     knowledgeItems: [
       {
-        id: "kb_sample_0005_hybrid_support",
-        sourceRef: "health-signal-contradiction-runner:sample_0005_hybrid_support",
+        id: "kb_sample_0005_tiered_support",
+        sourceRef: "equity-thesis-contradiction-runner:sample_0005_tiered_support",
         status: "active",
         content: [
-          "混合方案：PPG 用于低功耗连续静息心率趋势，ECG 用于疑似异常时主动复核。",
-          "hybrid_decision_confidence >= 0.81。",
-          "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。",
+          "分层仓位方案：核心多头捕捉基本面上行，空头或现金对冲用于财报波动。",
+          "tiered_thesis_confidence >= 0.81。",
+          "当前最优仓位决策：多空分层仓位方案，置信度 0.71。",
         ].join("\n"),
       },
     ],

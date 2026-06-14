@@ -1,66 +1,66 @@
-export const EXPECTED_HEALTH_SIGNAL_DECISION = "hybrid_layered";
+export const EXPECTED_EQUITY_THESIS_DECISION = "tiered_thesis";
 
-export const HEALTH_SIGNAL_ORACLE_BY_SIDE = Object.freeze({
-  ppg_support: {
-    oracleSide: "ppg_support",
-    expectedDecision: EXPECTED_HEALTH_SIGNAL_DECISION,
+export const EQUITY_THESIS_ORACLE_BY_SIDE = Object.freeze({
+  long_support: {
+    oracleSide: "long_support",
+    expectedDecision: EXPECTED_EQUITY_THESIS_DECISION,
     expectedDisposition: "superseded_or_quarantined_when_conflicted",
-    scoreableResolutionRule: "ppg_risk_beats_ppg_support",
+    scoreableResolutionRule: "long_risk_beats_long_support",
   },
-  ecg_support: {
-    oracleSide: "ecg_support",
-    expectedDecision: EXPECTED_HEALTH_SIGNAL_DECISION,
+  short_support: {
+    oracleSide: "short_support",
+    expectedDecision: EXPECTED_EQUITY_THESIS_DECISION,
     expectedDisposition: "superseded_or_quarantined_when_conflicted",
-    scoreableResolutionRule: "ecg_risk_beats_ecg_support",
+    scoreableResolutionRule: "short_risk_beats_short_support",
   },
-  ppg_risk: {
-    oracleSide: "ppg_risk",
-    expectedDecision: EXPECTED_HEALTH_SIGNAL_DECISION,
-    expectedDisposition: "retained_over_ppg_support",
-    scoreableResolutionRule: "ppg_risk_beats_ppg_support",
+  long_risk: {
+    oracleSide: "long_risk",
+    expectedDecision: EXPECTED_EQUITY_THESIS_DECISION,
+    expectedDisposition: "retained_over_long_support",
+    scoreableResolutionRule: "long_risk_beats_long_support",
   },
-  ecg_risk: {
-    oracleSide: "ecg_risk",
-    expectedDecision: EXPECTED_HEALTH_SIGNAL_DECISION,
-    expectedDisposition: "retained_over_ecg_support",
-    scoreableResolutionRule: "ecg_risk_beats_ecg_support",
+  short_risk: {
+    oracleSide: "short_risk",
+    expectedDecision: EXPECTED_EQUITY_THESIS_DECISION,
+    expectedDisposition: "retained_over_short_support",
+    scoreableResolutionRule: "short_risk_beats_short_support",
   },
-  hybrid_support: {
-    oracleSide: "hybrid_support",
-    expectedDecision: EXPECTED_HEALTH_SIGNAL_DECISION,
+  tiered_support: {
+    oracleSide: "tiered_support",
+    expectedDecision: EXPECTED_EQUITY_THESIS_DECISION,
     expectedDisposition: "retained_as_final_decision",
-    scoreableResolutionRule: "hybrid_support_beats_hybrid_reject",
+    scoreableResolutionRule: "tiered_support_beats_tiered_reject",
   },
-  hybrid_reject: {
-    oracleSide: "hybrid_reject",
-    expectedDecision: EXPECTED_HEALTH_SIGNAL_DECISION,
+  tiered_reject: {
+    oracleSide: "tiered_reject",
+    expectedDecision: EXPECTED_EQUITY_THESIS_DECISION,
     expectedDisposition: "quarantined_or_deprecated",
-    scoreableResolutionRule: "hybrid_support_beats_hybrid_reject",
+    scoreableResolutionRule: "tiered_support_beats_tiered_reject",
   },
 });
 
-const ORACLE_SIDE_PATTERN = /(hybrid_support|hybrid_reject|ppg_support|ppg_risk|ecg_support|ecg_risk)/i;
+const ORACLE_SIDE_PATTERN = /(tiered_support|tiered_reject|long_support|long_risk|short_support|short_risk)/i;
 const ACTIVE_STATUSES = new Set(["active", "strong"]);
 const NON_CONFLICT_SEED_ID_PREFIXES = ["kb_seed_identity", "kb_seed_world"];
-const DISALLOWED_FINAL_DECISIONS = new Set(["ppg_only", "ecg_only", "hybrid_reject"]);
+const DISALLOWED_FINAL_DECISIONS = new Set(["long_only", "short_only", "tiered_reject"]);
 const NON_FINAL_STATUSES = new Set(["quarantined", "deprecated", "stale", "archived"]);
-const CONFLICT_SIDE_SOURCE_PATTERN = /\bsample_\d{4}_(?:hybrid_support|hybrid_reject|ppg_support|ppg_risk|ecg_support|ecg_risk)\b/i;
-const STRUCTURED_METRIC_THRESHOLD_PATTERN = /\b(?:ppg_priority_score|ecg_priority_score|hybrid_decision_confidence|long_thesis_score|short_thesis_score|bull_thesis_score|bear_thesis_score|tiered_thesis_confidence)\b\s*(?:>=|<=|>|<|=|≥|≤)\s*-?(?:\d+(?:\.\d+)?|\.\d+)/i;
+const CONFLICT_SIDE_SOURCE_PATTERN = /\bsample_\d{4}_(?:tiered_support|tiered_reject|long_support|long_risk|short_support|short_risk)\b/i;
+const STRUCTURED_METRIC_THRESHOLD_PATTERN = /\b(?:long_thesis_score|short_thesis_score|bull_thesis_score|bear_thesis_score|tiered_thesis_confidence)\b\s*(?:>=|<=|>|<|=|≥|≤)\s*-?(?:\d+(?:\.\d+)?|\.\d+)/i;
 const EXPLICIT_CONFLICT_STATEMENT_PATTERN = /明确冲突|互相矛盾|相互矛盾|结论冲突|推荐冲突|与[^。；;]{0,80}冲突|进入\s*conflict|记录\s*conflict|冲突审查|conflict\s+知识状态|contradict|contradiction/i;
-const GOVERNANCE_OR_TASK_RESTATEMENT_PATTERN = /种子身份|种子世界|身份:wearable|每轮任务|本次验证窗口|本轮应用场景|目标用户|设备定价|续航目标|创始人偏好|绝不做|红线|不得绕过|不得把|必须记录\s*conflict|等待人工审核|低置信度|单轮\s*llm|human gate|dry-run|回滚步骤|审计摘要|挂起晋级|流程|任务设定/i;
+const GOVERNANCE_OR_TASK_RESTATEMENT_PATTERN = /种子身份|种子世界|身份:(?:equity|thesis|investment)|每轮任务|本次验证窗口|本轮应用场景|研究主体|目标标的|投资约束|组合约束|仓位约束|仓位上限|回撤预算|流动性约束|财报窗口|创始人偏好|绝不做|红线|不得绕过|不得把|必须记录\s*conflict|等待人工审核|低置信度|单轮\s*llm|human gate|dry-run|回滚步骤|审计摘要|挂起晋级|流程|任务设定/i;
 const RESOLUTION_SIDE_TIERS = Object.freeze({
-  hybrid_support: 1,
-  ppg_risk: 2,
-  ecg_risk: 2,
-  ppg_support: 3,
-  ecg_support: 3,
-  hybrid_reject: 4,
+  tiered_support: 1,
+  long_risk: 2,
+  short_risk: 2,
+  long_support: 3,
+  short_support: 3,
+  tiered_reject: 4,
 });
 const RESOLUTION_TIER_LABELS = Object.freeze({
-  1: "T1_hybrid_support",
-  2: "T2_single_sensor_risk",
-  3: "T3_single_sensor_support",
-  4: "T4_hybrid_reject",
+  1: "T1_tiered_support",
+  2: "T2_single_side_risk",
+  3: "T3_single_side_support",
+  4: "T4_tiered_reject",
 });
 export const RESOLUTION_SCOREABLE_COVERAGE_THRESHOLD = 0.6;
 export const CALIBRATION_SCOREABLE_COVERAGE_THRESHOLD = 0.6;
@@ -73,13 +73,13 @@ export const LATENCY_SLO_THRESHOLDS_MS = Object.freeze({
 
 export function oracleMetadataForSide(side) {
   const normalized = String(side ?? "").toLowerCase();
-  return HEALTH_SIGNAL_ORACLE_BY_SIDE[normalized] ?? null;
+  return EQUITY_THESIS_ORACLE_BY_SIDE[normalized] ?? null;
 }
 
 export function oracleEventFields(side) {
   return oracleMetadataForSide(side) ?? {
     oracleSide: null,
-    expectedDecision: EXPECTED_HEALTH_SIGNAL_DECISION,
+    expectedDecision: EXPECTED_EQUITY_THESIS_DECISION,
     expectedDisposition: null,
     scoreableResolutionRule: null,
   };
@@ -180,7 +180,7 @@ function knowledgeTags(item) {
 function stripFeedbackQuotePrefix(value) {
   return normalizeSpace(value)
     .replace(/^form feedback\s*\([^)]*\)\s*:\s*/i, "")
-    .replace(/^recurring sensor error unknown from [^:]+:\s*/i, "");
+    .replace(/^recurring market signal unknown from [^:]+:\s*/i, "");
 }
 
 function faithfulnessBusinessText(value) {
@@ -195,7 +195,7 @@ function faithfulnessBusinessText(value) {
     if (/^approved via web\b/i.test(line)) continue;
     if (/^librarian merge\s*:/i.test(line)) continue;
     if (/^review\s+kr_[a-z0-9_-]+\s*:/i.test(line)) continue;
-    if (/^health signal validation human proxy\b/i.test(line)) continue;
+    if (/^equity thesis validation human proxy\b/i.test(line)) continue;
     const summary = /^summary\s*:\s*(.+)$/i.exec(line);
     if (summary) {
       kept.push(normalizeSpace(summary[1]));
@@ -219,32 +219,32 @@ function faithfulnessTextForKnowledge(item) {
   ].filter(Boolean).join("\n");
 }
 
-function inferHealthSignalOracleSideFromText(value) {
+function inferEquityThesisOracleSideFromText(value) {
   const text = normalizeLexical(value);
   if (!text) return null;
-  if (/hybrid_decision_confidence\s*(?:<=|<|≤)\s*(?:0(?:\.\d+)?|1(?:\.0+)?|\.\d+)|反对混合方案[^。；;]{0,120}hybrid_decision_confidence|混合方案反证[^。；;]{0,120}hybrid_decision_confidence/i.test(text)) {
-    return "hybrid_reject";
+  if (/tiered_thesis_confidence\s*(?:<=|<|≤)\s*(?:0(?:\.\d+)?|1(?:\.0+)?|\.\d+)|反对分层(?:仓位|论点|组合)?[^。；;]{0,120}tiered_thesis_confidence|分层(?:仓位|论点)?反证[^。；;]{0,120}tiered_thesis_confidence/i.test(text)) {
+    return "tiered_reject";
   }
-  if (/hybrid_decision_confidence\s*(?:>=|>|≥)\s*(?:0(?:\.\d+)?|1(?:\.0+)?|\.\d+)|ppg\s*(?:\+|＋)\s*ecg[^。；;]{0,120}hybrid_decision_confidence/i.test(text)) {
-    return "hybrid_support";
+  if (/tiered_thesis_confidence\s*(?:>=|>|≥)\s*(?:0(?:\.\d+)?|1(?:\.0+)?|\.\d+)|(?:核心多头|多头核心|long)[^。；;]{0,120}(?:空头对冲|short|对冲)[^。；;]{0,120}tiered_thesis_confidence/i.test(text)) {
+    return "tiered_support";
   }
-  if (/ecg\s*风险|ecg[^。；;]{0,40}(电极接触|主动测量交互|功耗|交互|成本压力)|当前最优选型决策[:：]\s*ppg\s*做连续监测/i.test(text)) {
-    return "ecg_risk";
+  if (/看空(?:论点)?(?:风险|反证)|空头(?:风险|反证)|short[^。；;]{0,60}(squeeze|拥挤|挤压|回补|反弹|催化)|当前最优(?:仓位|研判)决策[:：]\s*(?:核心多头|多头核心|多头为主)/i.test(text)) {
+    return "short_risk";
   }
-  if (/ppg\s*风险|ppg[^。；;]{0,60}(肤色|佩戴松紧|环境光|运动伪影)|医疗级判定需要\s*ecg/i.test(text)) {
-    return "ppg_risk";
+  if (/看多(?:论点)?(?:风险|反证)|多头(?:风险|反证)|long[^。；;]{0,60}(估值|下修|回撤|拥挤|盈利)|需要(?:空头|现金|对冲)保护/i.test(text)) {
+    return "long_risk";
   }
-  if (/当前最优选型决策[:：]\s*优先\s*ecg|ecg\s*优先[^。；;]{0,80}(nmpa|医疗器械|心电信号|可解释)|ppg_priority_score\s*<=\s*0\.35/i.test(text)) {
-    return "ecg_support";
+  if (/当前最优(?:仓位|研判)决策[:：]\s*(?:偏空|做空|优先做空)|(?:看空|空头|short)\s*优先[^。；;]{0,100}(估值|盈利|收入|指引|下修|基本面)|long_thesis_score\s*<=\s*0\.35/i.test(text)) {
+    return "short_support";
   }
-  if (/当前最优选型决策[:：]\s*优先\s*ppg|ppg\s*优先[^。；;]{0,80}(bom|成本|续航|¥899|低功耗)|ppg_priority_score\s*>=\s*0\.78/i.test(text)) {
-    return "ppg_support";
+  if (/当前最优(?:仓位|研判)决策[:：]\s*(?:偏多|做多|优先做多)|(?:看多|多头|long)\s*优先[^。；;]{0,100}(收入|利润|毛利|现金流|基本面|估值修复)|long_thesis_score\s*>=\s*0\.78/i.test(text)) {
+    return "long_support";
   }
   return null;
 }
 
 function oracleSideForKnowledge(item) {
-  return inferOracleSideFromValue(item) ?? inferHealthSignalOracleSideFromText(textForKnowledge(item));
+  return inferOracleSideFromValue(item) ?? inferEquityThesisOracleSideFromText(textForKnowledge(item));
 }
 
 function explicitOracleSideForKnowledge(item) {
@@ -327,7 +327,7 @@ function conflictKnowledgeEligibility(item) {
   if (!evidenceGate.scoreable) {
     return { eligible: false, oracleSide: null, reason: evidenceGate.reason };
   }
-  const oracleSide = explicitOracleSideForKnowledge(item) ?? inferHealthSignalOracleSideFromText(conflictEvidenceText(item));
+  const oracleSide = explicitOracleSideForKnowledge(item) ?? inferEquityThesisOracleSideFromText(conflictEvidenceText(item));
   if (!oracleSide) {
     return { eligible: false, oracleSide: null, reason: "no_oracle_side" };
   }
@@ -364,13 +364,13 @@ function excludedAsNonConflictSummary(excluded = []) {
   };
 }
 
-const HEALTH_SIGNAL_TEMPLATE_CONFIDENCE_BY_SIDE = Object.freeze({
-  ppg_support: 0.64,
-  ecg_support: 0.66,
-  ppg_risk: 0.61,
-  ecg_risk: 0.61,
-  hybrid_support: 0.71,
-  hybrid_reject: 0.63,
+const EQUITY_THESIS_TEMPLATE_CONFIDENCE_BY_SIDE = Object.freeze({
+  long_support: 0.64,
+  short_support: 0.66,
+  long_risk: 0.61,
+  short_risk: 0.61,
+  tiered_support: 0.71,
+  tiered_reject: 0.63,
 });
 
 function boundedConfidence(value) {
@@ -393,8 +393,8 @@ function structuredConfidence(value, depth = 0) {
       "confidence",
       "decisionConfidence",
       "decision_confidence",
-      "hybridDecisionConfidence",
-      "hybrid_decision_confidence",
+      "tieredThesisConfidence",
+      "tiered_thesis_confidence",
     ]) {
       const confidence = boundedConfidence(record[key]);
       if (confidence != null) return confidence;
@@ -448,10 +448,10 @@ function confidenceForKnowledge(item) {
   ].filter(Boolean).join(" "));
   if (
     side &&
-    HEALTH_SIGNAL_TEMPLATE_CONFIDENCE_BY_SIDE[side] != null &&
-    /health-signal-contradiction-runner|sample_\d{4}_|kb_gate_sample|health_signal/.test(sourceText)
+    EQUITY_THESIS_TEMPLATE_CONFIDENCE_BY_SIDE[side] != null &&
+    /equity-thesis-contradiction-runner|sample_\d{4}_|kb_gate_sample|equity_thesis/.test(sourceText)
   ) {
-    return HEALTH_SIGNAL_TEMPLATE_CONFIDENCE_BY_SIDE[side];
+    return EQUITY_THESIS_TEMPLATE_CONFIDENCE_BY_SIDE[side];
   }
   return null;
 }
@@ -463,8 +463,8 @@ function actualDispositionMatchesOracle(item, oracle) {
   const isRemoved = Boolean(supersededBy) || NON_FINAL_STATUSES.has(status);
   switch (oracle?.expectedDisposition) {
     case "retained_as_final_decision":
-    case "retained_over_ppg_support":
-    case "retained_over_ecg_support":
+    case "retained_over_long_support":
+    case "retained_over_short_support":
       return isRetained;
     case "superseded_or_quarantined_when_conflicted":
     case "quarantined_or_deprecated":
@@ -474,26 +474,26 @@ function actualDispositionMatchesOracle(item, oracle) {
   }
 }
 
-export function classifyHealthSignalDecision(item) {
+export function classifyEquityThesisDecision(item) {
   const side = oracleSideForKnowledge(item);
-  if (side === "ppg_support") return "ppg_only";
-  if (side === "ecg_support") return "ecg_only";
-  if (side === "hybrid_support" || side === "ppg_risk" || side === "ecg_risk") return "hybrid_layered";
-  if (side === "hybrid_reject") return "hybrid_reject";
+  if (side === "long_support") return "long_only";
+  if (side === "short_support") return "short_only";
+  if (side === "tiered_support" || side === "long_risk" || side === "short_risk") return "tiered_thesis";
+  if (side === "tiered_reject") return "tiered_reject";
 
   const text = textForKnowledge(item);
   if (!text) return "unknown";
-  if (/反对混合方案|hybrid_reject|hybrid_decision_confidence\s*<=|双传感器[^。；;]{0,40}(过高|复杂)|保留\s*ECG\s*作为\s*Pro SKU/i.test(text)) {
-    return "hybrid_reject";
+  if (/反对分层(?:仓位|论点|组合)?|tiered_reject|tiered_thesis_confidence\s*<=|拒绝(?:空头|现金|对冲)保护|只做单边(?:多头|空头)?|取消分层/i.test(text)) {
+    return "tiered_reject";
   }
-  if (/PPG\s*\+\s*ECG|PPG[^。；;]{0,80}ECG[^。；;]{0,80}(复核|二次确认|分层|补强|医疗级)|ECG[^。；;]{0,80}PPG[^。；;]{0,80}(连续|趋势|低功耗)|混合方案|分层方案|双模/i.test(text)) {
-    return "hybrid_layered";
+  if (/多空分层|分层仓位|分层论点|核心多头[^。；;]{0,100}(空头|对冲|现金)|(?:long|多头)[^。；;]{0,80}(?:short|空头|对冲)[^。；;]{0,80}(?:tiered|分层)|仓位分层/i.test(text)) {
+    return "tiered_thesis";
   }
-  if (/(当前最优选型决策[:：]\s*)?优先\s*ECG|ECG\s*优先|ppg_priority_score\s*<=/i.test(text)) {
-    return "ecg_only";
+  if (/(当前最优(?:仓位|研判)决策[:：]\s*)?(?:优先)?\s*(?:做空|偏空)|(?:看空|空头|short)\s*优先|long_thesis_score\s*<=/i.test(text)) {
+    return "short_only";
   }
-  if (/(当前最优选型决策[:：]\s*)?优先\s*PPG|PPG\s*优先|ppg_priority_score\s*>=/i.test(text)) {
-    return "ppg_only";
+  if (/(当前最优(?:仓位|研判)决策[:：]\s*)?(?:优先)?\s*(?:做多|偏多)|(?:看多|多头|long)\s*优先|long_thesis_score\s*>=/i.test(text)) {
+    return "long_only";
   }
   return "unknown";
 }
@@ -506,28 +506,28 @@ export function evaluateDecisionTsr(knowledgeItems = [], options = {}) {
     knowledgeId: knowledgeId(item),
     title: String(field(item, "title") ?? ""),
     oracleSide: oracleSideForKnowledge(item),
-    decision: classifyHealthSignalDecision(item),
+    decision: classifyEquityThesisDecision(item),
     status: statusForKnowledge(item),
   }));
   const decisions = new Set(classified.map((item) => item.decision));
   const disallowed = classified.filter((item) => DISALLOWED_FINAL_DECISIONS.has(item.decision));
-  const hybrid = classified.filter((item) => item.decision === EXPECTED_HEALTH_SIGNAL_DECISION);
-  const passed = hybrid.length > 0 && disallowed.length === 0;
+  const tiered = classified.filter((item) => item.decision === EXPECTED_EQUITY_THESIS_DECISION);
+  const passed = tiered.length > 0 && disallowed.length === 0;
   return {
     status: eligible.length === 0 ? "insufficient_evidence" : (passed ? "pass" : "fail"),
     passed,
-    interpretation: "single-scenario pass@1 check: verifies that the final active/strong card state matches the preset Health Signal oracle; it is not an independent reasoning benchmark",
+    interpretation: "single-scenario pass@1 check: verifies that the final active/strong card state matches the preset equity-thesis oracle; it is not an independent reasoning benchmark",
     passK: normalizePassKAggregate(options.passKAggregate),
-    expectedDecision: EXPECTED_HEALTH_SIGNAL_DECISION,
+    expectedDecision: EXPECTED_EQUITY_THESIS_DECISION,
     eligibleKnowledgeCount: eligible.length,
-    hybridLayeredCount: hybrid.length,
+    tieredThesisCount: tiered.length,
     disallowedFinalCount: disallowed.length,
     decisions: Object.fromEntries(Array.from(decisions).sort().map((decision) => [
       decision,
       classified.filter((item) => item.decision === decision).length,
     ])),
     disallowedFinalKnowledge: disallowed,
-    hybridLayeredKnowledge: hybrid.slice(0, 20),
+    tieredThesisKnowledge: tiered.slice(0, 20),
   };
 }
 
@@ -703,81 +703,78 @@ function splitClaims(text) {
 }
 
 const FAITHFULNESS_DOMAIN_PHRASES = Object.freeze([
-  "ppg 优先",
-  "ecg 优先",
-  "ppg+ecg 分层方案",
-  "ppg + ecg",
-  "ppg 做连续监测",
-  "ecg 作为二次确认模块",
-  "ppg 用于低功耗连续静息心率趋势",
-  "ecg 用于疑似异常时主动复核",
-  "医疗级证据补强",
-  "混合方案",
-  "分层方案",
-  "反对混合方案",
-  "双传感器方案",
-  "ppg 风险",
-  "ecg 风险",
-  "医疗级判定需要 ecg",
-  "人工复核",
-  "主动复核",
-  "连续监测",
-  "连续采样",
-  "静息心率",
-  "心电信号",
-  "信号可解释",
-  "nmpa 三类",
-  "医疗器械认证",
-  "bom 成本",
-  "bom",
-  "¥899 定价",
-  "7 天续航",
-  "低功耗",
-  "佩戴舒适度",
-  "肤色",
-  "佩戴松紧",
-  "环境光",
-  "运动伪影",
-  "电极接触",
-  "主动测量交互",
-  "结构复杂度",
-  "认证范围",
-  "pro sku",
-  "成本约束",
-  "定价目标",
-  "FDA Class III 认证",
+  "看多优先",
+  "看空优先",
+  "多空分层仓位方案",
+  "核心多头 + 空头对冲",
+  "核心多头",
+  "空头对冲",
+  "多头仓位",
+  "空头仓位",
+  "分层仓位",
+  "分层论点",
+  "反对分层仓位",
+  "单边仓位",
+  "看多反证",
+  "看空反证",
+  "多头风险",
+  "空头风险",
+  "回撤保护",
+  "现金缓冲",
+  "仓位上限",
+  "止损规则",
+  "财报窗口",
+  "估值扩张",
+  "估值压缩",
+  "盈利上修",
+  "盈利下修",
+  "收入增速",
+  "毛利率改善",
+  "自由现金流",
+  "空头拥挤",
+  "short squeeze",
+  "回补风险",
+  "流动性约束",
+  "事件催化",
+  "基本面上行",
+  "下行风险",
+  "风险预算",
+  "仓位决策",
+  "组合风控",
+  "监管披露合规审查",
 ]);
 
 const FAITHFULNESS_DOMAIN_TERMS = Object.freeze([
-  "ppg",
-  "ecg",
-  "bom",
-  "nmpa",
-  "fda",
-  "class iii",
-  "续航",
-  "成本",
-  "认证",
-  "医疗",
-  "功耗",
-  "佩戴",
-  "运动",
-  "肤色",
-  "环境光",
-  "电极",
-  "复核",
-  "连续",
+  "long",
+  "short",
+  "tiered",
+  "多头",
+  "空头",
+  "看多",
+  "看空",
+  "仓位",
   "分层",
-  "混合",
-  "静息心率",
-  "趋势",
-  "定价",
-  "sku",
+  "对冲",
+  "估值",
+  "盈利",
+  "收入",
+  "毛利",
+  "现金流",
+  "回撤",
+  "财报",
+  "流动性",
+  "催化",
+  "风控",
+  "风险",
+  "基本面",
+  "组合",
+  "分层",
   "置信度",
 ]);
 
 const FAITHFULNESS_STOP_PHRASES = Object.freeze([
-  "当前最优选型决策",
+  "当前最优仓位决策",
+  "当前最优研判决策",
   "关键证据",
   "明确冲突",
   "建议",
@@ -1103,9 +1100,9 @@ function expectedWinnerSide(leftSide, rightSide, { dedupeMode = "exact" } = {}) 
   if (winnerTier === 1) {
     return {
       winner,
-      rule: `hybrid_support_beats_${loser}`,
+      rule: `tiered_support_beats_${loser}`,
       duplicate: false,
-      rationale: "T1 hybrid_support 是预置正解本体：PPG 连续趋势 + ECG 异常复核/医疗证据补强，因此在跨层冲突中应保留。",
+      rationale: "T1 tiered_support 是预置正解本体：核心多头 + 空头/现金对冲的分层仓位，因此在跨层冲突中应保留。",
     };
   }
   if (winnerTier === 2 && loserTier === 3) {
@@ -1113,15 +1110,15 @@ function expectedWinnerSide(leftSide, rightSide, { dedupeMode = "exact" } = {}) 
       winner,
       rule: `${winner}_beats_${loser}`,
       duplicate: false,
-      rationale: "T2 风险证据证伪单传感器优先主张，并推动系统走向 hybrid_layered，因此应胜过 T3 单传感器 support。",
+      rationale: "T2 风险证据证伪单边多头/空头优先主张，并推动系统走向 tiered_thesis，因此应胜过 T3 单边 support。",
     };
   }
   if (winnerTier === 2 && loserTier === 4) {
     return {
       winner,
-      rule: `${winner}_beats_hybrid_reject`,
+      rule: `${winner}_beats_tiered_reject`,
       duplicate: false,
-      rationale: "T2 风险证据仍支持分层必要性，而 T4 hybrid_reject 反对分层；按 hybrid_layered 正解，T2 应胜过 T4。",
+      rationale: "T2 风险证据仍支持分层仓位必要性，而 T4 tiered_reject 反对分层；按 tiered_thesis 正解，T2 应胜过 T4。",
     };
   }
   return null;
@@ -1138,7 +1135,7 @@ function unscoredResolutionReason(primarySide, relatedSide) {
     return "ambiguous_same_layer_pair";
   }
   if ((primaryTier === 3 && relatedTier === 4) || (primaryTier === 4 && relatedTier === 3)) {
-    return "ambiguous_t3_support_vs_t4_hybrid_reject";
+    return "ambiguous_t3_support_vs_t4_tiered_reject";
   }
   return "no_deterministic_rule";
 }
@@ -1173,7 +1170,7 @@ export function scoreResolutionEvent(event, options = {}) {
     resolutionUnorderedPairType: unorderedResolutionPairType(primarySide, relatedSide),
     primaryResolutionTier: primarySide ? RESOLUTION_TIER_LABELS[resolutionTier(primarySide)] ?? null : null,
     relatedResolutionTier: relatedSide ? RESOLUTION_TIER_LABELS[resolutionTier(relatedSide)] ?? null : null,
-    expectedDecision: EXPECTED_HEALTH_SIGNAL_DECISION,
+    expectedDecision: EXPECTED_EQUITY_THESIS_DECISION,
     expectedDisposition: primarySide ? oracleMetadataForSide(primarySide)?.expectedDisposition ?? null : null,
     dedupeMode,
     scoreableResolutionRule: expected?.rule ?? null,
@@ -1388,11 +1385,11 @@ export function latencyAndEfficiencyMetrics({ events = [], samples = [], llmCall
   };
 }
 
-export function summarizeHealthSignalQuality({ knowledgeItems = [], events = [], samples = [], llmCalls = [], evidenceCorpus = [], faithfulnessJudge = "lexical", passKAggregate = null, dedupeMode = "exact", enforceLatencySlo = false } = {}) {
+export function summarizeEquityThesisQuality({ knowledgeItems = [], events = [], samples = [], llmCalls = [], evidenceCorpus = [], faithfulnessJudge = "lexical", passKAggregate = null, dedupeMode = "exact", enforceLatencySlo = false } = {}) {
   const rssSlope = rssSlopeMbPerHour(samples);
   return {
     generatedAt: new Date().toISOString(),
-    expectedDecision: EXPECTED_HEALTH_SIGNAL_DECISION,
+    expectedDecision: EXPECTED_EQUITY_THESIS_DECISION,
     decisionTsr: evaluateDecisionTsr(knowledgeItems, { passKAggregate }),
     resolutionAccuracy: scoreResolutionAccuracy(events, { dedupeMode }),
     confidenceCalibration: evaluateConfidenceCalibration(knowledgeItems),

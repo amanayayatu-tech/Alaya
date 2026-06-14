@@ -158,19 +158,19 @@ test("shadow analyzer fails incomplete/crashed fixture", () => {
   assert.match(report, /durationAtLeast24h \| FAIL/);
 });
 
-test("shadow analyzer fails when decisionTsr finds active unsuperseded ppg_only knowledge", () => {
+test("shadow analyzer fails when decisionTsr finds active unsuperseded long_only knowledge", () => {
   const dir = makeLogDir("shadow-quality-decision-red");
   createQualityDb(dir, [
     {
-      id: "kb_gate_sample_0001_ppg_support",
-      title: "PPG 优先证据：成本与续航匹配",
-      content: "当前最优选型决策：优先 PPG，置信度 0.64。",
+      id: "kb_gate_sample_0001_long_support",
+      title: "看多优先证据：基本面上修与估值修复",
+      content: "当前最优仓位决策：优先做多，置信度 0.64。",
       status: "active",
     },
     {
-      id: "kb_gate_sample_0005_hybrid_support",
-      title: "混合方案证据：PPG 连续 + ECG 复核",
-      content: "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。",
+      id: "kb_gate_sample_0005_tiered_support",
+      title: "分层仓位证据：核心多头 + 空头对冲",
+      content: "当前最优仓位决策：多空分层仓位方案，置信度 0.71。",
       status: "active",
     },
   ]);
@@ -189,11 +189,11 @@ test("shadow analyzer fails when resolutionAccuracy preserves the weaker side", 
   writeFileSync(join(dir, "events.jsonl"), [
     JSON.stringify({
       eventType: "knowledge_review_resolved",
-      reviewId: "kr_bad_ppg",
-      primaryKnowledgeId: "kb_sample_0003_ppg_risk",
-      relatedKnowledgeId: "kb_sample_0001_ppg_support",
+      reviewId: "kr_bad_long",
+      primaryKnowledgeId: "kb_sample_0003_long_risk",
+      relatedKnowledgeId: "kb_sample_0001_long_support",
       action: "merge_supersede",
-      survivorKnowledgeId: "kb_sample_0001_ppg_support",
+      survivorKnowledgeId: "kb_sample_0001_long_support",
     }),
   ].join("\n") + "\n");
 
@@ -213,10 +213,10 @@ test("shadow analyzer marks resolutionAccuracy low coverage without failing the 
     JSON.stringify({
       eventType: "knowledge_review_resolved",
       reviewId: "kr_good",
-      primaryKnowledgeId: "kb_sample_0001_ppg_support",
-      relatedKnowledgeId: "kb_sample_0003_ppg_risk",
+      primaryKnowledgeId: "kb_sample_0001_long_support",
+      relatedKnowledgeId: "kb_sample_0003_long_risk",
       action: "merge_supersede",
-      survivorKnowledgeId: "kb_sample_0003_ppg_risk",
+      survivorKnowledgeId: "kb_sample_0003_long_risk",
     }),
     JSON.stringify({
       eventType: "knowledge_review_resolved",
@@ -242,23 +242,23 @@ test("shadow analyzer marks calibration and faithfulness low coverage without fa
     JSON.stringify({
       eventType: "contradiction_feedback_injected",
       evidenceText: [
-        "混合方案证据：PPG 连续 + ECG 复核。",
-        "hybrid_decision_confidence >= 0.81。",
-        "明确冲突：该结论与混合方案反证互相矛盾。",
-        "当前最优选型决策：PPG+ECG 分层方案，置信度 0.8。",
+        "分层仓位证据：核心多头 + 空头对冲。",
+        "tiered_thesis_confidence >= 0.81。",
+        "明确冲突：该结论与分层仓位反证互相矛盾。",
+        "当前最优仓位决策：多空分层仓位方案，置信度 0.8。",
       ].join("\n"),
     }),
   ].join("\n") + "\n");
   createQualityDb(dir, [
     {
-      id: "kb_proj_runtime_hybrid_support_001",
-      title: "运行知识: 混合方案",
-      source_ref: "sample_0005_hybrid_support",
+      id: "kb_proj_runtime_tiered_support_001",
+      title: "运行知识: 分层仓位方案",
+      source_ref: "sample_0005_tiered_support",
       content: [
-        "混合方案证据：PPG 连续 + ECG 复核。",
-        "hybrid_decision_confidence >= 0.81。",
-        "明确冲突：该结论与混合方案反证互相矛盾。",
-        "当前最优选型决策：PPG+ECG 分层方案，置信度 0.8。",
+        "分层仓位证据：核心多头 + 空头对冲。",
+        "tiered_thesis_confidence >= 0.81。",
+        "明确冲突：该结论与分层仓位反证互相矛盾。",
+        "当前最优仓位决策：多空分层仓位方案，置信度 0.8。",
       ].join("\n"),
       status: "active",
       confidence_score: 0.8,
@@ -266,21 +266,21 @@ test("shadow analyzer marks calibration and faithfulness low coverage without fa
     {
       id: "kb_generic_gray_001",
       title: "通用灰区知识",
-      content: "普通运行备注，不属于 Health Signal 冲突评估对象。",
+      content: "普通运行备注，不属于 Equity Thesis 冲突评估对象。",
       status: "active",
       confidence_score: 0.5,
     },
     {
       id: "kb_generic_gray_002",
       title: "通用灰区知识",
-      content: "普通运行备注，不属于 Health Signal 冲突评估对象。",
+      content: "普通运行备注，不属于 Equity Thesis 冲突评估对象。",
       status: "active",
       confidence_score: 0.5,
     },
     {
       id: "kb_generic_gray_003",
       title: "通用灰区知识",
-      content: "普通运行备注，不属于 Health Signal 冲突评估对象。",
+      content: "普通运行备注，不属于 Equity Thesis 冲突评估对象。",
       status: "active",
       confidence_score: 0.5,
     },

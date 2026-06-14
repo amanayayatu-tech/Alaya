@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { summarizeHealthSignalQuality } from "./lib/health-signal-quality.mjs";
+import { summarizeEquityThesisQuality } from "./lib/health-signal-quality.mjs";
 
 function readJson(path, fallback = null) {
   try {
@@ -176,7 +176,7 @@ function reconstructAssessment(samples, events) {
   const semanticBypassCount = events.filter((eventItem) => (
     eventItem.eventType === "gate_approved" &&
     eventItem.via === "auto_approved_repeated_meaning" &&
-    /contradiction|conflict|矛盾|冲突|ppg|ecg|hybrid/i.test(JSON.stringify(eventItem))
+    /contradiction|conflict|矛盾|冲突|long|short|tiered|多头|空头|看多|看空|分层/i.test(JSON.stringify(eventItem))
   )).length;
   return {
     criteria: {
@@ -364,7 +364,7 @@ async function main() {
     FROM llm_calls
     ORDER BY id ASC
   `);
-  const qualitySummary = summarizeHealthSignalQuality({
+  const qualitySummary = summarizeEquityThesisQuality({
     knowledgeItems: knowledgeRows,
     events,
     samples,
@@ -433,7 +433,7 @@ async function main() {
   const qualityRows = [
     ["decisionTsr", decision.status === "insufficient_evidence"
       ? na("no active/strong DB knowledge available; measures preset oracle card state, pass@1 only")
-      : pass(decision.passed, `expected=${decision.expectedDecision} hybrid=${decision.hybridLayeredCount} disallowed=${decision.disallowedFinalCount} eligible=${decision.eligibleKnowledgeCount}; pass@1 single scenario`)],
+      : pass(decision.passed, `expected=${decision.expectedDecision} tiered=${decision.tieredThesisCount} disallowed=${decision.disallowedFinalCount} eligible=${decision.eligibleKnowledgeCount}; pass@1 single scenario`)],
     ["resolutionAccuracy", resolution.status === "insufficient_evidence"
       ? na(`scored=${resolution.scored} unscored=${resolution.unscored} unscoredTop=${topCounts(resolution.unscoredPairTypeCounts)}`)
       : resolution.status === "low_coverage"
@@ -481,7 +481,7 @@ async function main() {
     "",
     renderTable(qualityRows),
     "",
-    "Notes: `decisionTsr` is a deterministic pass@1 check for the preset Health Signal oracle state, not proof of independent reasoning. `resolutionAccuracy` is blocking only when scoreable coverage is at or above its threshold; low coverage is reported separately to avoid a misleading 100% on a tiny scored subset. API latency is harness polling/control latency under runner load, not production retrieval SLO.",
+    "Notes: `decisionTsr` is a deterministic pass@1 check for the preset equity-thesis oracle state, not proof of independent reasoning. `resolutionAccuracy` is blocking only when scoreable coverage is at or above its threshold; low coverage is reported separately to avoid a misleading 100% on a tiny scored subset. API latency is harness polling/control latency under runner load, not production retrieval SLO.",
     "",
     `Resolution pair distribution: scoredTop=${topCounts(resolution.scoredPairTypeCounts, 8)}; unscoredTop=${topCounts(resolution.unscoredPairTypeCounts, 8)}; unscoredReasons=${topCounts(resolution.unscoredReasonCounts, 8)}.`,
     `Calibration unscored reasons: ${topCounts(calibration.unscoredReasonCounts, 8)}.`,

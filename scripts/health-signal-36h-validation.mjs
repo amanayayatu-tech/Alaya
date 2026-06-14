@@ -21,17 +21,17 @@ const REQUIRED_OPENAI_BASE_URL = "https://api.minimax.io/openai";
 const REQUIRED_OPENAI_MODEL = "MiniMax-M3";
 const LAUNCH_GUARD_FAILURE_EXIT_CODE = 2;
 
-const PROJECT_NAME = "wearable-health-signal-decision";
+const PROJECT_NAME = "equity-thesis-position-decision";
 function projectDescription() {
   return [
-    "你是某智能健康硬件的产品决策系统。你需要对一个穿戴设备的核心传感器选型做出决策：",
-    "在用户静息心率监测场景下，应该优先选用 光学 PPG 传感器 还是 生物电阻抗 ECG 方案？",
+    "你是某个股投研与仓位决策系统。你需要对同一只目标个股做出多空研判与仓位决策：",
+    "在当前财报窗口与事件催化不确定的背景下，应该优先采用 单边看多、单边看空，还是多空分层仓位方案？",
     "",
-    "已知约束：设备定价目标 ¥899，续航目标 7 天，目标用户是 35-50 岁亚健康白领，需要通过 NMPA 三类医疗器械认证。",
+    "已知约束：单票仓位上限 12%，组合最大回撤预算 8%，财报窗口前后不得裸露单边高杠杆仓位，必须记录关键假设、反证与风险预算。",
     "",
     `本次验证窗口为 ${durationTextZh}，每 5 分钟采样一次。每轮必须复用当前知识库，不得只重算单轮结论；最终需要观察知识熵变、Human Gate 收敛、冲突解决和 Stall Guard 触发率。`,
     "",
-    "每轮任务：基于当前知识库，给出当前最优选型决策，并列明置信度与关键证据。如果遇到矛盾证据，必须在知识库中记录冲突并等待人工审核。",
+    "每轮任务：基于当前知识库，给出当前最优仓位决策，并列明置信度与关键证据。如果遇到多空矛盾证据，必须在知识库中记录 conflict 并等待人工审核。",
   ].join("\n");
 }
 
@@ -39,7 +39,7 @@ const STARTUP_FINDINGS = [
   {
     severity: "P2",
     title: "first four cycle stimuli are partly hard-coded to the generic high-risk automation scenario",
-    detail: "The health-signal onboarding prompt affects seed/project context, but the built-in flywheel scenarios still inject generic product automation feedback. The runner adds PPG/ECG contradiction evidence through the form-feedback path to test the conflict pipeline.",
+    detail: "The equity-thesis onboarding prompt affects seed/project context, but the built-in flywheel scenarios still inject generic product automation feedback. The runner adds long/short contradiction evidence through the form-feedback path to test the conflict pipeline.",
   },
 ];
 
@@ -52,63 +52,64 @@ function evidenceTemplate(input) {
 
 const EVIDENCE_TEMPLATES = [
   evidenceTemplate({
-    side: "ppg_support",
-    title: "PPG 优先证据：成本与续航匹配",
+    side: "long_support",
+    title: "看多优先证据：基本面上修与估值修复",
     text: [
-      "PPG 优先：光学 PPG 在静息心率监测下功耗低、BOM 成本低，更容易满足 ¥899 定价与 7 天续航。",
-      "ppg_priority_score >= 0.78。",
-      "当前最优选型决策：优先 PPG，置信度 0.64。",
-      "关键证据：日常趋势监测、佩戴舒适度、连续采样和成本约束更匹配 PPG。",
+      "看多优先：目标公司收入增速、毛利率改善和自由现金流修复共振，基本面上行更支持多头仓位。",
+      "long_thesis_score >= 0.78。",
+      "明确冲突：该结论与“看空优先”互相矛盾，必须进入 conflict 知识状态并等待人工审核。",
+      "当前最优仓位决策：优先做多，置信度 0.64。",
+      "关键证据：订单恢复、利润率弹性、估值修复和现金流改善更匹配多头论点。",
     ].join("\n"),
   }),
   evidenceTemplate({
-    side: "ecg_support",
-    title: "ECG 优先证据：医疗认证与信号可解释性",
+    side: "short_support",
+    title: "看空优先证据：盈利下修与估值压缩",
     text: [
-      "ECG 优先：生物电阻抗 ECG 的心电信号更可解释，NMPA 三类医疗器械认证路径上比单纯 PPG 更有说服力。",
-      "ppg_priority_score <= 0.35。",
-      "明确冲突：该结论与“PPG 优先”互相矛盾，必须进入 conflict 知识状态并等待人工审核。",
-      "当前最优选型决策：优先 ECG，置信度 0.66。",
+      "看空优先：收入指引下修、费用率上行和估值倍数压缩使空头论点更有解释力。",
+      "long_thesis_score <= 0.35。",
+      "明确冲突：该结论与“看多优先”互相矛盾，必须进入 conflict 知识状态并等待人工审核。",
+      "当前最优仓位决策：优先做空，置信度 0.66。",
     ].join("\n"),
   }),
   evidenceTemplate({
-    side: "ppg_risk",
-    title: "PPG 反证：肤色/佩戴/运动干扰",
+    side: "long_risk",
+    title: "看多反证：估值拥挤与盈利兑现风险",
     text: [
-      "PPG 风险：肤色、佩戴松紧、环境光和运动伪影会影响 PPG 静息心率可靠性。",
-      "ppg_priority_score <= 0.42。",
-      "明确冲突：该证据削弱之前 PPG 优先结论，不能直接复用为 active 决策依据。",
-      "建议：保留 PPG 作为低功耗连续趋势传感器，但医疗级判定需要 ECG 或人工复核。",
+      "看多反证：估值分位过高、盈利兑现滞后和多头拥挤会削弱单边看多结论。",
+      "long_thesis_score <= 0.42。",
+      "明确冲突：该证据削弱之前看多优先结论，不能直接复用为 active 决策依据。",
+      "建议：保留核心多头观察仓位，但需要空头或现金对冲控制回撤。",
     ].join("\n"),
   }),
   evidenceTemplate({
-    side: "ecg_risk",
-    title: "ECG 反证：功耗/交互/成本压力",
+    side: "short_risk",
+    title: "看空反证：回补风险与上行催化",
     text: [
-      "ECG 风险：ECG 需要更严格电极接触和主动测量交互，连续 7 天续航与 ¥899 定价下硬件和体验成本更高。",
-      "ppg_priority_score >= 0.72。",
-      "明确冲突：该证据反驳 ECG 优先，必须隔离到冲突审查流程。",
-      "当前最优选型决策：PPG 做连续监测，ECG 作为二次确认模块，置信度 0.61。",
+      "看空反证：空头拥挤、回补风险和潜在上行催化会抬高单边做空的损失概率。",
+      "long_thesis_score >= 0.72。",
+      "明确冲突：该证据反驳看空优先，必须隔离到冲突审查流程。",
+      "当前最优仓位决策：核心多头配合空头/现金对冲，置信度 0.61。",
     ].join("\n"),
   }),
   evidenceTemplate({
-    side: "hybrid_support",
-    title: "混合方案证据：PPG 连续 + ECG 复核",
+    side: "tiered_support",
+    title: "分层仓位证据：核心多头 + 空头对冲",
     text: [
-      "混合方案：PPG 用于低功耗连续静息心率趋势，ECG 用于疑似异常时主动复核和医疗级证据补强。",
-      "hybrid_decision_confidence >= 0.81。",
-      "明确冲突：混合方案与单一 PPG/单一 ECG 优先的结论都存在边界冲突，需要人工审核选择约束优先级。",
-      "当前最优选型决策：PPG+ECG 分层方案，置信度 0.71。",
+      "分层仓位方案：核心多头捕捉基本面上行，空头或现金对冲用于财报波动、估值回撤和事件风险保护。",
+      "tiered_thesis_confidence >= 0.81。",
+      "明确冲突：分层仓位方案与单边看多/单边看空结论都存在边界冲突，需要人工审核选择约束优先级。",
+      "当前最优仓位决策：多空分层仓位方案，置信度 0.71。",
     ].join("\n"),
   }),
   evidenceTemplate({
-    side: "hybrid_reject",
-    title: "混合方案反证：BOM 与认证复杂度过高",
+    side: "tiered_reject",
+    title: "分层仓位反证：交易成本与对冲拖累",
     text: [
-      "反对混合方案：双传感器方案会抬高 BOM、结构复杂度和认证范围，可能破坏 ¥899 定价目标。",
-      "hybrid_decision_confidence <= 0.38。",
-      "明确冲突：该结论与混合方案推荐互相矛盾，不能同时作为 active 知识复用。",
-      "当前最优选型决策：先 PPG，保留 ECG 作为 Pro SKU，置信度 0.63。",
+      "反对分层仓位：同时持有核心多头和空头/现金对冲会抬高交易成本、保证金占用和执行复杂度，可能拖累组合收益。",
+      "tiered_thesis_confidence <= 0.38。",
+      "明确冲突：该结论与分层仓位推荐互相矛盾，不能同时作为 active 知识复用。",
+      "当前最优仓位决策：先做多，保留空头对冲作为风险预算触发项，置信度 0.63。",
     ].join("\n"),
   }),
 ];
@@ -249,7 +250,7 @@ if (checkOnly) {
   process.exit(launchGuard.ok ? 0 : LAUNCH_GUARD_FAILURE_EXIT_CODE);
 }
 if (!launchGuard.ok) {
-  console.error("Health Signal validation launch guard failed:");
+  console.error("Equity Thesis validation launch guard failed:");
   for (const error of launchGuard.errors) console.error(`- ${error}`);
   process.exit(LAUNCH_GUARD_FAILURE_EXIT_CODE);
 }
@@ -332,7 +333,7 @@ function issue(finding) {
 const existingRun = existsSync(monitorCsv) || existsSync(eventsJsonl) || existsSync(issuesMd);
 
 if (!existsSync(issuesMd)) {
-  writeFileSync(issuesMd, `# Health Signal ${durationLabel} Validation Issues\n\nLog dir: ${logDir}\n`);
+  writeFileSync(issuesMd, `# Equity Thesis ${durationLabel} Validation Issues\n\nLog dir: ${logDir}\n`);
   for (const finding of STARTUP_FINDINGS) issue(finding);
 }
 
@@ -650,23 +651,23 @@ function projectPayload() {
   return {
     name: PROJECT_NAME,
     oneLiner: description,
-    targetUser: "35-50 岁亚健康白领；匿名智能健康硬件产品与合规团队",
-    currentHypothesis: `在 ${durationTextZh} 连续验证窗口内，¥899 定价、7 天续航和 NMPA 三类认证约束会持续拉扯 PPG/ECG/混合方案选型；系统必须复用历史知识、隔离矛盾知识并让 Human Gate 触发率逐步收敛。`,
-    neverDo: "不得把互相矛盾的 PPG/ECG 结论同时作为 active 决策事实复用；不得绕过 NMPA 三类认证约束。",
+    targetUser: "匿名投研团队；个股多空研判与组合风控负责人",
+    currentHypothesis: `在 ${durationTextZh} 连续验证窗口内，基本面上修、盈利下修、估值波动与事件催化会持续拉扯单边多头/单边空头/分层仓位决策；系统必须复用历史知识、隔离矛盾知识并让 Human Gate 触发率逐步收敛。`,
+    neverDo: "不得把互相矛盾的多空结论同时作为 active 决策事实复用；不得绕过仓位上限、回撤预算和财报窗口风险约束。",
     redlines: [
-      "遇到 PPG vs ECG 选型矛盾必须记录 conflict 并等待人工审核",
+      "遇到看多 vs 看空研判矛盾必须记录 conflict 并等待人工审核",
       "低置信度或单轮 LLM 结论不得直接晋级 strong",
-      "所有传感器选型建议必须同时说明成本、续航、目标用户和认证约束",
+      "所有仓位建议必须同时说明多空论点、风险预算、事件催化和退出条件",
     ],
-    founderPreference: "优先满足 ¥899 与 7 天续航，但不能牺牲医疗器械认证路径与长期可信度。",
-    competitors: "Apple Watch ECG/PPG、医疗级 Holter、国产健康手环 PPG、血压/心电一体腕带",
+    founderPreference: "优先保留风险调整后收益，但不能牺牲回撤预算、流动性约束和审计可解释性。",
+    competitors: "多头基本面报告、空头事件驱动报告、量化风险模型、组合经理仓位复盘",
     feedbackSources: `Codex ${durationLabel} runner 表单反馈矛盾注入、Alaya agent outputs、Human Gate 审核`,
     weeklyHumanMinutes: 10080,
     weeklyLlmBudgetCents: 1_000_000,
     firstClaimMetric: "decision_confidence",
     firstClaimOperator: ">=",
     firstClaimTarget: 0.7,
-    firstSignal: `每轮输出当前 PPG/ECG/混合方案选型、置信度、关键证据和冲突记录；${durationLabel} 全程观察 delta、Human Gate、conflict resolution 和 Stall Guard。`,
+    firstSignal: `每轮输出当前单边多头/单边空头/分层仓位决策、置信度、关键证据和冲突记录；${durationLabel} 全程观察 delta、Human Gate、conflict resolution 和 Stall Guard。`,
   };
 }
 
@@ -674,7 +675,7 @@ function projectConfigPatch() {
   const payload = projectPayload();
   const validationNote = [
     `${durationLabel} 验证目标:`,
-    `本轮 Health Signal 验证窗口为 ${durationTextZh}；runner 使用 sample-minutes=${+(sampleMs / 60_000).toFixed(3)}、progress-ticks-per-sample=${progressTicksPerSample}、max-samples=${maxSamples}。`,
+    `本轮 Equity Thesis 验证窗口为 ${durationTextZh}；runner 使用 sample-minutes=${+(sampleMs / 60_000).toFixed(3)}、progress-ticks-per-sample=${progressTicksPerSample}、max-samples=${maxSamples}。`,
     "每轮必须复用当前知识库，不得只重算单轮结论；最终需要观察 delta、Human Gate 收敛、conflict resolution 和 Stall Guard 触发率。",
   ].join("\n");
   return {
@@ -777,7 +778,7 @@ function assertValidationCanary(result) {
   const detail = `Provider canary must return ok=true, provider=${REQUIRED_LLM_PROVIDER}, model=${REQUIRED_OPENAI_MODEL}; got ${errors.join(", ")}.`;
   issue({
     severity: "P0",
-    title: "Health Signal launch guard rejected provider canary",
+    title: "Equity Thesis launch guard rejected provider canary",
     detail,
     evidence: JSON.stringify({
       provider: result.provider,
@@ -796,7 +797,7 @@ async function injectContradictionEvidence(baseUrl, projectId, sample) {
   const result = await requestJson(baseUrl, `/api/projects/${projectId}/feedback/form`, {
     method: "POST",
     body: {
-      sourceName: "health-signal-contradiction-runner",
+      sourceName: "equity-thesis-contradiction-runner",
       externalId,
       title: template.title,
       text: template.text,
@@ -830,7 +831,7 @@ function parsePayload(gate) {
 
 function shouldHoldMeaningGate(gate, state) {
   if (!approveMeaning) return true;
-  if (scenario === "conflict-flood" && isHealthSignalContradictionGate(gate)) return false;
+  if (scenario === "conflict-flood" && isEquityThesisContradictionGate(gate)) return false;
   const payload = parsePayload(gate);
   if (payload.riskKey === "knowledge_review_reminder") return true;
   if (holdReviewRequiredMeaning && meaningGateRequiresHumanReview(gate)) return true;
@@ -849,14 +850,14 @@ function shouldHoldMeaningGate(gate, state) {
   return false;
 }
 
-function isHealthSignalContradictionGate(gate) {
+function isEquityThesisContradictionGate(gate) {
   const payload = parsePayload(gate);
   const sourceName = String(payload.sourceName ?? "");
   const externalId = String(payload.externalId ?? "");
   const userQuote = String(payload.userQuote ?? "");
-  return sourceName === "health-signal-contradiction-runner"
-    || /^sample_\d{4}_(?:ppg_support|ecg_support|ppg_risk|ecg_risk|hybrid_support|hybrid_reject)$/.test(externalId)
-    || /health-signal-contradiction-runner\s+sample_\d{4}_/.test(userQuote);
+  return sourceName === "equity-thesis-contradiction-runner"
+    || /^sample_\d{4}_(?:long_support|short_support|long_risk|short_risk|tiered_support|tiered_reject)$/.test(externalId)
+    || /equity-thesis-contradiction-runner\s+sample_\d{4}_/.test(userQuote);
 }
 
 function meaningGateRequiresHumanReview(gate) {
@@ -899,7 +900,7 @@ async function resolvePendingGates(baseUrl, projectId, state) {
       continue;
     }
     const rationale = [
-      `Health Signal ${durationLabel} validation human proxy via ${decisionVia}.`,
+      `Equity Thesis ${durationLabel} validation human proxy via ${decisionVia}.`,
       gate.type === "direction" ? "Approve the proposed direction so the flywheel can continue and expose compounding/conflict behavior." : "",
       gate.type === "meaning" ? "Approve injected/ambiguous evidence to materialize knowledge and test conflict isolation." : "",
       gate.type === "risk" ? "Risk gate recorded for validation; approve to continue after logging the risk." : "",
@@ -972,18 +973,18 @@ function resolutionBodyForAction(review, action) {
     return {
       action,
       survivorKnowledgeId: review.relatedKnowledgeId,
-      rationale: `Health Signal validation human proxy via ${decisionVia}: merge duplicate/conflicting evidence by preserving the oracle-selected survivor.`,
+      rationale: `Equity Thesis validation human proxy via ${decisionVia}: merge duplicate/conflicting evidence by preserving the oracle-selected survivor.`,
     };
   }
   if (action === "approve_as_current" || action === "reject_conflict") {
     return {
       action,
-      rationale: `Health Signal validation human proxy via ${decisionVia}: retain the primary item because the independent oracle expects this side to remain reusable.`,
+      rationale: `Equity Thesis validation human proxy via ${decisionVia}: retain the primary item because the independent oracle expects this side to remain reusable.`,
     };
   }
   return {
     action: "quarantine",
-    rationale: `Health Signal validation human proxy via ${decisionVia}: quarantine the primary item because the independent oracle expects the other side to remain reusable.`,
+    rationale: `Equity Thesis validation human proxy via ${decisionVia}: quarantine the primary item because the independent oracle expects the other side to remain reusable.`,
   };
 }
 
@@ -1094,7 +1095,7 @@ async function resolveConflictReviews(baseUrl, projectId, state, options = {}) {
       await requestJson(baseUrl, `/api/knowledge/${review.relatedKnowledgeId}/quarantine`, {
         method: "POST",
         body: {
-          rationale: `Health Signal validation human proxy via ${decisionVia}: quarantine related non-final oracle side after retaining the primary winner.`,
+          rationale: `Equity Thesis validation human proxy via ${decisionVia}: quarantine related non-final oracle side after retaining the primary winner.`,
         },
       });
       event("knowledge_review_related_quarantined", {
@@ -1347,7 +1348,7 @@ function recordQualityCanary(sample, knowledge, state) {
     sample,
     status: decisionTsr.status,
     passed: decisionTsr.passed,
-    hybridLayeredCount: decisionTsr.hybridLayeredCount,
+    tieredThesisCount: decisionTsr.tieredThesisCount,
     disallowedFinalCount: decisionTsr.disallowedFinalCount,
     eligibleKnowledgeCount: decisionTsr.eligibleKnowledgeCount,
   };
@@ -1371,7 +1372,7 @@ function recordQualityCanary(sample, knowledge, state) {
     driftFromBaseline: {
       baselineSample: state.qualityCanaryBaseline.sample,
       passedChanged: state.qualityCanaryBaseline.passed !== current.passed,
-      hybridLayeredDelta: current.hybridLayeredCount - state.qualityCanaryBaseline.hybridLayeredCount,
+      tieredThesisDelta: current.tieredThesisCount - state.qualityCanaryBaseline.tieredThesisCount,
       disallowedFinalDelta: current.disallowedFinalCount - state.qualityCanaryBaseline.disallowedFinalCount,
       eligibleKnowledgeDelta: current.eligibleKnowledgeCount - state.qualityCanaryBaseline.eligibleKnowledgeCount,
     },
@@ -1545,7 +1546,7 @@ function finalAssessment(samples, events = []) {
   const semanticBypassCount = events.filter((eventItem) => (
     eventItem.eventType === "gate_approved" &&
     eventItem.via === "auto_approved_repeated_meaning" &&
-    /contradiction|conflict|矛盾|冲突|ppg|ecg|hybrid/i.test(JSON.stringify(eventItem))
+    /contradiction|conflict|矛盾|冲突|long|short|tiered|多头|空头|看多|看空|分层/i.test(JSON.stringify(eventItem))
   )).length;
   const sampleFailedCount = events.filter((eventItem) => eventItem.eventType === "sample_failed").length;
   return {
@@ -1592,7 +1593,7 @@ function avg(values) {
 }
 
 async function main() {
-  logLine(`Health Signal validation starting. logDir=${logDir}`);
+  logLine(`Equity Thesis validation starting. logDir=${logDir}`);
   if (existingRun) {
     event("runner_resumed", {
       logDir,
@@ -1827,7 +1828,7 @@ async function main() {
     },
   }, null, 2));
   event("validation_complete", assessment);
-  logLine(`Health Signal validation complete. summary=${summaryJson}`);
+  logLine(`Equity Thesis validation complete. summary=${summaryJson}`);
   await stopApp();
 }
 
