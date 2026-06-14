@@ -64,6 +64,7 @@ npm run build
 | Human Gates | 可运行 | Direction / Meaning / Risk gate；支持 Web 和 Telegram 审批 |
 | Knowledge | 可运行 | SQLite FTS5、任务前知识注入、合并、冲突复核、时间衰减 |
 | Ops | 可运行 | health/ready/metrics、action ledger、secret scan、Docker shadow、备份恢复 |
+| Validation | 可运行 | health-signal 长测 runner、shadow analyzer、质量评分与趋势报告 |
 
 ## 项目结构
 
@@ -130,14 +131,51 @@ flowchart LR
 
 默认 PR 门禁只跑 mock / 本地检查，不连接真实 LLM，不执行长测。历史长跑、真实 LLM 验证、health-signal clean retest 说明和逐次验证记录已迁到 [docs/validation/validation-history.md](./docs/validation/validation-history.md)。
 
+### Health-signal 质量评分
+
+`scripts/health-signal-36h-validation.mjs` 提供匿名健康硬件选型长测 runner；`scripts/shadow-analyze.mjs` 会在 run dir 下生成 `quality_summary.json` 和报告中的 `Quality Metrics` 区块。质量层只读取本地日志/SQLite，不改变产品 API，也不把 `validation-logs/` 产物纳入 git。
+
+质量指标当前覆盖：
+
+| 指标 | 口径 |
+| --- | --- |
+| `decisionTsr` | 单场景 pass@1 oracle-state check：最终 active/strong 知识必须收敛到 `hybrid_layered`，且不能残留未 supersede 的 `ppg_only`、`ecg_only`、`hybrid_reject` |
+| `resolutionAccuracy` | 只评分确定性复核 pair；报告 scored/unscored 计数、pair 分布和低覆盖状态，避免少量样本造成假 100% |
+| `latencyAndEfficiency` | 报告 runner/harness 观测到的 API、scheduler、knowledge retrieval、LLM agent 延迟以及 token/cost 比值；不是生产检索 SLO |
+| `rssSlopeMbPerHour` | 用 `monitor_log.csv.appRssMb` 计算 RSS 线性斜率，报告 `<50 MB/h` 阈值 |
+
+`--scenario=conflict-flood` 会先堆积冲突再限速解决复核，用于验证冲突审查和 human gate backlog 指标。真实 provider smoke 建议使用独立 fresh DB 和 run dir：
+
+```bash
+ALAYA_SCHEDULER=false \
+ALAYA_AUTO_SEED_DEMO=false \
+ALAYA_LLM_PROVIDER=openai \
+OPENAI_API_KEY_FILE="$HOME/.config/alaya/openai-api-key" \
+OPENAI_BASE_URL=https://api.minimax.io/openai \
+OPENAI_MODEL=MiniMax-M3 \
+PORT=5300 \
+ALAYA_DB_PATH="$PWD/validation-logs/health-signal-smoke/health-signal.db" \
+npm run validation:health-signal -- \
+  --duration-minutes=30 \
+  --sample-minutes=1 \
+  --max-samples=10 \
+  --scenario=conflict-flood \
+  --log-dir="$PWD/validation-logs/health-signal-smoke"
+
+node scripts/shadow-analyze.mjs validation-logs/health-signal-smoke
+npm run validation:health-signal:timeseries -- --log-dir=validation-logs/health-signal-smoke
+npm run validation:health-signal:conflicts -- --log-dir=validation-logs/health-signal-smoke
+```
+
 当前关键本地验收口径：
 
 | 命令 | 期望 |
 | --- | --- |
 | `npm --prefix alaya-app run check` | TypeScript 0 error |
-| `npm --prefix alaya-app test` | App tests 全绿，当前基线至少 202 tests |
+| `npm --prefix alaya-app test` | App tests 全绿 |
 | `npm run test:scripts` | Script tests 全绿 |
-| `npm run guard` | Principles guard 17 项通过 |
+| `npm run guard` | Principles guard 全部通过 |
+| `npm run test:all` | Core、App、Scripts 全套测试通过 |
 | `npm run secret:scan` | 无高置信 secret |
 
 ## 关键文档
