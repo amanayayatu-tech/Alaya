@@ -261,7 +261,9 @@ const durationLabel = durationMinutes > 0 ? `${durationHours}h${durationMinutes}
 const durationTextZh = durationMinutes > 0 ? `${durationHours} 小时 ${durationMinutes} 分钟` : `${durationHours} 小时`;
 const durationMs = Math.max(1_000, durationHours * 3_600_000 + durationMinutes * 60_000);
 const sampleMs = Math.max(1_000, numArg("sample-minutes", 5) * 60_000 + numArg("sample-seconds", 0) * 1_000);
-const maxSamples = Math.max(1, Math.min(Math.ceil(durationMs / sampleMs), Math.trunc(numArg("max-samples", Number.POSITIVE_INFINITY))));
+const explicitMaxSamples = Math.trunc(numArg("max-samples", Number.POSITIVE_INFINITY));
+const durationBoundedMaxSamples = Math.ceil(durationMs / sampleMs) + 1;
+const maxSamples = Math.max(1, Math.min(durationBoundedMaxSamples, explicitMaxSamples));
 const scenario = args.scenario || "standard";
 if (!["standard", "conflict-flood"].includes(scenario)) {
   console.error(`Unsupported --scenario=${JSON.stringify(scenario)}. Expected standard or conflict-flood.`);
@@ -829,13 +831,14 @@ function parsePayload(gate) {
   }
 }
 
-function shouldHoldMeaningGate(gate, state) {
+function shouldHoldMeaningGate(gate, state, options = {}) {
+  const allowSamplingHold = options.allowSamplingHold !== false;
   if (!approveMeaning) return true;
   if (scenario === "conflict-flood" && isEquityThesisContradictionGate(gate)) return false;
   const payload = parsePayload(gate);
   if (payload.riskKey === "knowledge_review_reminder") return true;
   if (holdReviewRequiredMeaning && meaningGateRequiresHumanReview(gate)) return true;
-  if (holdEveryMeaning > 0 && state.currentSample <= holdEveryMeaningUntilSample) {
+  if (allowSamplingHold && holdEveryMeaning > 0 && state.currentSample <= holdEveryMeaningUntilSample) {
     if (!state.meaningGateSequenceById.has(gate.id)) {
       state.meaningGateSequenceById.set(gate.id, state.meaningGateSequenceById.size + 1);
     }
@@ -887,11 +890,11 @@ function reviewableFeedbackBody(value) {
   return text;
 }
 
-async function resolvePendingGates(baseUrl, projectId, state) {
+async function resolvePendingGates(baseUrl, projectId, state, options = {}) {
   const gates = await requestJson(baseUrl, `/api/human-gates?projectId=${projectId}`);
   for (const gate of gates.filter((item) => item.status === "pending")) {
     const payload = parsePayload(gate);
-    if (gate.type === "meaning" && shouldHoldMeaningGate(gate, state)) {
+    if (gate.type === "meaning" && shouldHoldMeaningGate(gate, state, options)) {
       event("gate_left_pending_for_sampling", { gateId: gate.id, gateType: gate.type, title: gate.title });
       continue;
     }
@@ -1185,7 +1188,7 @@ async function finalDrainFlywheel(baseUrl, projectId, state) {
   const maxDrainTicks = 3;
   let lastAction = "";
   for (let attempt = 1; attempt <= maxDrainTicks; attempt += 1) {
-    await resolvePendingGates(baseUrl, projectId, state);
+    await resolvePendingGates(baseUrl, projectId, state, { allowSamplingHold: false });
     await scanConflicts(baseUrl, projectId);
     await resolveConflictReviews(baseUrl, projectId, state);
 
@@ -1771,7 +1774,7 @@ async function main() {
 
     const elapsed = Date.now() - validationStartedAt;
     if (sample >= maxSamples || elapsed >= durationMs) break;
-    const nextAt = started + (sample - firstSample + 1) * sampleMs;
+    const nextAt = Math.min(started + (sample - firstSample + 1) * sampleMs, deadlineAt);
     await sleep(Math.max(0, nextAt - Date.now()));
   }
 

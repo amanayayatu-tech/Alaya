@@ -124,3 +124,13 @@ test("health-signal monitor contract includes clean 10h retest columns and seman
   assert.match(source, /scoreResolutionEvent/);
   assert.match(source, /before\.pendingGates\.length > 0[\s\S]+before\.openCycles\.length === 0/);
 });
+
+test("health-signal runner keeps duration and final drain from being shortened by sampling holds", () => {
+  const source = readFileSync(join(root, runner), "utf8");
+
+  assert.match(source, /durationBoundedMaxSamples = Math\.ceil\(durationMs \/ sampleMs\) \+ 1/);
+  assert.match(source, /const maxSamples = Math\.max\(1, Math\.min\(durationBoundedMaxSamples, explicitMaxSamples\)\)/);
+  assert.match(source, /Math\.min\(started \+ \(sample - firstSample \+ 1\) \* sampleMs, deadlineAt\)/);
+  assert.match(source, /allowSamplingHold = options\.allowSamplingHold !== false/);
+  assert.match(source, /resolvePendingGates\(baseUrl, projectId, state, \{ allowSamplingHold: false \}\)/);
+});
