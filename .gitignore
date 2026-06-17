@@ -33,6 +33,7 @@ alaya-app/.codex-screenshots/
 validation-logs/
 archive/
 flywheel-report.json
+quality_summary.json
 .codex-runtime/
 *.tar.gz
 *.patch
