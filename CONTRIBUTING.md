@@ -7,8 +7,12 @@ Read [PRINCIPLES.md](./PRINCIPLES.md) before changing code. The principles are p
 Install dependencies from the repository root:
 
 ```sh
-npm run install:all
+npm ci
 ```
+
+The root `package-lock.json` is the only lockfile source of truth for this
+npm-workspaces repository. Do not run or commit subpackage `npm ci` output under
+`alaya-app/` or `alaya-core/`.
 
 Common local commands:
 
@@ -47,6 +51,7 @@ Also run these when the change touches scripts, build output, or repository stru
 ```sh
 npm run test:scripts
 npm run build
+npm ci --dry-run
 git diff --check
 ```
 

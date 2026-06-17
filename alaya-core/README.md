@@ -7,14 +7,13 @@ Alaya PRD v0.2 的内核实现：**四个纯函数（修复 PRD 8 个规格漏�
 ## 快速开始
 
 ```bash
-cd alaya-core
-npm install
-npm test         # 运行 38 个单元测试(覆盖 8 个漏洞场景 + LLM/provider/output/flywheel)
-npm run flywheel # 运行 4 轮飞轮数值模拟,打印验收结果
-npm run typecheck
+npm ci
+npm --prefix alaya-core test         # 运行 core 单元测试
+npm --prefix alaya-core run flywheel # 运行 4 轮飞轮数值模拟,打印验收结果
+npm --prefix alaya-core run typecheck
 ```
 
-要求 Node 20+。
+要求 Node 20 LTS。依赖从仓库根目录安装，根 `package-lock.json` 是唯一 lockfile。
 
 ## 目录结构
 

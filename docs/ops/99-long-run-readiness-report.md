@@ -6,7 +6,7 @@ Date: 2026-06-06
 
 This pass verified the current `main` HEAD, then hardened the app for long-running shadow/staging/production use: API auth, metrics access control, CORS, security headers, rate limits, schema validation, scheduler concurrency protection, stronger redaction, explicit key-file handling, Docker/CI audit gates, and updated ops evidence.
 
-Detailed command evidence is in [98-verification-ledger.md](/Users/peachy/Documents/alaya/docs/ops/98-verification-ledger.md). Baseline audit status is in [00-baseline-audit.md](/Users/peachy/Documents/alaya/docs/ops/00-baseline-audit.md).
+Detailed command evidence is in [98-verification-ledger.md](./98-verification-ledger.md). Baseline audit status is in [00-baseline-audit.md](./00-baseline-audit.md).
 
 ## Modified Files
 
@@ -15,7 +15,7 @@ Detailed command evidence is in [98-verification-ledger.md](/Users/peachy/Docume
 - `README.md`: moved local secret-file guidance to `$HOME/.config/alaya`.
 - `alaya-app/.env.example`, `deploy/env/alaya.env.example`: added hardened runtime variables.
 - `deploy/docker-compose.shadow.yml`: added API key env injection, metrics/rate envs and `no-new-privileges`.
-- `alaya-app/package.json`, `alaya-app/package-lock.json`, `alaya-app/script/build.ts`: removed unused dependencies/build allowlist entries.
+- `alaya-app/package.json`, root dependency metadata, `alaya-app/script/build.ts`: removed unused dependencies/build allowlist entries.
 - `alaya-app/server/security/auth.ts`: new API auth and metrics access control middleware.
 - `alaya-app/server/security/http.ts`: new CORS, security header and rate-limit middleware.
 - `alaya-app/server/index.ts`: wired security/CORS middleware.
@@ -191,9 +191,9 @@ CI now includes tests, guard, secret scan, Docker/deploy-readiness coverage and 
 
 | Command | Result |
 |---|---|
-| `npm install --package-lock=false` | PASS |
-| `npm --prefix alaya-app install` | PASS |
-| `npm --prefix alaya-core install` | PASS |
+| Historical root install command | PASS |
+| Historical app install command | PASS |
+| Historical core install command | PASS |
 | `npm --prefix alaya-app run check` | PASS |
 | Focused review-fix security/env/redaction test command | PASS, 16/16 |
 | `npm --prefix alaya-app test` | PASS, 104/104 |
@@ -256,4 +256,4 @@ Entry conditions:
 - Keep `ALAYA_CAP_KNOWLEDGE_WRITE=dry_run` unless using a disposable shadow DB.
 - If real LLM is enabled, set a daily cost budget and `ALAYA_CAP_LLM_CALL=true`.
 - Scrape `/metrics` only from loopback/container-local or a reviewed `ALAYA_METRICS_ALLOWED_CIDRS` source.
-- Follow [05-shadow-run-7d.md](/Users/peachy/Documents/alaya/docs/ops/05-shadow-run-7d.md).
+- Follow [05-shadow-run-7d.md](./05-shadow-run-7d.md).

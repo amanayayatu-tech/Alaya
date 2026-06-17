@@ -6,16 +6,16 @@ Alaya 是一个本地优先的 AI-native「认知复利飞轮」系统。它把�
 
 默认运行使用 deterministic mock LLM，不调用外部模型；只有显式配置 OpenAI-compatible provider 和 capability 后才会走真实 LLM。
 
-**项目当前态**：底座 24h 影子验收已 PASS 并冻结基线；认知质量度量（confidence calibration / ECE）已可信化并进入发布级实验阶段。详见 [认知质量验证](#认知质量验证-cognition-quality)。
+**项目当前态**：稳定配置下的 24h 影子基线已 PASS 并冻结；`MINIMAX_THINKING=adaptive` treatment 臂未通过 provider/schema 稳定性门，不能据此声明认知增强有效。认知质量度量（confidence calibration / ECE）已可信化，并进入发布级实验阶段。详见 [认知质量验证](#认知质量验证-cognition-quality)。
 
 ---
 
 ## 快速开始
 
-要求：Node.js 20+ 和 npm。
+要求：Node.js 20 LTS 和 npm 10。仓库使用 npm workspaces，依赖只从根目录安装。
 
 ```bash
-npm run install:all
+npm ci
 npm run dev
 ```
 
@@ -38,7 +38,7 @@ npm run dev
 | Knowledge | 可运行 | SQLite FTS5、任务前知识注入、合并、冲突复核、时间衰减 |
 | Ops | 可运行 | health/ready/metrics、action ledger、secret scan、Docker shadow、备份恢复 |
 | Validation | 可运行 | health-signal 长测 runner、shadow analyzer、质量评分与趋势报告 |
-| **认知质量验证** | **进行中** | 24h 基线已冻结；ECE/calibration 度量已可信化；adaptive-vs-disabled 发布级实验已预注册 |
+| **认知质量验证** | **进行中** | 24h 稳定配置基线已冻结；adaptive treatment 失败不构成增强结论；adaptive-vs-disabled 发布级实验已预注册 |
 
 ---
 
@@ -96,7 +96,7 @@ flowchart LR
 ├── alaya-app/        # Express + React + SQLite 本地 Web MVP
 ├── scripts/          # 守卫、E2E、validation、本地 secret 和运维脚本
 ├── analysis/         # 认知质量实验的统计与指标抽取脚本（power analysis、配对检验）
-├── docs/             # PRD、架构、配置、验证、运维和 AI 工作文档
+├── docs/             # PRD、架构、配置、验证、运维和归档文档
 ├── PRINCIPLES.md     # 项目底线：纯函数、人工闸门、审计写路径、LLM 边界等
 ├── CONTRIBUTING.md   # 本地开发、PR 和验证规范
 ├── LICENSE           # MIT license
@@ -112,7 +112,7 @@ flowchart LR
 
 ## 验证与长跑
 
-默认 PR 门禁只跑 mock / 本地检查，不连接真实 LLM，不执行长测。历史长跑、真实 LLM 验证、health-signal clean retest 说明和逐次验证记录见 [docs/validation/validation-history.md](./docs/validation/validation-history.md)。
+默认 PR 门禁只跑 mock / 本地检查，不连接真实 LLM，不执行长测。历史长跑、真实 LLM 验证、health-signal clean retest 说明和逐次验证记录见 [docs/validation/validation-history.md](./docs/validation/validation-history.md)。这些本地检查不能替代 24h analyzer、发布级统计实验或公开科学结论。
 
 ### Health-signal 质量评分
 

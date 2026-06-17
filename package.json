@@ -3,14 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "description": "Alaya cognitive-compounding flywheel: TypeScript core plus Express/React local MVP.",
+  "packageManager": "npm@10.9.4",
   "workspaces": [
     "alaya-core",
     "alaya-app"
   ],
   "scripts": {
-    "install:core": "npm --prefix alaya-core install",
-    "install:app": "npm --prefix alaya-app install",
-    "install:all": "npm run install:core && npm run install:app",
+    "install:all": "npm ci",
     "guard": "node scripts/check-principles.mjs",
     "audit:upgrade": "node scripts/audit-upgrade-readiness.mjs",
     "setup:secrets": "node scripts/setup-local-secrets.mjs",
@@ -53,7 +52,8 @@
     "start": "npm --prefix alaya-app run start"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20 <21",
+    "npm": ">=10 <11"
   },
   "devDependencies": {
     "playwright": "^1.59.1"

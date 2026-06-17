@@ -1,6 +1,6 @@
 # Phase3 发布级 16-run 执行手册
 
-> 在用户本机 Mac `/Users/peachy/Documents/alaya` 执行。沙盒/助手无法访问本机、MiniMax、.git。
+> 在具备 MiniMax 凭据和完整 git checkout 的机器上，从仓库根目录执行。
 > 目标：8 对配对 run（disabled / adaptive 各 8），含先行 2 对 pilot。每 run 跑到自然 summary.json，不主动 Ctrl-C。
 
 ---
@@ -9,7 +9,7 @@
 
 - **配对**：第 i 对的两臂用**相同注入序号集**（如 sample_0001..0040_tiered_support），只差 `MINIMAX_THINKING`。
 - **交错顺序**：避免时间漂移（API 负载、模型端波动）系统性偏向某一臂。每对内部随机决定先跑 disabled 还是 adaptive，并记录顺序。
-- **随机化种子表**：跑前用下面脚本生成 8 对的执行顺序，写入 `validation-logs/phase3_run_order.txt` 并 commit（预注册的一部分）。
+- **随机化种子表**：跑前用下面脚本生成 8 对的执行顺序，写入 `docs/validation/phase3_run_order.txt` 并 commit（预注册的一部分）。
 
 ```bash
 # 生成配对执行顺序（在本机跑一次，结果入库）
@@ -31,6 +31,9 @@ PY
 ## 1. 防早停（每个 run 必做）
 
 ```bash
+export ALAYA_REPO=/path/to/alaya
+cd "$ALAYA_REPO"
+
 # tmux 会话 + 防休眠
 tmux new -s phase3_pXX_arm
 caffeinate -i bash -lc '<下面的启动命令>'
@@ -43,7 +46,7 @@ caffeinate -i bash -lc '<下面的启动命令>'
 
 **Disabled 臂**
 ```bash
-cd /Users/peachy/Documents/alaya
+cd "$ALAYA_REPO"
 PORT=4801 \
 ALAYA_DB_PATH=./validation-logs/phase3_pXX_base.db \
 ALAYA_SCHEDULER=false \
@@ -60,7 +63,7 @@ node scripts/health-signal-36h-validation.mjs \
 
 **Adaptive 臂**（仅改 3 处：端口、DB、log-dir，以及 MINIMAX_THINKING）
 ```bash
-cd /Users/peachy/Documents/alaya
+cd "$ALAYA_REPO"
 PORT=4802 \
 ALAYA_DB_PATH=./validation-logs/phase3_pXX_treat.db \
 ALAYA_SCHEDULER=false \
@@ -96,7 +99,7 @@ validation-logs/phase3_pXX_YYYYMMDD_HHMMSS_treat/   # adaptive 臂
 每个 run 跑完，**先过 §5 预注册硬门**，再摘录：
 
 ```bash
-# 摘录单个 run 的关键指标到 CSV（在本机跑）
+# 摘录单个 run 的关键指标到 CSV
 python3 analysis/extract_phase3_metrics.py \
   validation-logs/phase3_pXX_..._base/quality_summary.json disabled pairXX \
   >> analysis/phase3_results.csv

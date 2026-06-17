@@ -1,6 +1,9 @@
 # Alaya Phase 1 MVP 构建规格
 
-把已验证的飞轮内核接上 SQLite + FTS5 持久化和 5 个前端页面。内核逻辑已在 `/home/user/workspace/alaya-core` 验证通过(单测 + 4 轮飞轮验收全过),**不要重新发明算法**,直接复用 `shared/core/` 下的纯函数。
+> Historical implementation brief. It is archived for provenance and is not the
+> current setup or validation source of truth.
+
+把已验证的飞轮内核接上 SQLite + FTS5 持久化和 5 个前端页面。内核逻辑在仓库内的 `alaya-core/` 验证通过(单测 + 4 轮飞轮验收全过),**不要重新发明算法**,直接复用共享 core 纯函数。
 
 ## 已就绪的核心文件(在 shared/core/)
 - `compute_error.ts` —— 误差量化 + E_cycle(已修复漏洞A/B/C/G)

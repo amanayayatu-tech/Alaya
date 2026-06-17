@@ -99,5 +99,5 @@ faithfulness disabled=〔TODO〕 / adaptive=〔TODO〕。
 ## 附录 A · 可复现性
 - 代码锚点 commit `c0319d15`，分支 `codex/shadow-run-24h`。
 - 预注册时间戳与 commit：〔TODO〕。
-- 执行顺序种子：random.seed(20260617)，`validation-logs/phase3_run_order.txt`。
+- 执行顺序种子：random.seed(20260617)，`docs/validation/phase3_run_order.txt`。
 - 原始指标：`analysis/phase3_results.csv`；分析脚本 `phase3_stats.py`。

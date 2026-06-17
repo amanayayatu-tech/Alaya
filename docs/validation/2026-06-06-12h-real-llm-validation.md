@@ -21,7 +21,7 @@ Environment facts:
 
 | Item | Value |
 | --- | --- |
-| Workspace | `/Users/peachy/Documents/alaya` |
+| Workspace | repository checkout root |
 | Start | 2026-06-05 17:53:53 CST |
 | Last round start | 2026-06-06 05:46:08 CST |
 | Process completed | 2026-06-06 05:57:32 CST |

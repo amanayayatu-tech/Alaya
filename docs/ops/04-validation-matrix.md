@@ -2,7 +2,7 @@
 
 | Validation item | development | test | shadow | staging | production | Automation | Failure handling |
 |---|---|---|---|---|---|---|---|
-| install | `npm run install:all` | CI `npm ci` | Docker build | CI | release build | automated | fail build |
+| install | `npm ci` | CI `npm ci` | Docker build | CI | release build | automated | fail build |
 | typecheck | `npm run typecheck` | CI | CI | CI | CI | automated | fail build |
 | unit tests | app/core tests | required | focused safety tests | required | required | automated | fail build |
 | API auth | optional unless key configured | focused tests | required | required | required | automated + curl | fail deploy |
@@ -48,4 +48,4 @@ docker build -t alaya:local .
 docker compose -f deploy/docker-compose.shadow.yml config
 ```
 
-Latest local results are recorded in [98-verification-ledger.md](/Users/peachy/Documents/alaya/docs/ops/98-verification-ledger.md). Nonexistent scripts are recorded as `N/A`, not treated as passing.
+Latest local results are recorded in [98-verification-ledger.md](./98-verification-ledger.md). Nonexistent scripts are recorded as `N/A`, not treated as passing.

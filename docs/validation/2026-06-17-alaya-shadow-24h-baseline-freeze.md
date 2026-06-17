@@ -6,7 +6,7 @@
 
 核验方式: 独立只读核验 `summary.json` / `SHADOW_FINDINGS.md` / 错误门 / watchdog / 主题正确性 / A 类判据。
 
-归档来源: `/Users/peachy/Downloads/ALAYA_BASELINE_FREEZE_RECORD.md`
+归档来源: 本地核验记录 `ALAYA_BASELINE_FREEZE_RECORD.md`（未提交原始本机路径）。
 
 ## 冻结基线标识
 

@@ -1,5 +1,8 @@
 # Alaya WebUI Refactor Audit
 
+> Historical frontend refactor audit. This file is archived for provenance and
+> is not the current UI or setup source of truth.
+
 Scope: `alaya-app/client/src/` on `main` at commit `8ac4366`.
 
 Prompt guardrails:

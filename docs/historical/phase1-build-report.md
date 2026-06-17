@@ -1,17 +1,22 @@
 # Alaya Phase 1 MVP — Build Report
 
+> Historical snapshot from 2026-06-03. This file is archived for provenance and
+> is not the current setup or runtime source of truth. Current commands live in
+> the root README, CONTRIBUTING and docs/configuration.md.
+
 ## Status
 
 Complete for local Phase 1 validation.
 
 The app is an Express + React MVP backed by local SQLite and deterministic mock
-LLM/Agent logic. It does not call an external LLM API yet.
+LLM/Agent logic. At the time of this snapshot it did not call an external LLM
+API. The current app supports explicit OpenAI-compatible providers behind
+runtime capability flags.
 
 ## Local Deployment
 
 ```bash
-cd alaya-app
-npm install
+npm ci
 npm run dev
 ```
 

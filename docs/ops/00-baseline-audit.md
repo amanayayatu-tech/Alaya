@@ -2,11 +2,11 @@
 
 Date: 2026-06-06
 
-This baseline was rechecked against the current local repository before applying this hardening pass. The two upstream audit inputs disagreed on commit and severity, so the status below is based on the current working tree and command evidence in [98-verification-ledger.md](/Users/peachy/Documents/alaya/docs/ops/98-verification-ledger.md).
+This baseline was rechecked against the current local repository before applying this hardening pass. The two upstream audit inputs disagreed on commit and severity, so the status below is based on the current working tree and command evidence in [98-verification-ledger.md](./98-verification-ledger.md).
 
 ## Environment
 
-- Repository root: `/Users/peachy/Documents/alaya`
+- Repository root: repository checkout root
 - Branch: `main`
 - Current HEAD: `d9ec48069529ac491b143aa57777fa4c085c6cc1`
 - Git status: intentionally dirty with this uncommitted hardening pass.

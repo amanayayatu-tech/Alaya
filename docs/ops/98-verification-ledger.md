@@ -8,7 +8,7 @@ This ledger records the evidence for the merged audit hardening pass. Commands m
 
 | Item | Evidence |
 |---|---|
-| Repository root | `/Users/peachy/Documents/alaya` |
+| Repository root | repository checkout root |
 | Branch / commit | `main` at `d9ec48069529ac491b143aa57777fa4c085c6cc1`; worktree intentionally dirty for this uncommitted hardening pass. |
 | Package layout | Root package plus `alaya-core/package.json` and `alaya-app/package.json`. |
 | Runtime environment | Node `v22.22.1`, npm `10.9.4`, Darwin arm64 `25.5.0`. |
@@ -34,7 +34,7 @@ This ledger records the evidence for the merged audit hardening pass. Commands m
 
 | Command | Result | Notes |
 |---|---|---|
-| `git rev-parse --show-toplevel` | PASS | `/Users/peachy/Documents/alaya`. |
+| `git rev-parse --show-toplevel` | PASS | repository checkout root. |
 | `git status --short --branch` | PASS | `main...origin/main`, dirty with this pass. |
 | `git rev-parse HEAD` | PASS | `d9ec48069529ac491b143aa57777fa4c085c6cc1`. |
 | `node --version` | PASS | `v22.22.1`. |
@@ -73,7 +73,7 @@ This ledger records the evidence for the merged audit hardening pass. Commands m
 | Missing security headers. | Added CSP, nosniff, frame deny, referrer policy, permissions policy, COOP, and production-like HSTS. | `security.http.test.ts`. |
 | Costly endpoints unlimited. | Added per-client in-memory rate limits for `run-full` and scheduler tick. | `security.http.test.ts`. |
 | Dynamic PRAGMA table names. | Added required-table whitelist and required-column key validation. | App test suite and typecheck. |
-| Unused dependencies. | Removed unused session/passport/Supabase dependencies and build allowlist entries. | `npm install`, app build/test, Docker build, npm audit. |
+| Unused dependencies. | Removed unused session/passport/Supabase dependencies and build allowlist entries. | Historical root install evidence, app build/test, Docker build, npm audit. Current setup uses root `npm ci`. |
 | Secret scan coverage. | Added high-confidence patterns for MiniMax-like keys, bearer tokens, DB URLs and cookie secrets. | `npm run secret:scan`. |
 | `rowToKnowledge(any)`. | Changed mappings to accept `unknown` and assert object shape. | App test suite and typecheck. |
 | Silent JSON parse catch. | Added warning on parse failure. | App test suite. |
@@ -99,9 +99,9 @@ This ledger records the evidence for the merged audit hardening pass. Commands m
 
 | Command | Result | Notes |
 |---|---|---|
-| `npm install --package-lock=false` | PASS | Root install successful. |
-| `npm --prefix alaya-app install` | PASS | App install successful after dependency removal. |
-| `npm --prefix alaya-core install` | PASS | Core install successful. |
+| Historical root install command | PASS | Root install successful during the 2026-06-06 hardening pass. Current setup uses root `npm ci`. |
+| Historical app install command | PASS | App install successful after dependency removal during the 2026-06-06 hardening pass. |
+| Historical core install command | PASS | Core install successful during the 2026-06-06 hardening pass. |
 | `npm --prefix alaya-app run check` | PASS | TypeScript check passed. |
 | Interim `npm --prefix alaya-app test` during review-fix pass | FAIL -> FIXED | `capabilityGate.test.ts` imported storage in shadow mode without `ALAYA_API_KEY`; test fixture now sets `unit-api-key-for-capability-gate` and the full app suite reran green. |
 | `cd alaya-app && node --import tsx --test tests/security.http.test.ts tests/env.validation.test.ts tests/secret.redaction.test.ts` | PASS | Focused review-fix suite passed, 16/16. |
