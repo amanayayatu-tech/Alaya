@@ -97,8 +97,8 @@ validation-logs/phase3_pXX_YYYYMMDD_HHMMSS_treat/   # adaptive 臂
 
 ```bash
 # 摘录单个 run 的关键指标到 CSV（在本机跑）
-python3 scripts/extract_phase3_metrics.py \
-  validation-logs/phase3_pXX_..._base/quality_summary.json base pXX \
+python3 analysis/extract_phase3_metrics.py \
+  validation-logs/phase3_pXX_..._base/quality_summary.json disabled pairXX \
   >> analysis/phase3_results.csv
 ```
 摘录字段（每行一个 run）：

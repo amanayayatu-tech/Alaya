@@ -126,7 +126,38 @@ function parseArgs(argv) {
   return out;
 }
 
-const args = parseArgs(process.argv.slice(2));
+const rawArgv = process.argv.slice(2);
+const args = parseArgs(rawArgv);
+
+if (args.help || rawArgv.includes("-h")) {
+  console.log([
+    "Usage: node scripts/health-signal-36h-validation.mjs [options]",
+    "",
+    "Required launch guard inputs:",
+    "  PORT or --port=<number>",
+    "  ALAYA_DB_PATH or --db-path=<path>",
+    "  ALAYA_SCHEDULER=false",
+    "  ALAYA_AUTO_SEED_DEMO=false",
+    "  ALAYA_LLM_PROVIDER=openai",
+    "  OPENAI_BASE_URL=https://api.minimax.io/openai",
+    "  OPENAI_MODEL=MiniMax-M3",
+    "  OPENAI_API_KEY or OPENAI_API_KEY_FILE",
+    "",
+    "Common options:",
+    "  --scenario=<standard|conflict-flood|cognition-coverage>",
+    "  --log-dir=<path>",
+    "  --duration-hours=<number>        default: 36",
+    "  --duration-minutes=<number>      default: 0",
+    "  --sample-minutes=<number>        default: 5",
+    "  --max-samples=<number>",
+    "  --check-only                     validate launch guard and exit",
+    "  --start-app=<true|false>         default: true",
+    "  --keep-app=<true|false>          default: false",
+    "  --llm-provider=openai",
+    "  --model=MiniMax-M3",
+  ].join("\n"));
+  process.exit(0);
+}
 
 function numArg(name, fallback) {
   const raw = args[name];

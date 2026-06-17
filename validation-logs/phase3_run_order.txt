@@ -1,0 +1,8 @@
+pair01	first=adaptive	second=disabled
+pair02	first=adaptive	second=disabled
+pair03	first=adaptive	second=disabled
+pair04	first=adaptive	second=disabled
+pair05	first=disabled	second=adaptive
+pair06	first=adaptive	second=disabled
+pair07	first=adaptive	second=disabled
+pair08	first=adaptive	second=disabled
