@@ -9,6 +9,7 @@ import {
   rssSlopeMbPerHour,
   scoreResolutionAccuracy,
 } from "../lib/health-signal-quality.mjs";
+import { buildCognitionCoverageEvidence } from "../lib/cognition-coverage-scenario.mjs";
 
 function tieredSupportKnowledge(index, overrides = {}) {
   const sampleId = String(index + 1).padStart(4, "0");
@@ -26,6 +27,62 @@ function tieredSupportKnowledge(index, overrides = {}) {
     ...overrides,
   };
 }
+
+function approvedCognitionCoverageKnowledge(ordinal) {
+  const sample = buildCognitionCoverageEvidence(ordinal);
+  return {
+    id: `kb_gate_phase2_${sample.externalId}`,
+    title: `外部反馈: ${sample.title}`,
+    content: [
+      `Human approved meaning gate gate_phase2_${sample.externalId}.`,
+      `Source: form_feedback ${sample.externalId}.`,
+      `Summary: ${sample.title}.`,
+      `User quote: Form Feedback (${sample.sourceName} ${sample.externalId}): ${sample.title}\n\n${sample.text}.`,
+    ].join("\n"),
+    sourceRef: sample.externalId,
+    status: "active",
+    confidence_score: 0.99,
+    tags: ["meaning_gate", "human_approved", sample.sourceName, "phase2_cognition_coverage"],
+  };
+}
+
+function cognitionCoverageEvent(ordinal) {
+  const sample = buildCognitionCoverageEvidence(ordinal);
+  return {
+    eventType: "contradiction_feedback_injected",
+    sample: ordinal,
+    scenario: "cognition-coverage",
+    coverageOrdinal: ordinal,
+    side: sample.side,
+    externalId: sample.externalId,
+    evidenceTitle: sample.title,
+    evidenceText: sample.text,
+  };
+}
+
+test("cognition coverage samples are scoreable without conflict-marker metric changes", () => {
+  const count = 30;
+  const knowledge = Array.from({ length: count }, (_, index) => approvedCognitionCoverageKnowledge(index + 1));
+  const events = Array.from({ length: count }, (_, index) => cognitionCoverageEvent(index + 1));
+
+  for (const event of events) {
+    assert.match(event.externalId, /^sample_\d{4}_tiered_support$/);
+    assert.doesNotMatch(event.evidenceText, /明确冲突|互相矛盾/);
+  }
+
+  const calibration = evaluateConfidenceCalibration(knowledge);
+  assert.equal(calibration.blockingEligible, true);
+  assert.equal(calibration.eligible, count);
+  assert.equal(calibration.scored, count);
+  assert.equal(calibration.scoreableCoverage, 1);
+
+  const faithfulness = evaluateFaithfulness({ knowledgeItems: knowledge, events });
+  assert.equal(faithfulness.blockingEligible, true);
+  assert.equal(faithfulness.eligible, count);
+  assert.equal(faithfulness.scoreableKnowledgeItems, count);
+  assert.equal(faithfulness.scoreableCoverage, 1);
+  assert.equal(faithfulness.faithfulness, 1);
+});
 
 test("decisionTsr fails when an unsuperseded long_only card remains active", () => {
   const result = evaluateDecisionTsr([

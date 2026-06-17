@@ -12,6 +12,7 @@ import {
   oracleMetadataForSide,
   scoreResolutionEvent,
 } from "./lib/health-signal-quality.mjs";
+import { buildCognitionCoverageEvidence } from "./lib/cognition-coverage-scenario.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -265,8 +266,8 @@ const explicitMaxSamples = Math.trunc(numArg("max-samples", Number.POSITIVE_INFI
 const durationBoundedMaxSamples = Math.ceil(durationMs / sampleMs) + 1;
 const maxSamples = Math.max(1, Math.min(durationBoundedMaxSamples, explicitMaxSamples));
 const scenario = args.scenario || "standard";
-if (!["standard", "conflict-flood"].includes(scenario)) {
-  console.error(`Unsupported --scenario=${JSON.stringify(scenario)}. Expected standard or conflict-flood.`);
+if (!["standard", "conflict-flood", "cognition-coverage"].includes(scenario)) {
+  console.error(`Unsupported --scenario=${JSON.stringify(scenario)}. Expected standard, conflict-flood, or cognition-coverage.`);
   process.exit(2);
 }
 const startApp = boolArg("start-app", true);
@@ -288,11 +289,14 @@ const injectEverySamples = Math.max(1, Math.trunc(numArg("inject-every-samples",
 const progressTicksPerSample = Math.max(1, Math.trunc(numArg("progress-ticks-per-sample", 6)));
 const conflictFloodHoldSamples = scenario === "conflict-flood" ? Math.max(1, Math.floor(maxSamples * 0.25)) : 0;
 const conflictFloodMaxResolutionsPerSample = scenario === "conflict-flood" ? Math.max(1, Math.trunc(numArg("conflict-flood-max-resolutions-per-sample", 3))) : Number.POSITIVE_INFINITY;
+const cognitionCoveragePerSample = scenario === "cognition-coverage" ? Math.max(1, Math.trunc(numArg("cognition-coverage-per-sample", 3))) : 0;
 const qualityCanaryEverySamples = Math.max(0, Math.trunc(numArg("quality-canary-every-samples", 5)));
 const seed = args.seed == null ? null : Math.trunc(numArg("seed", 0));
 const runId = args["run-id"] || null;
 const seedPrng = seed == null ? null : createPrng(seed);
-const evidenceSchedule = seedPrng ? shuffledWithPrng(EVIDENCE_TEMPLATES, seedPrng) : EVIDENCE_TEMPLATES;
+const evidenceSchedule = scenario === "cognition-coverage"
+  ? [buildCognitionCoverageEvidence(1)]
+  : (seedPrng ? shuffledWithPrng(EVIDENCE_TEMPLATES, seedPrng) : EVIDENCE_TEMPLATES);
 const qualityCanaryOffsetSamples = seedPrng && qualityCanaryEverySamples > 0
   ? Math.floor(seedPrng() * qualityCanaryEverySamples)
   : 0;
@@ -422,6 +426,13 @@ function readEvents() {
         return { eventType: "unparseable_jsonl", raw: line };
       }
     });
+}
+
+function lastCognitionCoverageOrdinal() {
+  return readEvents().reduce((max, event) => {
+    const ordinal = Number(event.coverageOrdinal);
+    return Number.isFinite(ordinal) ? Math.max(max, ordinal) : max;
+  }, 0);
 }
 
 async function assertPortAvailable(port) {
@@ -819,6 +830,42 @@ async function injectContradictionEvidence(baseUrl, projectId, sample) {
     classification: result.classification,
   });
   return result;
+}
+
+async function injectCognitionCoverageEvidence(baseUrl, projectId, sample, ordinal) {
+  const template = buildCognitionCoverageEvidence(ordinal);
+  const result = await requestJson(baseUrl, `/api/projects/${projectId}/feedback/form`, {
+    method: "POST",
+    body: {
+      sourceName: template.sourceName,
+      externalId: template.externalId,
+      title: template.title,
+      text: template.text,
+      url: "",
+    },
+  });
+  event("contradiction_feedback_injected", {
+    sample,
+    scenario,
+    coverageOrdinal: ordinal,
+    side: template.side,
+    externalId: template.externalId,
+    evidenceTitle: template.title,
+    evidenceText: template.text,
+    ...oracleEventFields(template.side),
+    imported: result.imported,
+    skipped: result.skipped,
+    gateId: result.gate?.id ?? null,
+    classification: result.classification,
+  });
+  return result;
+}
+
+async function injectCognitionCoverageBatch(baseUrl, projectId, sample, state) {
+  for (let i = 0; i < cognitionCoveragePerSample; i += 1) {
+    state.cognitionCoverageOrdinal += 1;
+    await injectCognitionCoverageEvidence(baseUrl, projectId, sample, state.cognitionCoverageOrdinal);
+  }
 }
 
 function parsePayload(gate) {
@@ -1638,6 +1685,7 @@ async function main() {
     heldMeaningGateSampleById: new Map(),
     conflictFloodHeldSamples: new Set(),
     qualityCanaryBaseline: null,
+    cognitionCoverageOrdinal: lastCognitionCoverageOrdinal(),
   };
   const started = Date.now();
   const firstRecordedIso = firstRecordedSampleIso();
@@ -1661,6 +1709,7 @@ async function main() {
     scenario,
     conflictFloodHoldSamples,
     conflictFloodMaxResolutionsPerSample: Number.isFinite(conflictFloodMaxResolutionsPerSample) ? conflictFloodMaxResolutionsPerSample : null,
+    cognitionCoveragePerSample,
     qualityCanaryEverySamples,
     qualityCanaryOffsetSamples,
     metricsSnapshotMinutes,
@@ -1743,7 +1792,11 @@ async function main() {
     }
     try {
       if (sample % injectEverySamples === 0) {
-        await injectContradictionEvidence(baseUrl, project.id, sample);
+        if (scenario === "cognition-coverage") {
+          await injectCognitionCoverageBatch(baseUrl, project.id, sample, state);
+        } else {
+          await injectContradictionEvidence(baseUrl, project.id, sample);
+        }
       }
       lastAction = await progressFlywheel(baseUrl, project.id, state, { deadlineAt });
       const metrics = await collectMetrics(baseUrl, project.id, child?.pid, sample, lastAction);
@@ -1812,6 +1865,8 @@ async function main() {
       qualityCanaryOffsetSamples,
       conflictFloodHoldSamples,
       conflictFloodMaxResolutionsPerSample: Number.isFinite(conflictFloodMaxResolutionsPerSample) ? conflictFloodMaxResolutionsPerSample : null,
+      cognitionCoveragePerSample,
+      cognitionCoverageInjected: state.cognitionCoverageOrdinal,
       qualityCanaryEverySamples,
     },
     llmProvider,
