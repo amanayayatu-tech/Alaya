@@ -255,8 +255,9 @@ test("OpenAIProvider promotes simplified retry when it satisfies the original sc
   }
 });
 
-test("OpenAIProvider disables MiniMax thinking and parses JSON after thinking blocks", async () => {
+test("OpenAIProvider forces MiniMax thinking off for structured JSON calls", async () => {
   const originalFetch = globalThis.fetch;
+  const previousThinking = process.env.MINIMAX_THINKING;
   let requestBody = "";
   globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
     requestBody = String(init?.body ?? "");
@@ -271,6 +272,7 @@ test("OpenAIProvider disables MiniMax thinking and parses JSON after thinking bl
   }) as typeof fetch;
 
   try {
+    process.env.MINIMAX_THINKING = "adaptive";
     const provider = new OpenAIProvider({
       apiKey: "test-key-not-real",
       apiMode: "chat",
@@ -303,5 +305,7 @@ test("OpenAIProvider disables MiniMax thinking and parses JSON after thinking bl
     assert.match(requestBody, /draft_output/);
   } finally {
     globalThis.fetch = originalFetch;
+    if (previousThinking == null) delete process.env.MINIMAX_THINKING;
+    else process.env.MINIMAX_THINKING = previousThinking;
   }
 });

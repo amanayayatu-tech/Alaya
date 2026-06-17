@@ -331,7 +331,7 @@ test("LLM boundary redacts PII before provider request and call logging", async 
   assert.equal(call.schemaValid, 1);
 });
 
-test("app LLM disables MiniMax thinking and parses JSON after thinking blocks", async () => {
+test("app LLM forces MiniMax thinking off for structured JSON calls", async () => {
   const projectId = "proj_llm_minimax_130";
   createProject(projectId);
   const cycle = storage.listCycles(projectId)[0];
@@ -339,6 +339,7 @@ test("app LLM disables MiniMax thinking and parses JSON after thinking blocks", 
   const previousApiKey = process.env.OPENAI_API_KEY;
   const previousBaseUrl = process.env.OPENAI_BASE_URL;
   const previousModel = process.env.OPENAI_MODEL;
+  const previousThinking = process.env.MINIMAX_THINKING;
   const originalFetch = globalThis.fetch;
   let requestBody = "";
 
@@ -350,6 +351,7 @@ test("app LLM disables MiniMax thinking and parses JSON after thinking blocks", 
           content: '<think>{"draft":"not the answer"}</think>\n{"summary":"ok","category":"unclear_signal"}',
         },
       }],
+      usage: { prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 },
     }), { status: 200, headers: { "Content-Type": "application/json" } });
   }) as typeof fetch;
 
@@ -358,6 +360,7 @@ test("app LLM disables MiniMax thinking and parses JSON after thinking blocks", 
     process.env.OPENAI_API_KEY = "test-api-key-not-a-real-secret";
     process.env.OPENAI_BASE_URL = "https://api.minimax.io/openai";
     process.env.OPENAI_MODEL = "MiniMax-M3";
+    process.env.MINIMAX_THINKING = "adaptive";
 
     const output = await callLlm({
       cycleId: cycle.id,
@@ -383,6 +386,8 @@ test("app LLM disables MiniMax thinking and parses JSON after thinking blocks", 
     assert.match(requestBody, /draft_output/);
     const call = storage.listLlmCalls().find((item) => item.cycleId === cycle.id && item.promptVersion === "minimax_thinking_parse_test@v1");
     assert.equal(call?.schemaValid, 1);
+    assert.equal(call?.tokenSource, "provider");
+    assert.equal(call?.tokenCount, 17);
   } finally {
     globalThis.fetch = originalFetch;
     if (previousProvider == null) delete process.env.ALAYA_LLM_PROVIDER;
@@ -393,6 +398,8 @@ test("app LLM disables MiniMax thinking and parses JSON after thinking blocks", 
     else process.env.OPENAI_BASE_URL = previousBaseUrl;
     if (previousModel == null) delete process.env.OPENAI_MODEL;
     else process.env.OPENAI_MODEL = previousModel;
+    if (previousThinking == null) delete process.env.MINIMAX_THINKING;
+    else process.env.MINIMAX_THINKING = previousThinking;
   }
 });
 

@@ -586,9 +586,8 @@ function resolveMaxOutputTokens(explicit?: number): number {
 function providerChatExtras(model: string, endpoint: string): Record<string, unknown> {
   const target = `${model} ${endpoint}`.toLowerCase();
   if (!target.includes("minimax")) return {};
-  const raw = (process.env.MINIMAX_THINKING ?? process.env.OPENAI_THINKING ?? "disabled").toLowerCase();
-  const type = raw === "adaptive" ? "adaptive" : "disabled";
-  return { thinking: { type } };
+  // Structured JSON calls must keep MiniMax reasoning out of the response body.
+  return { thinking: { type: "disabled" } };
 }
 
 function chatCompletionsEndpoint(baseUrl: string): string {
