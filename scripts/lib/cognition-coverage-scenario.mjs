@@ -1,6 +1,7 @@
 import { oracleMetadataForSide } from "./health-signal-quality.mjs";
 
 const SIDE = "tiered_support";
+const EXPECTED_DECISION = "tiered_thesis";
 
 const COGNITION_COVERAGE_CASES = Object.freeze([
   {
@@ -65,7 +66,12 @@ export function buildCognitionCoverageEvidence(ordinal) {
     externalId,
     title,
     text,
+    calibrationTruth: {
+      mode: "decision_matches_expected",
+      expectedDecision: EXPECTED_DECISION,
+      expectedOracleSide: SIDE,
+      rationale: "Phase2 cognition-coverage samples measure whether the materialized knowledge expresses the preset tiered-thesis decision; same-side dedupe/supersede should not count as a wrong answer.",
+    },
     ...oracleMetadataForSide(SIDE),
   };
 }
-

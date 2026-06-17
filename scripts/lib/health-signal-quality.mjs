@@ -456,6 +456,73 @@ function confidenceForKnowledge(item) {
   return null;
 }
 
+function calibrationTruthFromEvents(events = []) {
+  const truths = new Map();
+  for (const event of events) {
+    const externalId = normalizeSpace(field(event, "externalId", "external_id"));
+    const rawTruth = field(event, "calibrationTruth", "calibration_truth");
+    if (!externalId || !rawTruth || typeof rawTruth !== "object") continue;
+    const mode = String(rawTruth.mode ?? "decision_matches_expected");
+    const expectedDecision = normalizeSpace(rawTruth.expectedDecision ?? rawTruth.expected_decision ?? field(event, "expectedDecision", "expected_decision"));
+    const expectedOracleSide = normalizeSpace(rawTruth.expectedOracleSide ?? rawTruth.expected_oracle_side ?? field(event, "oracleSide", "oracle_side", "side")).toLowerCase();
+    if (!expectedDecision && !expectedOracleSide) continue;
+    truths.set(externalId, {
+      externalId,
+      mode,
+      expectedDecision: expectedDecision || null,
+      expectedOracleSide: expectedOracleSide || null,
+      rationale: normalizeSpace(rawTruth.rationale),
+    });
+  }
+  return truths;
+}
+
+function calibrationTruthForKnowledge(item, truths) {
+  if (!truths || truths.size === 0) return null;
+  const preferredSources = [
+    field(item, "sourceRef", "source_ref"),
+    field(item, "id"),
+    field(item, "title"),
+    field(item, "semanticKey", "semantic_key"),
+  ];
+  for (const source of preferredSources) {
+    const text = normalizeSpace(source);
+    if (!text) continue;
+    for (const [externalId, truth] of truths.entries()) {
+      if (text.includes(externalId)) return truth;
+    }
+  }
+  const fallbackText = normalizeSpace([
+    field(item, "content"),
+    field(item, "notes"),
+  ].filter(Boolean).join("\n"));
+  for (const [externalId, truth] of truths.entries()) {
+    if (fallbackText.includes(externalId)) return truth;
+  }
+  return null;
+}
+
+function actualMatchesCalibrationTruth(item, truth) {
+  if (!truth) return null;
+  const actualDecision = classifyEquityThesisDecision(item);
+  const actualOracleSide = oracleSideForKnowledge(item);
+  if (truth.expectedDecision) {
+    return {
+      correct: actualDecision === truth.expectedDecision,
+      actualDecision,
+      actualOracleSide,
+    };
+  }
+  if (truth.expectedOracleSide) {
+    return {
+      correct: actualOracleSide === truth.expectedOracleSide,
+      actualDecision,
+      actualOracleSide,
+    };
+  }
+  return null;
+}
+
 function actualDispositionMatchesOracle(item, oracle) {
   const status = statusForKnowledge(item);
   const supersededBy = supersededByForKnowledge(item);
@@ -560,6 +627,9 @@ function normalizePassKAggregate(passKAggregate) {
 
 export function evaluateConfidenceCalibration(knowledgeItems = [], options = {}) {
   const bucketCount = Math.max(1, Math.trunc(Number(options.bucketCount ?? 10)));
+  const calibrationTruths = options.calibrationTruths instanceof Map
+    ? options.calibrationTruths
+    : calibrationTruthFromEvents(options.events ?? []);
   const activeKnowledge = knowledgeItems.filter((item) => ACTIVE_STATUSES.has(statusForKnowledge(item)));
   const { eligible, excluded } = partitionConflictKnowledge(activeKnowledge);
   const excludedAsNonConflict = excludedAsNonConflictSummary(excluded);
@@ -570,7 +640,9 @@ export function evaluateConfidenceCalibration(knowledgeItems = [], options = {})
   for (const { item, oracleSide } of eligible) {
     const confidence = confidenceForKnowledge(item);
     const oracle = oracleMetadataForSide(oracleSide);
-    const correct = actualDispositionMatchesOracle(item, oracle);
+    const truth = calibrationTruthForKnowledge(item, calibrationTruths);
+    const truthMatch = actualMatchesCalibrationTruth(item, truth);
+    const correct = truthMatch ? truthMatch.correct : actualDispositionMatchesOracle(item, oracle);
     const row = {
       knowledgeId: knowledgeId(item),
       oracleSide,
@@ -578,6 +650,11 @@ export function evaluateConfidenceCalibration(knowledgeItems = [], options = {})
       supersededBy: supersededByForKnowledge(item) || null,
       confidence,
       expectedDisposition: oracle?.expectedDisposition ?? null,
+      correctnessMode: truthMatch ? "calibration_truth_decision" : "oracle_disposition",
+      calibrationTruthExternalId: truth?.externalId ?? null,
+      expectedDecision: truth?.expectedDecision ?? null,
+      actualDecision: truthMatch?.actualDecision ?? null,
+      actualOracleSide: truthMatch?.actualOracleSide ?? null,
     };
     if (confidence == null || !oracle || correct == null) {
       unscored.push({
@@ -658,6 +735,7 @@ export function evaluateConfidenceCalibration(knowledgeItems = [], options = {})
     scoreableCoverageThreshold: CALIBRATION_SCOREABLE_COVERAGE_THRESHOLD,
     blockingEligible: sampleSize > 0 && !lowCoverage,
     reliabilityTable,
+    correctnessModeCounts: countBy(scored, (item) => item.correctnessMode ?? "unknown"),
     unscoredReasonCounts: countBy(unscored, (item) => item.unscoredReason ?? "unknown"),
     scoredKnowledge: scored.slice(0, 20),
     unscoredExamples: unscored.slice(0, 20),
@@ -1392,7 +1470,7 @@ export function summarizeEquityThesisQuality({ knowledgeItems = [], events = [],
     expectedDecision: EXPECTED_EQUITY_THESIS_DECISION,
     decisionTsr: evaluateDecisionTsr(knowledgeItems, { passKAggregate }),
     resolutionAccuracy: scoreResolutionAccuracy(events, { dedupeMode }),
-    confidenceCalibration: evaluateConfidenceCalibration(knowledgeItems),
+    confidenceCalibration: evaluateConfidenceCalibration(knowledgeItems, { events }),
     faithfulness: evaluateFaithfulness({ knowledgeItems, events, evidenceCorpus, judgeMode: faithfulnessJudge }),
     latencyAndEfficiency: latencyAndEfficiencyMetrics({ events, samples, llmCalls, enforceLatencySlo }),
     rssSlopeMbPerHour: rssSlope,

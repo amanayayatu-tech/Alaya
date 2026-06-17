@@ -57,6 +57,7 @@ function cognitionCoverageEvent(ordinal) {
     externalId: sample.externalId,
     evidenceTitle: sample.title,
     evidenceText: sample.text,
+    calibrationTruth: sample.calibrationTruth,
   };
 }
 
@@ -70,11 +71,12 @@ test("cognition coverage samples are scoreable without conflict-marker metric ch
     assert.doesNotMatch(event.evidenceText, /明确冲突|互相矛盾/);
   }
 
-  const calibration = evaluateConfidenceCalibration(knowledge);
+  const calibration = evaluateConfidenceCalibration(knowledge, { events });
   assert.equal(calibration.blockingEligible, true);
   assert.equal(calibration.eligible, count);
   assert.equal(calibration.scored, count);
   assert.equal(calibration.scoreableCoverage, 1);
+  assert.equal(calibration.correctnessModeCounts.calibration_truth_decision, count);
 
   const faithfulness = evaluateFaithfulness({ knowledgeItems: knowledge, events });
   assert.equal(faithfulness.blockingEligible, true);
@@ -82,6 +84,34 @@ test("cognition coverage samples are scoreable without conflict-marker metric ch
   assert.equal(faithfulness.scoreableKnowledgeItems, count);
   assert.equal(faithfulness.scoreableCoverage, 1);
   assert.equal(faithfulness.faithfulness, 1);
+});
+
+test("cognition coverage calibration truth does not punish same-side dedupe", () => {
+  const knowledge = [
+    {
+      ...approvedCognitionCoverageKnowledge(1),
+      status: "active",
+      superseded_by: "kb_gate_phase2_sample_0002_tiered_support",
+      confidence_score: 0.8,
+    },
+    {
+      ...approvedCognitionCoverageKnowledge(2),
+      status: "strong",
+      confidence_score: 0.99,
+    },
+  ];
+  const events = [cognitionCoverageEvent(1), cognitionCoverageEvent(2)];
+
+  const legacy = evaluateConfidenceCalibration(knowledge);
+  assert.equal(legacy.scoredKnowledge[0].correct, false);
+  assert.equal(legacy.scoredKnowledge[0].correctnessMode, "oracle_disposition");
+
+  const calibration = evaluateConfidenceCalibration(knowledge, { events });
+  assert.equal(calibration.scored, 2);
+  assert.equal(calibration.correctnessModeCounts.calibration_truth_decision, 2);
+  assert.equal(calibration.scoredKnowledge[0].correct, true);
+  assert.equal(calibration.scoredKnowledge[0].calibrationTruthExternalId, "sample_0001_tiered_support");
+  assert.equal(calibration.scoredKnowledge[0].actualDecision, "tiered_thesis");
 });
 
 test("decisionTsr fails when an unsuperseded long_only card remains active", () => {

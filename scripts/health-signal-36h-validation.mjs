@@ -852,6 +852,7 @@ async function injectCognitionCoverageEvidence(baseUrl, projectId, sample, ordin
     externalId: template.externalId,
     evidenceTitle: template.title,
     evidenceText: template.text,
+    calibrationTruth: template.calibrationTruth ?? null,
     ...oracleEventFields(template.side),
     imported: result.imported,
     skipped: result.skipped,
