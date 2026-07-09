@@ -1,7 +1,7 @@
 # Alaya 认知增强 · 知识飞轮消融实验 · 预注册
 
 > **预注册时间戳**：2026-07-09 Asia/Shanghai，PR-L0 content-freeze commit 的 git timestamp 为准。
-> **PR-L0 content_freeze_commit**：TBD_CONTENT_FREEZE_COMMIT
+> **PR-L0 content_freeze_commit**：64fe8a52e01aabaf7b2dd4f8957632699348e0da
 > **后续代码/度量冻结锚点**：TBD_AFTER_PR_L6_MAIN_MERGE（PR-L6 合并到 `main` 后填写；不得与 PR-L0 content freeze 混同）
 > **分支**：`codex/learning-loop`
 > **PR-L0 范围**：docs-only；local commits allowed；push forbidden。
