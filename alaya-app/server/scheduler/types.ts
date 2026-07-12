@@ -1,4 +1,5 @@
 import type { SyncGithubIssuesOptions } from "../externalFeedback";
+import type { KnowledgeRetrievalIdentity } from "../knowledgeInjection";
 
 export interface GateBudgetState {
   budget: number;
@@ -52,4 +53,5 @@ export interface SchedulerTickResult {
 
 export interface SchedulerTickOptions {
   feedbackSync?: SyncGithubIssuesOptions;
+  knowledgeRetrievalIdentity?: KnowledgeRetrievalIdentity;
 }

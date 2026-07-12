@@ -20,6 +20,7 @@ import { reviewWindowState, sameReviewWindow, type ReviewWindowState } from "../
 import type { NotificationBus } from "../notifications/bus";
 import { CodexCliBuilderAdapter } from "../builderAdapter";
 import { reconcileSpeculativeAssumptions, runApplyExecutor } from "../applyExecutor";
+import { withKnowledgeRetrievalIdentity } from "../knowledgeInjection";
 
 const runningProjectTicks = new Set<string>();
 const safetyThrottleTicksByProject = new Map<string, number>();
@@ -2221,50 +2222,60 @@ async function schedulerTickProjectUnlocked(projectId: string, options: Schedule
 }
 
 export async function schedulerTickProject(projectId: string, options: SchedulerTickOptions = {}): Promise<SchedulerTickResult> {
-  if (runningProjectTicks.has(projectId)) {
-    const cycle = storage.listCycles(projectId).find((c) => c.status !== "closed") ?? storage.listCycles(projectId).at(-1);
-    const payload = { projectId, reason: "tick_in_progress", ts: now() };
-    storage.recordEvent({
-      cycleIdx: cycle?.idx ?? 0,
-      actor: "scheduler",
-      tableName: "scheduler",
-      op: "scheduler_tick_skipped",
-      before: null,
-      after: JSON.stringify(payload),
-      ts: now(),
-    });
-    recordTrace({
-      projectId,
-      cycleId: cycle?.id ?? null,
-      cycleIdx: cycle?.idx ?? null,
-      kind: "scheduler",
-      name: "scheduler_tick_skipped",
-      agent: "scheduler",
-      status: "blocked",
-      attributes: payload,
-    });
-    observeSchedulerCycle({ ok: false, durationMs: 0 });
-    return {
-      projectId,
-      action: "skipped",
-      cycleId: cycle?.id,
-      budget: gateBudgetForProject(projectId),
-      llmBudget: llmBudgetForProject(projectId),
-      note: "tick_in_progress",
-    };
-  }
+  const executeTick = async (): Promise<SchedulerTickResult> => {
+    if (runningProjectTicks.has(projectId)) {
+      const cycle = storage.listCycles(projectId).find((c) => c.status !== "closed") ?? storage.listCycles(projectId).at(-1);
+      const payload = { projectId, reason: "tick_in_progress", ts: now() };
+      storage.recordEvent({
+        cycleIdx: cycle?.idx ?? 0,
+        actor: "scheduler",
+        tableName: "scheduler",
+        op: "scheduler_tick_skipped",
+        before: null,
+        after: JSON.stringify(payload),
+        ts: now(),
+      });
+      recordTrace({
+        projectId,
+        cycleId: cycle?.id ?? null,
+        cycleIdx: cycle?.idx ?? null,
+        kind: "scheduler",
+        name: "scheduler_tick_skipped",
+        agent: "scheduler",
+        status: "blocked",
+        attributes: payload,
+      });
+      observeSchedulerCycle({ ok: false, durationMs: 0 });
+      return {
+        projectId,
+        action: "skipped",
+        cycleId: cycle?.id,
+        budget: gateBudgetForProject(projectId),
+        llmBudget: llmBudgetForProject(projectId),
+        note: "tick_in_progress",
+      };
+    }
 
-  runningProjectTicks.add(projectId);
-  try {
-    const bus = await getNotificationBus();
-    await processReviewWindowTick(projectId, bus);
-    const beforePendingGateIds = bus ? pendingGateIds(projectId) : new Set<string>();
-    const result = await schedulerTickProjectUnlocked(projectId, options);
-    if (bus) emitSchedulerNotifications(bus, beforePendingGateIds, result);
-    return result;
-  } finally {
-    runningProjectTicks.delete(projectId);
-  }
+    runningProjectTicks.add(projectId);
+    try {
+      const bus = await getNotificationBus();
+      await processReviewWindowTick(projectId, bus);
+      const beforePendingGateIds = bus ? pendingGateIds(projectId) : new Set<string>();
+      const result = await schedulerTickProjectUnlocked(projectId, options);
+      if (bus) emitSchedulerNotifications(bus, beforePendingGateIds, result);
+      return result;
+    } finally {
+      runningProjectTicks.delete(projectId);
+    }
+  };
+
+  const cycles = storage.listCycles(projectId);
+  const current = cycles.find((cycle) => cycle.status !== "closed") ?? cycles.at(-1);
+  return withKnowledgeRetrievalIdentity(
+    options.knowledgeRetrievalIdentity,
+    { projectId, cycleId: current?.id ?? "" },
+    executeTick,
+  );
 }
 
 export async function schedulerTickAllProjects(options: SchedulerTickOptions = {}): Promise<SchedulerTickResult[]> {
