@@ -40,6 +40,10 @@ npm run dev
 | Validation | 可运行 | health-signal 长测 runner、shadow analyzer、质量评分与趋势报告 |
 | **认知质量验证** | **进行中** | 24h 稳定配置基线已冻结；adaptive treatment 失败不构成增强结论；adaptive-vs-disabled 发布级实验已预注册 |
 
+## Experimental learning loop status
+
+PR-L6 已暂停，并作为[可审计的失败实验案例](./docs/validation/PR_L6_LEARNING_LOOP_FAILED_CASE.md)归档。压缩诊断未通过；该工作不具备 production-ready 状态，也未获得 24h formal acceptance。不得据此推导 learning-effectiveness、science、public 或 product-capability 结论。任何恢复都需要新的架构决定和显式授权；`PRECHECK3` 与 `RUN-L7` 均未启动。
+
 ---
 
 ## 架构概览

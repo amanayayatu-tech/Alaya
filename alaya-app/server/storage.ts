@@ -883,6 +883,7 @@ export interface IStorage {
   // event log
   recordEvent(e: Omit<EventLogItem, "id">): void;
   listEvents(): EventLogItem[];
+  getKnowledgeCreditEvent(cycleId: string, knowledgeId: string): EventLogItem | undefined;
   getReviewPauseState(): boolean | undefined;
   setReviewPauseState(paused: boolean, actor?: string, at?: string): void;
   // llm calls
@@ -1419,6 +1420,21 @@ export class DatabaseStorage implements IStorage {
   }
   listEvents(): EventLogItem[] {
     return rawDb.prepare(`SELECT * FROM event_log ORDER BY id DESC LIMIT 500`).all().map(rowToEvent);
+  }
+  getKnowledgeCreditEvent(cycleId: string, knowledgeId: string): EventLogItem | undefined {
+    const rows = rawDb.prepare(`
+      SELECT * FROM event_log
+      WHERE actor = 'knowledge_credit'
+        AND table_name = 'knowledge_items'
+        AND op = 'credit'
+      ORDER BY id DESC
+    `).all();
+    for (const row of rows) {
+      const event = rowToEvent(row);
+      const after = parseJsonObject(event.after ?? "{}");
+      if (after.cycleId === cycleId && after.knowledgeId === knowledgeId) return event;
+    }
+    return undefined;
   }
   getReviewPauseState(): boolean | undefined {
     const row = rawDb.prepare(`
