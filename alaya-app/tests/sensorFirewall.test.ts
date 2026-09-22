@@ -20,7 +20,8 @@ const {
   sensorErrorFingerprint,
 } = await import("../server/sensorFirewall.ts");
 
-const baseMs = Date.parse("2026-06-11T00:00:00.000Z");
+// Keep imported events inside the seven-day accumulator window as wall-clock time advances.
+const baseMs = Date.now() - 10 * 60 * 1000;
 
 function seed(projectId: string) {
   storage.createProject({
