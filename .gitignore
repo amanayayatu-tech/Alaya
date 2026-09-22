@@ -28,6 +28,7 @@ backups/
 tmp/alaya-backups/
 .codex-screenshots/
 alaya-app/.codex-screenshots/
+.codex-loop/
 
 # Validation & shadow-run artifacts (kept out of Git by workflow)
 validation-logs/

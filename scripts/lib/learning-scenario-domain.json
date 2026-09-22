@@ -1,0 +1,120 @@
+{
+  "schema": "alaya.learning_loop.scenario_domain.v1",
+  "domainId": "equity_thesis_v1",
+  "version": 1,
+  "caseStyle": {
+    "headlinePrefix": "Equity thesis review",
+    "entityPrefix": "ALYA",
+    "briefingTone": "portfolio-review memo",
+    "task": "Choose the thesis direction that best matches the signal bundle.",
+    "confidencePrompt": "Report confidence as the probability that the selected direction matches the hidden world rule."
+  },
+  "signalSkins": {
+    "earnings_revision": {
+      "label": "earnings revision",
+      "text": "Street estimates were revised upward after the latest operating update.",
+      "kind": "fundamental",
+      "polarity": "positive"
+    },
+    "margin_repair": {
+      "label": "margin repair",
+      "text": "Gross margin pressure is easing as mix and procurement normalize.",
+      "kind": "fundamental",
+      "polarity": "positive"
+    },
+    "cash_flow_quality": {
+      "label": "cash flow quality",
+      "text": "Free cash flow conversion is improving without a working-capital pull-forward.",
+      "kind": "quality",
+      "polarity": "positive"
+    },
+    "valuation_discount": {
+      "label": "valuation discount",
+      "text": "The stock trades at a discount to peers after adjusting for growth and leverage.",
+      "kind": "valuation",
+      "polarity": "positive"
+    },
+    "upside_catalyst": {
+      "label": "upside catalyst",
+      "text": "A near-term catalyst can re-rate the thesis if execution remains intact.",
+      "kind": "catalyst",
+      "polarity": "positive"
+    },
+    "short_crowding": {
+      "label": "short crowding",
+      "text": "Short interest is crowded enough to amplify a positive revision.",
+      "kind": "positioning",
+      "polarity": "positive"
+    },
+    "guidance_cut": {
+      "label": "guidance cut",
+      "text": "Management cut forward guidance and narrowed the delivery range.",
+      "kind": "fundamental",
+      "polarity": "negative"
+    },
+    "liquidity_risk": {
+      "label": "liquidity risk",
+      "text": "Liquidity runway tightened and refinancing optionality is lower.",
+      "kind": "balance_sheet",
+      "polarity": "negative"
+    },
+    "event_risk": {
+      "label": "event risk",
+      "text": "A binary event can dominate the near-term return distribution.",
+      "kind": "risk",
+      "polarity": "negative"
+    },
+    "drawdown_pressure": {
+      "label": "drawdown pressure",
+      "text": "Price action is breaking support while realized volatility is rising.",
+      "kind": "technical",
+      "polarity": "negative"
+    },
+    "regulatory_risk": {
+      "label": "regulatory risk",
+      "text": "A regulator opened a review that could delay monetization.",
+      "kind": "risk",
+      "polarity": "negative"
+    },
+    "risk_budget_tight": {
+      "label": "risk budget tight",
+      "text": "Portfolio risk budget is tight and incremental exposure must clear a higher bar.",
+      "kind": "portfolio",
+      "polarity": "negative"
+    }
+  },
+  "decisionSkins": {
+    "increase_long": {
+      "label": "increase long",
+      "direction": "constructive",
+      "text": "Increase long exposure because thesis quality and upside skew dominate."
+    },
+    "maintain_long": {
+      "label": "maintain long",
+      "direction": "constructive",
+      "text": "Maintain the long thesis while waiting for confirmation."
+    },
+    "reduce_exposure": {
+      "label": "reduce exposure",
+      "direction": "defensive",
+      "text": "Reduce exposure because the risk signals now dominate expected upside."
+    },
+    "avoid_trade": {
+      "label": "avoid trade",
+      "direction": "neutral",
+      "text": "Avoid a new trade because signal conflict is too high."
+    },
+    "short_bias": {
+      "label": "short bias",
+      "direction": "bearish",
+      "text": "Adopt a short bias because negative revisions and risk signals dominate."
+    }
+  },
+  "rationaleTemplates": [
+    "The rule rewards quality plus revision strength when risk remains contained.",
+    "The rule penalizes fragile balance-sheet or event-risk combinations.",
+    "The rule treats valuation as useful only when paired with evidence of execution.",
+    "The rule treats crowded positioning as an amplifier, not a standalone thesis.",
+    "The rule favors capital preservation when portfolio constraints are active."
+  ]
+}

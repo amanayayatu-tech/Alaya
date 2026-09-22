@@ -196,8 +196,8 @@ function ensureSensorGate(input: SensorFirewallInput, decision: {
 }
 
 export function recordSensorFirewallError(input: SensorFirewallInput): SensorFirewallDecision {
-  const currentTimeMs = input.currentTimeMs ?? Date.now();
-  const observedMs = parseTimestamp(input.observedAt, currentTimeMs);
+  const observedMs = parseTimestamp(input.observedAt, input.currentTimeMs ?? Date.now());
+  const currentTimeMs = input.currentTimeMs ?? observedMs;
   const errorKind = normalizeSensorErrorKind(input.errorKind);
   const fingerprint = sensorErrorFingerprint(input.projectId, input.source, errorKind);
   const existing = storage.getSensorErrorAccumulator(fingerprint);

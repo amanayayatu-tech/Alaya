@@ -7,7 +7,7 @@ import { join } from "node:path";
 process.env.ALAYA_DB_PATH = join(mkdtempSync(join(tmpdir(), "alaya-evolution-test-")), "test.db");
 process.env.ALAYA_LLM_PROVIDER = "mock";
 
-const { storage, now } = await import("../server/storage.ts");
+const { storage } = await import("../server/storage.ts");
 const { generateNextGoal } = await import("../server/autonomousGoal.ts");
 const { computeSemanticKey, isContradiction, isSemanticDuplicate } = await import("../server/knowledgeSimilarity.ts");
 const {
@@ -82,6 +82,7 @@ function createKnowledge(projectId: string, id: string, overrides: Record<string
     createdBy: "test",
     approvedBy: null,
     usageCount: 0,
+    lastVerifiedAt: Date.now(),
     tags: JSON.stringify(["preview", "rollback", "auditability", "high_risk"]),
     notes: "",
     semanticKey: computeSemanticKey(title, content),

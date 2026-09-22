@@ -44,6 +44,7 @@ import {
 } from "./orgModules";
 import { applyEvidence } from "alaya-core/src/core/update_confidence.js";
 import { transitionState } from "alaya-core/src/core/transition_state.js";
+import { KNOWLEDGE_RETRIEVAL_CONTROL_SCHEMA } from "./knowledgeInjection";
 
 function parseJsonFields<T extends Record<string, any>>(obj: T, fields: string[]): T {
   const out: any = { ...obj };
@@ -153,12 +154,22 @@ const gateDecisionSchema = z.object({
   deferUntil: z.string().trim().max(64).nullable().optional(),
 }).passthrough();
 
+const knowledgeRetrievalIdentitySchema = z.object({
+  schema: z.literal(KNOWLEDGE_RETRIEVAL_CONTROL_SCHEMA),
+  projectId: idSchema,
+  runId: idSchema,
+  caseId: idSchema,
+  cycleId: idSchema,
+  mode: z.enum(["mutating", "read_only"]),
+}).strict();
+
 const feedbackSyncSchema = z.object({
   token: z.string().trim().max(4096).optional(),
   githubToken: z.string().trim().max(4096).optional(),
   limit: z.number().int().min(1).max(100).optional(),
   syncFeedback: z.boolean().optional(),
   projectId: idSchema.optional(),
+  knowledgeRetrievalIdentity: knowledgeRetrievalIdentitySchema.optional(),
 }).passthrough();
 
 const knowledgeReviewResolveSchema = z.object({
@@ -559,9 +570,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     req.body = parsed.data;
     const project = storage.getProject(String(req.params.id));
     if (!project) return res.status(404).json({ message: "not found" });
+    if (req.body.knowledgeRetrievalIdentity && req.body.knowledgeRetrievalIdentity.projectId !== project.id) {
+      return res.status(400).json({ message: "knowledge retrieval identity projectId mismatch" });
+    }
     const syncOptions = feedbackSyncOptions(req);
-    if (req.body?.syncFeedback !== false) await syncConfiguredFeedbackForProject(project.id, undefined, syncOptions);
-    res.json(await schedulerTickProject(project.id, { feedbackSync: syncOptions }));
+    if (req.body?.syncFeedback !== false && !req.body.knowledgeRetrievalIdentity) {
+      await syncConfiguredFeedbackForProject(project.id, undefined, syncOptions);
+    }
+    res.json(await schedulerTickProject(project.id, {
+      feedbackSync: syncOptions,
+      knowledgeRetrievalIdentity: req.body.knowledgeRetrievalIdentity,
+    }));
   });
   app.post("/api/scheduler/tick", costEndpointRateLimit("scheduler-tick"), async (req, res) => {
     const parsed = feedbackSyncSchema.safeParse(req.body ?? {});
@@ -572,8 +591,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (projectId) {
       const project = storage.getProject(String(projectId));
       if (!project) return res.status(404).json({ message: "not found" });
-      if (req.body?.syncFeedback !== false) await syncConfiguredFeedbackForProject(project.id, undefined, syncOptions);
-      return res.json(await schedulerTickProject(project.id, { feedbackSync: syncOptions }));
+      if (req.body.knowledgeRetrievalIdentity && req.body.knowledgeRetrievalIdentity.projectId !== project.id) {
+        return res.status(400).json({ message: "knowledge retrieval identity projectId mismatch" });
+      }
+      if (req.body?.syncFeedback !== false && !req.body.knowledgeRetrievalIdentity) {
+        await syncConfiguredFeedbackForProject(project.id, undefined, syncOptions);
+      }
+      return res.json(await schedulerTickProject(project.id, {
+        feedbackSync: syncOptions,
+        knowledgeRetrievalIdentity: req.body.knowledgeRetrievalIdentity,
+      }));
+    }
+    if (req.body.knowledgeRetrievalIdentity) {
+      return res.status(400).json({ message: "knowledge retrieval identity requires one explicit projectId" });
     }
     if (req.body?.syncFeedback !== false) {
       for (const project of storage.listProjects()) await syncConfiguredFeedbackForProject(project.id, undefined, syncOptions);

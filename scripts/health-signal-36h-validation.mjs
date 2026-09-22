@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn, execFileSync } from "node:child_process";
-import { appendFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, statfsSync, writeFileSync } from "node:fs";
+import { appendFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, statfsSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,19 @@ import {
   scoreResolutionEvent,
 } from "./lib/health-signal-quality.mjs";
 import { buildCognitionCoverageEvidence } from "./lib/cognition-coverage-scenario.mjs";
+import { createLearningCaseHardStop } from "./lib/learning-case-hard-stop.mjs";
+import {
+  bindLearningPrediction,
+  buildLearningCaseProjectPatch,
+  buildLearningCaseVisiblePrompt,
+  causalCycleFromSchedulerTicks,
+  compareHeldoutKnowledgeState,
+  heldoutWritePolicy,
+  learningCaseGroundTruth as runtimeLearningCaseGroundTruth,
+  learningCaseId as runtimeLearningCaseId,
+  learningQueueDrainStatus,
+  parseRuntimePredictionContract,
+} from "./lib/learning-runtime-contract.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -144,7 +157,9 @@ if (args.help || rawArgv.includes("-h")) {
     "  OPENAI_API_KEY or OPENAI_API_KEY_FILE",
     "",
     "Common options:",
-    "  --scenario=<standard|conflict-flood|cognition-coverage>",
+    "  --scenario=<standard|conflict-flood|cognition-coverage|learning-cases>",
+    "  --learning-cases-path=<path>     required for learning-cases unless ALAYA_LEARNING_CASES_PATH is set",
+    "  --learning-cases-per-sample=<n>   default: enough to consume all cases within max samples",
     "  --log-dir=<path>",
     "  --duration-hours=<number>        default: 36",
     "  --duration-minutes=<number>      default: 0",
@@ -297,8 +312,8 @@ const explicitMaxSamples = Math.trunc(numArg("max-samples", Number.POSITIVE_INFI
 const durationBoundedMaxSamples = Math.ceil(durationMs / sampleMs) + 1;
 const maxSamples = Math.max(1, Math.min(durationBoundedMaxSamples, explicitMaxSamples));
 const scenario = args.scenario || "standard";
-if (!["standard", "conflict-flood", "cognition-coverage"].includes(scenario)) {
-  console.error(`Unsupported --scenario=${JSON.stringify(scenario)}. Expected standard, conflict-flood, or cognition-coverage.`);
+if (!["standard", "conflict-flood", "cognition-coverage", "learning-cases"].includes(scenario)) {
+  console.error(`Unsupported --scenario=${JSON.stringify(scenario)}. Expected standard, conflict-flood, cognition-coverage, or learning-cases.`);
   process.exit(2);
 }
 const startApp = boolArg("start-app", true);
@@ -345,6 +360,10 @@ const watchdogPath = join(logDir, "watchdog.jsonl");
 const dbPath = resolve(launchGuard.config.dbPath);
 const metricsSnapshotMinutes = Math.max(0, numArg("metrics-snapshot-minutes", 0));
 const watchdogMinutes = Math.max(0, numArg("watchdog-minutes", 0));
+const knowledgeRetrievalControlPath = scenario === "learning-cases"
+  ? resolve(process.env.ALAYA_KNOWLEDGE_RETRIEVAL_CONTROL_PATH || join(logDir, "knowledge-retrieval-control.json"))
+  : null;
+const REQUIRED_MODEL_CALLING_AGENTS = Object.freeze(["orchestrator", "sensor", "builder", "distiller", "librarian"]);
 
 function logLine(message) {
   const line = `${new Date().toISOString()} ${message}`;
@@ -354,6 +373,56 @@ function logLine(message) {
 
 function event(eventType, data = {}) {
   appendFileSync(eventsJsonl, `${JSON.stringify({ ts: new Date().toISOString(), eventType, ...data })}\n`);
+}
+
+function writeKnowledgeRetrievalControl(identity) {
+  if (!knowledgeRetrievalControlPath) throw new Error("learning-case retrieval control path is unavailable");
+  if (identity?.mode !== "mutating" && identity?.mode !== "read_only") {
+    throw new Error(`invalid learning-case retrieval mode: ${String(identity?.mode)}`);
+  }
+  const payload = {
+    schema: "alaya.learning_loop.retrieval_control.v1",
+    projectId: String(identity?.projectId ?? "").trim(),
+    runId: String(identity?.runId ?? "").trim(),
+    caseId: String(identity?.caseId ?? "").trim(),
+    cycleId: String(identity?.cycleId ?? "").trim(),
+    mode: identity.mode,
+  };
+  if (!payload.projectId || !payload.runId || !payload.caseId || !payload.cycleId) {
+    throw new Error("learning-case retrieval control requires projectId, runId, caseId, and cycleId");
+  }
+  const tempPath = `${knowledgeRetrievalControlPath}.tmp-${process.pid}`;
+  writeFileSync(tempPath, `${JSON.stringify(payload)}\n`, { mode: 0o600 });
+  renameSync(tempPath, knowledgeRetrievalControlPath);
+  event("knowledge_retrieval_control", {
+    ...payload,
+    auditBoundary: "non_model_runtime_control",
+  });
+  return payload;
+}
+
+async function knowledgeRetrievalIdentity(baseUrl, projectId, caseId, mode) {
+  if (!runId) throw new Error("learning-case scheduler requests require runId");
+  const cycles = await requestJson(baseUrl, `/api/projects/${projectId}/cycles`);
+  const current = cycles.find((cycle) => cycle.status !== "closed") ?? cycles.at(-1);
+  if (!current?.id) throw new Error(`learning-case ${caseId} has no current cycle for retrieval identity`);
+  return {
+    schema: "alaya.learning_loop.retrieval_control.v1",
+    projectId,
+    runId,
+    caseId,
+    cycleId: current.id,
+    mode,
+  };
+}
+
+async function requestLearningSchedulerTick(baseUrl, projectId, { caseId, mode }) {
+  const identity = await knowledgeRetrievalIdentity(baseUrl, projectId, caseId, mode);
+  writeKnowledgeRetrievalControl(identity);
+  return requestJson(baseUrl, `/api/projects/${projectId}/scheduler/tick`, {
+    method: "POST",
+    body: { syncFeedback: false, knowledgeRetrievalIdentity: identity },
+  });
 }
 
 function issue(finding) {
@@ -459,12 +528,110 @@ function readEvents() {
     });
 }
 
+function readLearningCasesFile(path) {
+  if (!path?.trim()) {
+    console.error("learning-cases scenario requires --learning-cases-path or ALAYA_LEARNING_CASES_PATH.");
+    process.exit(2);
+  }
+  const resolvedPath = resolve(path);
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(resolvedPath, "utf8"));
+  } catch (error) {
+    console.error(`Unable to read learning cases from ${resolvedPath}: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(2);
+  }
+  const cases = Array.isArray(parsed) ? parsed : parsed?.cases;
+  if (!Array.isArray(cases) || cases.length === 0) {
+    console.error(`Learning cases file ${resolvedPath} must contain a non-empty cases array.`);
+    process.exit(2);
+  }
+  return { path: resolvedPath, cases };
+}
+
+function learningCaseId(testCase) {
+  return runtimeLearningCaseId(testCase);
+}
+
+function learningCaseGroundTruth(testCase) {
+  return runtimeLearningCaseGroundTruth(testCase);
+}
+
+function learningCasePrompt(testCase) {
+  return buildLearningCaseVisiblePrompt(testCase);
+}
+
+function learningCaseProjectPatch(testCase) {
+  return buildLearningCaseProjectPatch(testCase);
+}
+
+function parseJsonObject(value) {
+  if (!value) return {};
+  if (typeof value === "object" && !Array.isArray(value)) return value;
+  if (typeof value !== "string") return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function traceAttributes(trace) {
+  return parseJsonObject(trace?.attributes);
+}
+
+function latestKnowledgeInjectionTrace(traces = []) {
+  return [...traces].reverse().find((trace) => trace?.kind === "knowledge_injection" || trace?.name === "build_prior_knowledge_context") ?? null;
+}
+
+function comparablePrediction(prediction) {
+  if (!prediction) return null;
+  return {
+    id: prediction.id ?? null,
+    cycleId: prediction.cycleId ?? null,
+    belief: prediction.belief ?? "",
+    prediction: prediction.prediction ?? "",
+    action: prediction.action ?? "",
+    status: prediction.status ?? null,
+    knowledgeRefs: Array.isArray(prediction.knowledgeRefs) ? prediction.knowledgeRefs : [],
+  };
+}
+
 function lastCognitionCoverageOrdinal() {
   return readEvents().reduce((max, event) => {
     const ordinal = Number(event.coverageOrdinal);
     return Number.isFinite(ordinal) ? Math.max(max, ordinal) : max;
   }, 0);
 }
+
+function lastLearningCaseOrdinal() {
+  return readEvents().reduce((max, eventItem) => {
+    if (eventItem.eventType !== "learning_case_resolved") return max;
+    const ordinal = Number(eventItem.ordinal ?? eventItem.caseIndex ?? eventItem.cycleIdx);
+    return Number.isFinite(ordinal) ? Math.max(max, ordinal) : max;
+  }, 0);
+}
+
+const learningCasesPath = args["learning-cases-path"] || process.env.ALAYA_LEARNING_CASES_PATH || "";
+const learningCasesInput = scenario === "learning-cases"
+  ? readLearningCasesFile(learningCasesPath)
+  : { path: null, cases: [] };
+const learningCases = learningCasesInput.cases;
+const learningCasesPerSample = scenario === "learning-cases"
+  ? Math.max(1, Math.trunc(numArg(
+    "learning-cases-per-sample",
+    Math.ceil(learningCases.length / maxSamples),
+  )))
+  : 0;
+const learningCaseConflictGateClassification = scenario === "learning-cases"
+  ? {
+      conflictAtLeast5: "NOT_APPLICABLE_TO_LEARNING_CASE_DECISION_SCENARIO",
+      conflictResolvedAtLeast3: "NOT_APPLICABLE_TO_LEARNING_CASE_DECISION_SCENARIO",
+      reason: "learning-cases routes generated decision cases through runtime/model prediction and oracle scoring; conflict-flood gates require explicit contradiction-review stimulus and remain blocked unless run with conflict-flood or a combined scenario",
+      evidenceBoundary: "diagnostic_precheck_classification_only_not_formal_acceptance",
+    }
+  : null;
 
 async function assertPortAvailable(port) {
   const ok = await new Promise((resolvePort) => {
@@ -665,6 +832,7 @@ async function startLocalApp() {
     OPENAI_MAX_RETRIES: process.env.OPENAI_MAX_RETRIES || "2",
     OPENAI_RETRY_BASE_MS: process.env.OPENAI_RETRY_BASE_MS || "1500",
     MINIMAX_THINKING: process.env.MINIMAX_THINKING || "disabled",
+    ...(knowledgeRetrievalControlPath ? { ALAYA_KNOWLEDGE_RETRIEVAL_CONTROL_PATH: knowledgeRetrievalControlPath } : {}),
     ALAYA_CAP_LLM_CALL: "true",
     ALAYA_CAP_KNOWLEDGE_WRITE: "true",
     ALAYA_CAP_SCHEDULER_LOOP: "true",
@@ -898,6 +1066,374 @@ async function injectCognitionCoverageBatch(baseUrl, projectId, sample, state) {
     state.cognitionCoverageOrdinal += 1;
     await injectCognitionCoverageEvidence(baseUrl, projectId, sample, state.cognitionCoverageOrdinal);
   }
+}
+
+async function injectLearningCaseFeedback(baseUrl, projectId, testCase, sample, ordinal) {
+  const externalId = learningCaseId(testCase);
+  const result = await requestJson(baseUrl, `/api/projects/${projectId}/feedback/form`, {
+    method: "POST",
+    body: {
+      sourceName: "learning-case-runtime-input",
+      externalId,
+      title: testCase.title ?? `Learning case ${externalId}`,
+      text: learningCasePrompt(testCase),
+      url: "",
+    },
+  });
+  event("learning_case_runtime_input", {
+    sample,
+    ordinal,
+    projectId,
+    caseId: externalId,
+    externalId,
+    worldSeed: String(testCase.worldSeed ?? ""),
+    ruleId: testCase.ruleId ?? null,
+    ruleRef: testCase.ruleRef ?? null,
+    pool: testCase.pool ?? testCase.split ?? null,
+    signalIds: Array.isArray(testCase.signalIds) ? testCase.signalIds : [],
+    imported: result.imported ?? null,
+    skipped: result.skipped ?? null,
+    gateId: result.gate?.id ?? null,
+    classification: result.classification ?? null,
+    runtimePath: "api:/feedback/form",
+    decisionSource: "runtime_model_prediction_pending",
+  });
+  return result;
+}
+
+async function configureLearningCaseProject(baseUrl, projectId, testCase, sample, ordinal) {
+  const patch = learningCaseProjectPatch(testCase);
+  const modelVisiblePrompt = learningCasePrompt(testCase);
+  const project = await requestJson(baseUrl, `/api/projects/${projectId}`, {
+    method: "PATCH",
+    body: patch,
+  });
+  event("learning_case_project_configured", {
+    sample,
+    ordinal,
+    projectId,
+    caseId: learningCaseId(testCase),
+    pool: testCase?.pool ?? testCase?.split ?? null,
+    runtimePath: "api:/projects/:id PATCH",
+    decisionSource: "runtime_model_prediction_context",
+    directionChars: patch.direction.length,
+    seedIdentityChars: patch.seedIdentity.length,
+    worldModelChars: patch.worldModel.length,
+    redlineCount: patch.redlines.length,
+    projectIdConfirmed: project?.id ?? null,
+  });
+  event("learning_case_model_input_audit", {
+    sample,
+    ordinal,
+    projectId,
+    caseId: learningCaseId(testCase),
+    modelVisiblePrompt,
+    modelVisiblePromptChars: modelVisiblePrompt.length,
+    hiddenMetadataIncluded: false,
+    auditBoundary: "non_model_runtime_event",
+  });
+  return project;
+}
+
+async function recordLearningCaseRuntimeDecision(baseUrl, projectId, testCase, sample, ordinal, state, options = {}) {
+  const caseId = learningCaseId(testCase);
+  const groundTruthDecision = learningCaseGroundTruth(testCase);
+  if (!caseId || !groundTruthDecision) {
+    event("learning_case_unscoreable_input", {
+      sample,
+      ordinal,
+      projectId,
+      caseId: caseId || null,
+      reason: !caseId ? "missing_case_id" : "missing_ground_truth_decision",
+    });
+    throw new Error(`learning case ${caseId || ordinal} is missing ${!caseId ? "caseId" : "groundTruthDecision"}`);
+  }
+
+  const writePolicy = heldoutWritePolicy(testCase);
+  const knowledgeBefore = writePolicy.heldout
+    ? await requestJson(baseUrl, `/api/knowledge?projectId=${projectId}`)
+    : [];
+  await configureLearningCaseProject(baseUrl, projectId, testCase, sample, ordinal);
+  if (writePolicy.heldout) {
+    event("learning_case_runtime_input_filtered", {
+      sample,
+      ordinal,
+      projectId,
+      caseId,
+      pool: "heldout",
+      signalIds: Array.isArray(testCase.signalIds) ? testCase.signalIds : [],
+      excludeFromDistiller: true,
+      excludeFromCreditTraining: true,
+      knowledgeRetrievalMode: writePolicy.knowledgeRetrievalMode,
+      blockedPaths: writePolicy.blockedPaths,
+      modelVisiblePromptChars: learningCasePrompt(testCase).length,
+      runtimePath: "api:/projects/:id PATCH",
+      decisionSource: "runtime_model_prediction_pending",
+    });
+  } else {
+    await injectLearningCaseFeedback(baseUrl, projectId, testCase, sample, ordinal);
+  }
+
+  const progress = await progressLearningCaseFlywheel(baseUrl, projectId, state, {
+    ...options,
+    evaluationOnly: writePolicy.heldout,
+    caseId,
+  });
+  if (!progress.completed) {
+    event("learning_case_cycle_incomplete", {
+      sample,
+      ordinal,
+      projectId,
+      caseId,
+      pool: testCase.pool ?? testCase.split ?? null,
+      schedulerTicks: progress.ticks,
+    });
+    throw new Error(`learning case ${caseId} did not complete its causal cycle within ${progressTicksPerSample} scheduler ticks`);
+  }
+  const causalCycle = causalCycleFromSchedulerTicks(progress.ticks);
+  const afterPredictions = await requestJson(baseUrl, `/api/projects/${projectId}/predictions`);
+  const binding = bindLearningPrediction({
+    caseId,
+    causalCycleId: causalCycle.cycleId,
+    predictions: afterPredictions,
+  });
+  if (causalCycle.status !== "bound" || binding.status !== "bound") {
+    const failure = {
+      sample,
+      ordinal,
+      projectId,
+      caseId,
+      pool: testCase.pool ?? testCase.split ?? null,
+      ruleId: testCase.ruleId ?? null,
+      status: binding.status === "bound" ? causalCycle.status : binding.status,
+      reason: binding.reason ?? `causal_cycle_${causalCycle.status}`,
+      causalCycleIds: causalCycle.cycleIds,
+      candidatePredictionIds: binding.candidatePredictionIds,
+      schedulerTicks: progress.ticks,
+      decisionSource: "runtime_model_prediction_binding_failed",
+    };
+    event("learning_case_prediction_binding_error", failure);
+    throw new Error(`learning case ${caseId} prediction binding failed: ${failure.reason}`);
+  }
+
+  const prediction = binding.prediction;
+  const cycleId = prediction.cycleId;
+  const [traces, llmCalls] = await Promise.all([
+    requestJson(baseUrl, `/api/cycles/${cycleId}/traces?limit=5000`),
+    requestJson(baseUrl, `/api/projects/${projectId}/llm-calls`),
+  ]);
+  const injectionTrace = latestKnowledgeInjectionTrace(traces);
+  const injectionAttrs = traceAttributes(injectionTrace);
+  const expectedRetrievalMode = writePolicy.knowledgeRetrievalMode;
+  const retrievalModeValid = Boolean(
+    injectionTrace &&
+    injectionAttrs.retrievalMode === expectedRetrievalMode &&
+    injectionAttrs.retrievalControlCaseId === caseId &&
+    injectionAttrs.retrievalControlRunId === runId &&
+    injectionAttrs.retrievalControlCycleId === cycleId &&
+    (writePolicy.heldout
+      ? injectionAttrs.persistenceWritesAllowed === false &&
+        injectionAttrs.creditEligible === false &&
+        injectionAttrs.trainingEligible === false &&
+        Array.isArray(injectionAttrs.injectedKnowledgeIds) &&
+        injectionAttrs.injectedKnowledgeIds.length === 0
+      : injectionAttrs.persistenceWritesAllowed === !injectionAttrs.injectionDisabled)
+  );
+  if (!retrievalModeValid) {
+    event("knowledge_retrieval_mode_error", {
+      projectId,
+      caseId,
+      cycleId,
+      expectedRetrievalMode,
+      observedRetrievalMode: injectionAttrs.retrievalMode ?? null,
+      traceEventId: injectionTrace?.id ?? null,
+    });
+    throw new Error(`learning case ${caseId} retrieval mode was missing or ambiguous`);
+  }
+  if (injectionTrace) {
+    event("knowledge_injection", {
+      source: "runtime_trace_api",
+      traceEventId: injectionTrace.id ?? null,
+      traceId: injectionTrace.traceId ?? null,
+      spanId: injectionTrace.spanId ?? null,
+      projectId,
+      cycleId,
+      cycleIdx: injectionTrace.cycleIdx ?? null,
+      kind: injectionTrace.kind ?? "knowledge_injection",
+      name: injectionTrace.name ?? "build_prior_knowledge_context",
+      agent: injectionTrace.agent ?? null,
+      status: injectionTrace.status ?? null,
+      attributes: injectionAttrs,
+    });
+  }
+
+  const parsedDecision = parseRuntimePredictionContract(prediction);
+  const predictedDecision = parsedDecision.decision;
+  const confidence = parsedDecision.confidence;
+  const predictionLlmCall = [...llmCalls].reverse().find((call) => call.cycleId === cycleId && call.agent === "orchestrator") ?? null;
+  const eventLog = await requestJson(baseUrl, "/api/event-log");
+  const creditAudits = eventLog.filter((audit) => {
+    const after = parseJsonObject(audit?.after);
+    return audit?.actor === "knowledge_credit" && audit?.op === "credit" && after.cycleId === cycleId;
+  });
+  const injectionMutationAudits = eventLog.filter((audit) => (
+    audit?.actor === "knowledge_injection" &&
+    audit?.op === "inject" &&
+    Number(audit?.cycleIdx ?? audit?.cycle_idx) === Number(injectionTrace?.cycleIdx)
+  ));
+  const knowledgeAfter = writePolicy.heldout
+    ? await requestJson(baseUrl, `/api/knowledge?projectId=${projectId}`)
+    : [];
+  const heldoutInvariant = writePolicy.heldout
+    ? compareHeldoutKnowledgeState(knowledgeBefore, knowledgeAfter)
+    : null;
+
+  event("learning_case_prediction_bound", {
+    sample,
+    ordinal,
+    projectId,
+    caseId,
+    cycleId,
+    predictionId: prediction.id,
+    status: binding.status,
+    bindingMethod: binding.bindingMethod,
+    candidatePredictionIds: binding.candidatePredictionIds,
+    schedulerTicks: progress.ticks,
+  });
+  if (writePolicy.heldout) {
+    const heldoutFilter = {
+      sample,
+      ordinal,
+      projectId,
+      caseId,
+      cycleId,
+      status: heldoutInvariant.passed && creditAudits.length === 0 && injectionMutationAudits.length === 0 && retrievalModeValid
+        ? "applied"
+        : "violation",
+      excludeFromDistiller: true,
+      excludeFromCreditTraining: true,
+      blockedPaths: writePolicy.blockedPaths,
+      knowledgeStateInvariant: heldoutInvariant,
+      knowledgeRetrievalMode: injectionAttrs.retrievalMode ?? null,
+      readOnlySelectedKnowledgeIds: Array.isArray(injectionAttrs.readOnlySelectedKnowledgeIds) ? injectionAttrs.readOnlySelectedKnowledgeIds : [],
+      knowledgeInjectMutationEventCount: injectionMutationAudits.length,
+      knowledgeCreditEventCount: creditAudits.length,
+      predictionResolutionSkipped: prediction.status !== "resolved",
+      auditBoundary: "non_model_runtime_event",
+    };
+    event("heldout_write_filter", heldoutFilter);
+    if (heldoutFilter.status !== "applied") {
+      throw new Error(`heldout learning case ${caseId} violated write isolation`);
+    }
+  } else {
+    event("knowledge_credit_audit", {
+      sample,
+      ordinal,
+      projectId,
+      caseId,
+      cycleId,
+      predictionId: prediction.id,
+      creditEventCount: creditAudits.length,
+      knowledgeIds: creditAudits.map((audit) => parseJsonObject(audit.after).knowledgeId).filter(Boolean),
+      comparablePayloads: creditAudits.every((audit) => Boolean(audit.before && audit.after)),
+    });
+  }
+
+  const runtimePath = writePolicy.heldout
+    ? "api:/projects/:id PATCH -> api:/scheduler/tick -> api:/projects/:id/predictions -> api:/cycles/:id/close"
+    : "api:/feedback/form -> api:/scheduler/tick -> api:/projects/:id/predictions";
+  event("learning_case_resolved", {
+    learningCaseEventSchema: "alaya.learning_loop.learning_case_event.v2",
+    projectId,
+    arm: process.env.ALAYA_EXPERIMENT_ARM ?? "unknown",
+    caseId,
+    externalId: testCase.externalId ?? caseId,
+    cycleId,
+    cycleIdx: traces.find((trace) => trace.cycleId === cycleId)?.cycleIdx ?? null,
+    predictionId: prediction.id,
+    sample,
+    ordinal,
+    worldSeed: String(testCase.worldSeed ?? ""),
+    ruleId: testCase.ruleId ?? null,
+    ruleRef: testCase.ruleRef ?? null,
+    pool: testCase.pool ?? testCase.split ?? null,
+    predictedDecision,
+    groundTruthDecision,
+    expectedDecision: testCase.expectedDecision ?? groundTruthDecision,
+    confidence,
+    calibrationTruth: testCase.calibrationTruth ?? null,
+    correctnessMode: "truth",
+    excludeFromDistiller: writePolicy.excludeFromDistiller,
+    excludeFromCreditTraining: writePolicy.excludeFromCreditTraining,
+    decisionSource: "runtime_model_prediction",
+    runtimePath,
+    evidenceBoundary: "real_provider_compressed_precheck_diagnostic_only",
+    binding: {
+      status: binding.status,
+      method: binding.bindingMethod,
+      cycleId,
+      predictionId: prediction.id,
+    },
+    modelPrediction: comparablePrediction(prediction),
+    knowledgeInjection: {
+      traceEventId: injectionTrace?.id ?? null,
+      injectedKnowledgeIds: Array.isArray(injectionAttrs.injectedKnowledgeIds) ? injectionAttrs.injectedKnowledgeIds : [],
+      readOnlySelectedKnowledgeIds: Array.isArray(injectionAttrs.readOnlySelectedKnowledgeIds) ? injectionAttrs.readOnlySelectedKnowledgeIds : [],
+      candidateIds: Array.isArray(injectionAttrs.candidateIds) ? injectionAttrs.candidateIds : [],
+      retrievalMode: injectionAttrs.retrievalMode ?? null,
+      creditEligible: injectionAttrs.creditEligible ?? null,
+      trainingEligible: injectionAttrs.trainingEligible ?? null,
+      rankingMode: injectionAttrs.rankingMode ?? null,
+      droppedKnowledgeId: injectionAttrs.droppedKnowledgeId ?? null,
+      epsilon: injectionAttrs.epsilon ?? null,
+      injectionDisabled: injectionAttrs.injectionDisabled ?? null,
+    },
+    llmCall: predictionLlmCall ? {
+      id: predictionLlmCall.id ?? null,
+      provider: predictionLlmCall.provider ?? null,
+      model: predictionLlmCall.model ?? null,
+      tokenSource: predictionLlmCall.tokenSource ?? null,
+      schemaValid: predictionLlmCall.schemaValid ?? null,
+      llmFailureType: predictionLlmCall.llmFailureType ?? null,
+    } : null,
+    parseStatus: parsedDecision.status === "ok" ? "ok" : `unparsed_model_decision_${parsedDecision.status}`,
+    parseSourceField: parsedDecision.sourceField,
+  });
+  return { caseId, lastAction: progress.lastAction, parseStatus: parsedDecision.status };
+}
+
+async function recordLearningCaseBatch(baseUrl, projectId, sample, state, options = {}) {
+  if (scenario !== "learning-cases") return [];
+  const emitted = [];
+  for (let i = 0; i < learningCasesPerSample && state.learningCaseOrdinal < learningCases.length; i += 1) {
+    const caseItem = learningCases[state.learningCaseOrdinal];
+    const ordinal = state.learningCaseOrdinal + 1;
+    const execution = await state.learningCaseHardStop.runProvider({
+      sample,
+      ordinal,
+      caseId: learningCaseId(caseItem),
+      phase: options.finalDrain ? "final_drain" : "sample",
+    }, () => recordLearningCaseRuntimeDecision(baseUrl, projectId, caseItem, sample, ordinal, state, options));
+    if (execution.status === "blocked") break;
+    const result = execution.value;
+    emitted.push(result.caseId || learningCaseId(caseItem));
+    state.lastLearningCaseAction = result.lastAction || state.lastLearningCaseAction || "";
+    state.learningCaseOrdinal += 1;
+  }
+  if (emitted.length > 0) {
+    event("learning_case_batch_recorded", {
+      sample,
+      projectId,
+      emittedCaseIds: emitted,
+      emittedCount: emitted.length,
+      totalEmitted: state.learningCaseOrdinal,
+      totalCases: learningCases.length,
+      casesRemaining: Math.max(0, learningCases.length - state.learningCaseOrdinal),
+      learningCasesPath: learningCasesInput.path,
+      decisionSource: "runtime_model_prediction",
+    });
+  }
+  return emitted;
 }
 
 function parsePayload(gate) {
@@ -1250,6 +1786,203 @@ async function progressFlywheel(baseUrl, projectId, state, options = {}) {
   return lastAction;
 }
 
+async function approveLearningDirectionGateOnly(baseUrl, projectId, cycleId) {
+  const gates = await requestJson(baseUrl, `/api/human-gates?projectId=${projectId}`);
+  const matches = gates.filter((gate) => gate.status === "pending" && gate.type === "direction" && gate.cycleId === cycleId);
+  if (matches.length !== 1) {
+    throw new Error(`expected one pending direction gate for heldout cycle ${cycleId}; found ${matches.length}`);
+  }
+  const gate = matches[0];
+  const updated = await requestJson(baseUrl, `/api/human-gates/${gate.id}/approve`, {
+    method: "POST",
+    body: {
+      rationale: "Evaluation-only heldout cycle: record the model decision, then close without operational learning stages.",
+    },
+  });
+  if (!updated || updated.status === "pending") {
+    throw new Error(`heldout direction gate ${gate.id} was not resolved`);
+  }
+  event("heldout_direction_gate_approved", {
+    projectId,
+    cycleId,
+    gateId: gate.id,
+    status: updated.status,
+    via: decisionVia,
+  });
+  return updated;
+}
+
+async function progressLearningCaseFlywheel(baseUrl, projectId, state, options = {}) {
+  const ticks = [];
+  let lastAction = "";
+  let causalCycleId = null;
+  let conflictResolutionsThisSample = 0;
+  for (let i = 0; i < progressTicksPerSample; i += 1) {
+    if (options.deadlineAt && Date.now() >= options.deadlineAt) {
+      event("learning_case_scheduler_tick_skipped_after_deadline", {
+        caseId: options.caseId ?? null,
+        tickIndex: i + 1,
+        deadlineAt: new Date(options.deadlineAt).toISOString(),
+      });
+      break;
+    }
+    const tick = await requestLearningSchedulerTick(baseUrl, projectId, {
+      caseId: options.caseId,
+      mode: options.evaluationOnly ? "read_only" : "mutating",
+    });
+    const tickRecord = {
+      action: tick.action,
+      cycleId: tick.cycleId ?? null,
+      nextCycleId: tick.nextCycleId ?? null,
+    };
+    ticks.push(tickRecord);
+    lastAction = tick.action;
+    event("scheduler_tick", { ...tickRecord, note: tick.note, learningCaseId: options.caseId ?? null });
+
+    if (tick.action === "opened_direction_gate") {
+      if (causalCycleId && causalCycleId !== tick.cycleId) {
+        event("learning_case_causal_cycle_ambiguous", {
+          caseId: options.caseId ?? null,
+          firstCycleId: causalCycleId,
+          secondCycleId: tick.cycleId ?? null,
+          ticks,
+        });
+        break;
+      }
+      causalCycleId = tick.cycleId ?? null;
+      if (options.evaluationOnly) {
+        if (!causalCycleId) throw new Error(`heldout learning case ${options.caseId ?? "unknown"} opened a direction gate without cycleId`);
+        await approveLearningDirectionGateOnly(baseUrl, projectId, causalCycleId);
+        const closed = await requestJson(baseUrl, `/api/cycles/${causalCycleId}/close`, { method: "POST", body: {} });
+        if (closed?.status !== "closed") throw new Error(`heldout cycle ${causalCycleId} did not close cleanly`);
+        event("heldout_cycle_closed_without_training", {
+          projectId,
+          caseId: options.caseId ?? null,
+          cycleId: causalCycleId,
+          status: closed.status,
+          skippedStages: ["sensor", "builder", "distiller", "librarian", "prediction_resolution", "knowledge_credit"],
+        });
+        return { lastAction: "heldout_evaluation_cycle_closed", ticks, causalCycleId, completed: true };
+      }
+    }
+
+    await resolvePendingGates(baseUrl, projectId, state);
+    await scanConflicts(baseUrl, projectId);
+    if (shouldHoldConflictResolution(state)) {
+      if (!state.conflictFloodHeldSamples.has(state.currentSample)) {
+        state.conflictFloodHeldSamples.add(state.currentSample);
+        event("conflict_flood_resolution_held", {
+          sample: state.currentSample,
+          holdUntilSample: conflictFloodHoldSamples,
+          scenario,
+        });
+      }
+    } else {
+      const remaining = Number.isFinite(conflictFloodMaxResolutionsPerSample)
+        ? Math.max(0, conflictFloodMaxResolutionsPerSample - conflictResolutionsThisSample)
+        : Number.POSITIVE_INFINITY;
+      const resolved = await resolveConflictReviews(baseUrl, projectId, state, { maxResolutions: remaining });
+      conflictResolutionsThisSample += resolved;
+    }
+
+    if (causalCycleId && tick.action === "ran_operational_stages" && tick.cycleId === causalCycleId) {
+      return { lastAction, ticks, causalCycleId, completed: true };
+    }
+    if (tick.action === "scenario_exhausted") break;
+  }
+  return { lastAction, ticks, causalCycleId, completed: false };
+}
+
+async function tickLearningWarmupOnce(baseUrl, projectId, state, options = {}) {
+  if (options.deadlineAt && Date.now() >= options.deadlineAt) {
+    event("learning_case_warmup_skipped_after_deadline", {
+      deadlineAt: new Date(options.deadlineAt).toISOString(),
+    });
+    return { action: "deadline" };
+  }
+  const tick = await requestLearningSchedulerTick(baseUrl, projectId, {
+    caseId: "__learning_warmup__",
+    mode: "mutating",
+  });
+  event("learning_case_warmup_tick", {
+    action: tick.action,
+    note: tick.note,
+    cycleId: tick.cycleId ?? null,
+    nextCycleId: tick.nextCycleId ?? null,
+  });
+  await resolvePendingGates(baseUrl, projectId, state, { allowSamplingHold: false });
+  await scanConflicts(baseUrl, projectId);
+  await resolveConflictReviews(baseUrl, projectId, state);
+  return tick;
+}
+
+async function warmUpLearningCaseAutonomousCycle(baseUrl, projectId, state, options = {}) {
+  if (scenario !== "learning-cases" || state.learningCaseOrdinal > 0) return { status: "not_needed" };
+  event("learning_case_autonomous_warmup_started", {
+    projectId,
+    targetOpenCycleIdx: 5,
+    reason: "skip fixed scripted scenario cycles before generated learning-case scoring",
+  });
+  for (let attempt = 1; attempt <= 80; attempt += 1) {
+    const cycles = await requestJson(baseUrl, `/api/projects/${projectId}/cycles`);
+    const open = cycles.find((cycle) => cycle.status !== "closed") ?? null;
+    const maxIdx = Math.max(0, ...cycles.map((cycle) => Number(cycle.idx) || 0));
+    if (open && Number(open.idx) >= 5) {
+      const result = {
+        status: "complete",
+        attempts: attempt - 1,
+        openCycleId: open.id,
+        openCycleIdx: open.idx,
+        maxCycleIdx: maxIdx,
+      };
+      event("learning_case_autonomous_warmup_complete", result);
+      return result;
+    }
+    const tick = await tickLearningWarmupOnce(baseUrl, projectId, state, options);
+    if (tick.action === "deadline") break;
+  }
+  const cycles = await requestJson(baseUrl, `/api/projects/${projectId}/cycles`);
+  const open = cycles.find((cycle) => cycle.status !== "closed") ?? null;
+  const result = {
+    status: "blocked",
+    openCycleId: open?.id ?? null,
+    openCycleIdx: open?.idx ?? null,
+    maxCycleIdx: Math.max(0, ...cycles.map((cycle) => Number(cycle.idx) || 0)),
+  };
+  event("learning_case_autonomous_warmup_blocked", result);
+  issue({
+    severity: "P1",
+    title: "Learning-case autonomous warmup did not reach cycle 5",
+    detail: JSON.stringify(result),
+    evidence: "learning_case_autonomous_warmup_blocked",
+  });
+  return result;
+}
+
+async function isolateLearningWarmupKnowledge(baseUrl, projectId) {
+  if (scenario !== "learning-cases") return { status: "not_needed", deprecatedCount: 0 };
+  const knowledge = await requestJson(baseUrl, `/api/knowledge?projectId=${projectId}`);
+  const targets = knowledge.filter((item) => ["active", "strong"].includes(item.status));
+  const deprecatedIds = [];
+  for (const item of targets) {
+    const updated = await requestJson(baseUrl, `/api/knowledge/${item.id}`, {
+      method: "PATCH",
+      body: {
+        status: "deprecated",
+        notes: "Deprecated by learning-cases diagnostic harness to isolate fixed warmup scaffold knowledge from generated case scoring.",
+      },
+    });
+    deprecatedIds.push(updated?.id ?? item.id);
+  }
+  const result = {
+    status: "complete",
+    deprecatedCount: deprecatedIds.length,
+    deprecatedIds,
+  };
+  event("learning_case_warmup_knowledge_isolated", result);
+  return result;
+}
+
 async function finalDrainState(baseUrl, projectId) {
   const [gates, reviews, cycles] = await Promise.all([
     requestJson(baseUrl, `/api/human-gates?projectId=${projectId}`),
@@ -1263,7 +1996,91 @@ async function finalDrainState(baseUrl, projectId) {
   };
 }
 
+async function drainRemainingLearningCases(baseUrl, projectId, state) {
+  if (scenario !== "learning-cases") {
+    return { status: "not_applicable", totalCases: 0, emittedCases: 0, queuedCaseCount: 0, hardFailure: null, attempts: 0 };
+  }
+  const latchedFailure = state.learningCaseHardStop.snapshot();
+  if (latchedFailure) {
+    const result = {
+      ...learningQueueDrainStatus({
+        totalCases: learningCases.length,
+        emittedCases: state.learningCaseOrdinal,
+        hardFailure: `learning_case_hard_stop:${latchedFailure.reason}`,
+      }),
+      attempts: 0,
+      latchedFailure,
+    };
+    event("learning_case_queue_drain_blocked_by_hard_stop", result);
+    event("learning_case_queue_drain_failed", result);
+    issue({
+      severity: "P0",
+      title: "Learning-case final drain blocked by latched failure",
+      detail: JSON.stringify(result),
+      evidence: "learning_case_queue_drain_blocked_by_hard_stop",
+    });
+    return result;
+  }
+  let attempts = 0;
+  let hardFailure = null;
+  while (state.learningCaseOrdinal < learningCases.length) {
+    attempts += 1;
+    const before = state.learningCaseOrdinal;
+    try {
+      const drainSample = Math.max(state.currentSample, maxSamples) + attempts;
+      await recordLearningCaseBatch(baseUrl, projectId, drainSample, state, { finalDrain: true });
+      if (state.learningCaseOrdinal <= before) {
+        hardFailure = "learning_case_queue_made_no_progress";
+        break;
+      }
+      event("learning_case_queue_drain_progress", {
+        attempt: attempts,
+        emittedThisAttempt: state.learningCaseOrdinal - before,
+        totalEmitted: state.learningCaseOrdinal,
+        totalCases: learningCases.length,
+        queuedCaseCount: learningCases.length - state.learningCaseOrdinal,
+      });
+    } catch (error) {
+      hardFailure = error instanceof Error ? error.message : String(error);
+      break;
+    }
+  }
+  const result = {
+    ...learningQueueDrainStatus({
+      totalCases: learningCases.length,
+      emittedCases: state.learningCaseOrdinal,
+      hardFailure: state.learningCaseHardStop.isLatched()
+        ? `learning_case_hard_stop:${state.learningCaseHardStop.snapshot().reason}`
+        : hardFailure,
+    }),
+    attempts,
+    latchedFailure: state.learningCaseHardStop.snapshot(),
+  };
+  event(result.status === "complete" ? "learning_case_queue_drain_complete" : "learning_case_queue_drain_failed", result);
+  if (result.status !== "complete") {
+    issue({
+      severity: "P0",
+      title: "Learning-case final drain left queued cases",
+      detail: JSON.stringify(result),
+      evidence: "learning_case_queue_drain_failed",
+    });
+  }
+  return result;
+}
+
 async function finalDrainFlywheel(baseUrl, projectId, state) {
+  const latchedFailure = scenario === "learning-cases" ? state.learningCaseHardStop.snapshot() : null;
+  if (latchedFailure) {
+    const result = {
+      status: "incomplete",
+      attempts: 0,
+      lastAction: state.lastLearningCaseAction || "",
+      hardFailure: `learning_case_hard_stop:${latchedFailure.reason}`,
+      latchedFailure,
+    };
+    event("final_drain_blocked_by_learning_case_hard_stop", result);
+    return result;
+  }
   const maxDrainTicks = 3;
   let lastAction = "";
   for (let attempt = 1; attempt <= maxDrainTicks; attempt += 1) {
@@ -1290,10 +2107,46 @@ async function finalDrainFlywheel(baseUrl, projectId, state) {
       return result;
     }
 
-    const tick = await requestJson(baseUrl, `/api/projects/${projectId}/scheduler/tick`, {
-      method: "POST",
-      body: { syncFeedback: false },
-    });
+    let tick;
+    if (scenario === "learning-cases") {
+      try {
+        const execution = await state.learningCaseHardStop.runProvider({
+          sample: state.currentSample,
+          ordinal: state.learningCaseOrdinal + 1,
+          caseId: "__final_drain__",
+          phase: "flywheel_final_drain",
+        }, () => requestLearningSchedulerTick(baseUrl, projectId, { caseId: "__final_drain__", mode: "mutating" }));
+        if (execution.status === "blocked") {
+          const failure = execution.failure;
+          const result = {
+            status: "incomplete",
+            attempts: attempt - 1,
+            lastAction,
+            hardFailure: `learning_case_hard_stop:${failure.reason}`,
+            latchedFailure: failure,
+          };
+          event("final_drain_blocked_by_learning_case_hard_stop", result);
+          return result;
+        }
+        tick = execution.value;
+      } catch (error) {
+        const failure = state.learningCaseHardStop.snapshot();
+        const result = {
+          status: "incomplete",
+          attempts: attempt - 1,
+          lastAction,
+          hardFailure: `learning_case_hard_stop:${failure?.reason ?? (error instanceof Error ? error.message : String(error))}`,
+          latchedFailure: failure,
+        };
+        event("final_drain_blocked_by_learning_case_hard_stop", result);
+        return result;
+      }
+    } else {
+      tick = await requestJson(baseUrl, `/api/projects/${projectId}/scheduler/tick`, {
+        method: "POST",
+        body: { syncFeedback: false },
+      });
+    }
     lastAction = tick.action;
     event("final_drain_scheduler_tick", {
       attempt,
@@ -1718,10 +2571,16 @@ async function main() {
     conflictFloodHeldSamples: new Set(),
     qualityCanaryBaseline: null,
     cognitionCoverageOrdinal: lastCognitionCoverageOrdinal(),
+    learningCaseOrdinal: lastLearningCaseOrdinal(),
+    lastLearningCaseAction: "",
+    learningCaseHardStop: createLearningCaseHardStop({
+      onLatch: (failure) => event("learning_case_hard_stop_latched", failure),
+    }),
   };
   const started = Date.now();
   const firstRecordedIso = firstRecordedSampleIso();
   const validationStartedAt = firstRecordedIso ? Date.parse(firstRecordedIso) : started;
+  const deadlineAt = validationStartedAt + durationMs;
   event("runner_timing_config", {
     durationHours,
     durationMinutes,
@@ -1742,6 +2601,12 @@ async function main() {
     conflictFloodHoldSamples,
     conflictFloodMaxResolutionsPerSample: Number.isFinite(conflictFloodMaxResolutionsPerSample) ? conflictFloodMaxResolutionsPerSample : null,
     cognitionCoveragePerSample,
+    learningCasesPath: learningCasesInput.path,
+    learningCaseCount: learningCases.length,
+    learningCasesPerSample,
+    learningCaseStartOrdinal: state.learningCaseOrdinal,
+    learningCaseDecisionSource: scenario === "learning-cases" ? "runtime_model_prediction" : null,
+    learningCaseConflictGateClassification,
     qualityCanaryEverySamples,
     qualityCanaryOffsetSamples,
     metricsSnapshotMinutes,
@@ -1751,6 +2616,24 @@ async function main() {
     validationStartedAtIso: new Date(validationStartedAt).toISOString(),
     elapsedBeforeThisProcessMs: Math.max(0, started - validationStartedAt),
   });
+  if (scenario === "learning-cases") {
+    event("learning_cases_loaded", {
+      learningCasesPath: learningCasesInput.path,
+      learningCaseCount: learningCases.length,
+      learningCasesPerSample,
+      firstCaseId: learningCases[0]?.id ?? null,
+      lastCaseId: learningCases.at(-1)?.id ?? null,
+      decisionSource: "runtime_model_prediction",
+      conflictGateClassification: learningCaseConflictGateClassification,
+    });
+    const warmup = await warmUpLearningCaseAutonomousCycle(baseUrl, project.id, state, { deadlineAt });
+    const isolation = warmup.status === "complete"
+      ? await isolateLearningWarmupKnowledge(baseUrl, project.id)
+      : { status: "skipped", deprecatedCount: 0 };
+    state.lastLearningCaseAction = warmup.status === "complete"
+      ? `learning_case_autonomous_warmup_complete:${isolation.deprecatedCount ?? 0}_warmup_knowledge_deprecated`
+      : state.lastLearningCaseAction;
+  }
   let lastAction = "";
   let snapshotIndex = existsSync(metricsDir)
     ? readFileSync(eventsJsonl, "utf8").split(/\r?\n/).filter((line) => line.includes("\"metrics_snapshot_captured\"")).length
@@ -1804,7 +2687,6 @@ async function main() {
       queueWatchdog("interval");
     }, watchdogMinutes * 60_000);
   }
-  const deadlineAt = validationStartedAt + durationMs;
   for (let sample = firstSample; sample <= maxSamples; sample += 1) {
     state.currentSample = sample;
     if (Date.now() >= deadlineAt) {
@@ -1826,11 +2708,15 @@ async function main() {
       if (sample % injectEverySamples === 0) {
         if (scenario === "cognition-coverage") {
           await injectCognitionCoverageBatch(baseUrl, project.id, sample, state);
+        } else if (scenario === "learning-cases") {
+          await recordLearningCaseBatch(baseUrl, project.id, sample, state, { deadlineAt });
         } else {
           await injectContradictionEvidence(baseUrl, project.id, sample);
         }
       }
-      lastAction = await progressFlywheel(baseUrl, project.id, state, { deadlineAt });
+      lastAction = scenario === "learning-cases"
+        ? state.lastLearningCaseAction || lastAction
+        : await progressFlywheel(baseUrl, project.id, state, { deadlineAt });
       const metrics = await collectMetrics(baseUrl, project.id, child?.pid, sample, lastAction);
       samples.push(metrics.row);
       if (qualityCanaryEverySamples > 0 && (sample - qualityCanaryOffsetSamples) % qualityCanaryEverySamples === 0) {
@@ -1849,6 +2735,17 @@ async function main() {
       }
     } catch (err) {
       const detail = err instanceof Error ? err.stack || err.message : String(err);
+      if (scenario === "learning-cases") {
+        const nextCase = learningCases[state.learningCaseOrdinal];
+        state.learningCaseHardStop.latch({
+          sample,
+          ordinal: state.learningCaseOrdinal + 1,
+          caseId: nextCase ? learningCaseId(nextCase) : null,
+          phase: "sample",
+          reason: err,
+          latchedAt: new Date().toISOString(),
+        });
+      }
       issue({
         severity: "P0",
         title: `sample ${sample} failed`,
@@ -1857,14 +2754,27 @@ async function main() {
       event("sample_failed", { sample, error: detail });
     }
 
+    if (scenario === "learning-cases" && state.learningCaseHardStop.isLatched()) break;
+
     const elapsed = Date.now() - validationStartedAt;
     if (sample >= maxSamples || elapsed >= durationMs) break;
     const nextAt = Math.min(started + (sample - firstSample + 1) * sampleMs, deadlineAt);
     await sleep(Math.max(0, nextAt - Date.now()));
   }
 
-  await stopPeriodicCaptures();
-  const finalDrain = await finalDrainFlywheel(baseUrl, project.id, state);
+  const hardStopBeforeDrain = scenario === "learning-cases" ? state.learningCaseHardStop.snapshot() : null;
+  if (hardStopBeforeDrain) await stopPeriodicCaptures();
+  const learningCaseQueue = await drainRemainingLearningCases(baseUrl, project.id, state);
+  const flywheelDrain = await finalDrainFlywheel(baseUrl, project.id, state);
+  const latchedLearningCaseFailure = scenario === "learning-cases" ? state.learningCaseHardStop.snapshot() : null;
+  if (!hardStopBeforeDrain) await stopPeriodicCaptures();
+  const queueComplete = scenario !== "learning-cases" || learningCaseQueue.status === "complete";
+  const finalDrain = {
+    ...flywheelDrain,
+    status: queueComplete && flywheelDrain.status === "complete" ? "complete" : "incomplete",
+    learningCaseQueue,
+    flywheel: flywheelDrain,
+  };
   await Promise.all([
     queueSnapshot("final"),
     queueWatchdog("final"),
@@ -1899,12 +2809,21 @@ async function main() {
       conflictFloodMaxResolutionsPerSample: Number.isFinite(conflictFloodMaxResolutionsPerSample) ? conflictFloodMaxResolutionsPerSample : null,
       cognitionCoveragePerSample,
       cognitionCoverageInjected: state.cognitionCoverageOrdinal,
+      learningCasesPath: learningCasesInput.path,
+      learningCaseCount: learningCases.length,
+      learningCasesPerSample,
+      learningCasesEmitted: state.learningCaseOrdinal,
+      learningCaseDecisionSource: scenario === "learning-cases" ? "runtime_model_prediction" : null,
+      learningCaseConflictGateClassification,
+      learningCaseHardStop: latchedLearningCaseFailure,
+      requiredModelCallingAgents: scenario === "learning-cases" ? [...REQUIRED_MODEL_CALLING_AGENTS] : [],
       qualityCanaryEverySamples,
     },
     llmProvider,
     model: openaiModel,
     decisionVia,
     finalDrain,
+    assessmentSource: "natural_runtime_summary",
     assessment,
     files: {
       monitorCsv,
@@ -1920,6 +2839,7 @@ async function main() {
   event("validation_complete", assessment);
   logLine(`Equity Thesis validation complete. summary=${summaryJson}`);
   await stopApp();
+  if (latchedLearningCaseFailure) process.exitCode = 1;
 }
 
 main().catch((err) => {

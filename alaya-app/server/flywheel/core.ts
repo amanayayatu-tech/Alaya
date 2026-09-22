@@ -14,6 +14,7 @@ import { recordActionProposal } from "../actionLedger";
 import { HumanGateService } from "../humanGateService";
 import { createDecisionBrief, withDecisionBriefPayload } from "../decisionBrief";
 import { auditGoldCaseHealth, proposeDistillerKnowledge, type AttributionBasis } from "../distillerProposal";
+import { creditResolvedPredictionFromTrace } from "../knowledgeCredit";
 import { computeClaimError, computeCycleError } from "alaya-core/src/core/compute_error.js";
 import { classifyErrorWithConfidence } from "alaya-core/src/core/classify_error.js";
 import { applyEvidence, GRAY_HIGH, GRAY_LOW } from "alaya-core/src/core/update_confidence.js";
@@ -25,7 +26,7 @@ import {
   resolvePendingAttribution,
   sensorErrorKindFromPayload,
 } from "../sensorFirewall";
-import type { HumanGateItem, KnowledgeItem } from "@shared/schema";
+import type { HumanGateItem, KnowledgeItem, Prediction } from "@shared/schema";
 import { SCENARIO, scenarioForCycle, type ScenarioRound } from "./scenario";
 
 type LlmCaller = typeof callLlm;
@@ -1141,6 +1142,14 @@ export async function runBuilder(cycleId: string, sc: ScenarioRound, plannedActi
   return { buildSuccess: sc.buildSuccess };
 }
 
+function applyPredictionCredit(prediction: Prediction, cycleIdx: number) {
+  creditResolvedPredictionFromTrace(
+    prediction,
+    storage.listTraceEventsByCycle(prediction.cycleId),
+    { cycleIdx },
+  );
+}
+
 export function evaluatePrediction(
   projectId: string, cycleId: string, sc: ScenarioRound,
   plan: { belief: string; prediction: string; action: string; refs: string[] },
@@ -1177,6 +1186,7 @@ export function evaluatePrediction(
       eCycle: existingPred.predictionError ?? cycleErr.eCycle,
       worstClaimError: existingPred.worstClaimError ?? cycleErr.worstClaimError,
     });
+    applyPredictionCredit(existingPred, sc.index);
     return { pred: existingPred, claimError: claim.error ?? 0, claim, attribution };
   }
 
@@ -1219,6 +1229,7 @@ export function evaluatePrediction(
   }
   storage.updateCycle(cycleId, { eCycle: cycleErr.eCycle, worstClaimError: cycleErr.worstClaimError });
   logEvent(sc.index, "orchestrator", "predictions", "insert", { predId: pred.id, eCycle: cycleErr.eCycle });
+  applyPredictionCredit(pred, sc.index);
   return { pred, claimError: claim.error ?? 0, claim, attribution };
 }
 

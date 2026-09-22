@@ -1,3 +1,5 @@
+import { estimateMarginalValue } from "./knowledge-roi.mjs";
+
 export const EXPECTED_EQUITY_THESIS_DECISION = "tiered_thesis";
 
 export const EQUITY_THESIS_ORACLE_BY_SIDE = Object.freeze({
@@ -66,6 +68,8 @@ export const RESOLUTION_SCOREABLE_COVERAGE_THRESHOLD = 0.6;
 export const CALIBRATION_SCOREABLE_COVERAGE_THRESHOLD = 0.6;
 export const FAITHFULNESS_SCOREABLE_COVERAGE_THRESHOLD = 0.6;
 export const CONFLICT_QUALITY_MIN_ELIGIBLE = 10;
+const LEARNING_MIN_SAMPLES = 5;
+const LEARNING_MIN_TREND_BLOCKS = 3;
 export const LATENCY_SLO_THRESHOLDS_MS = Object.freeze({
   knowledge_retrieval: 2000,
   scheduler_tick: 30000,
@@ -140,6 +144,72 @@ function parseMaybeJson(value) {
   } catch {
     return null;
   }
+}
+
+function round6(value) {
+  return Number.isFinite(value) ? +(Math.round(value * 1_000_000) / 1_000_000).toFixed(6) : null;
+}
+
+function eventAttributes(event) {
+  const raw = field(event, "attributes", "attrs", "payload", "metadata");
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw;
+  if (typeof raw !== "string" || !raw.trim()) return {};
+  const parsed = parseMaybeJson(raw);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+}
+
+function eventField(event, attrs, ...names) {
+  for (const name of names) {
+    if (event?.[name] != null) return event[name];
+    if (attrs?.[name] != null) return attrs[name];
+  }
+  return undefined;
+}
+
+function normalizedDecision(value) {
+  const text = normalizeSpace(value).toLowerCase();
+  return text || null;
+}
+
+function normalizedPool(value) {
+  const pool = normalizeSpace(value).toLowerCase();
+  if (pool === "heldout" || pool === "held_out" || pool === "holdout") return "heldout";
+  if (pool === "train" || pool === "training") return "train";
+  return pool || null;
+}
+
+function booleanOutcome(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value > 0;
+  const text = normalizeSpace(value).toLowerCase();
+  if (["correct", "success", "pass", "passed", "true", "match", "matched"].includes(text)) return true;
+  if (["wrong", "failure", "fail", "failed", "false", "mismatch", "miss"].includes(text)) return false;
+  return null;
+}
+
+function eventOrderKey(event, attrs, eventIndex) {
+  for (const name of ["cycleIdx", "cycle_idx", "cycleIndex", "cycle_index", "sample", "index", "ordinal"]) {
+    const value = Number(eventField(event, attrs, name));
+    if (Number.isFinite(value)) return value;
+  }
+  const cycleId = normalizeSpace(eventField(event, attrs, "cycleId", "cycle_id"));
+  const match = /(\d+)(?!.*\d)/.exec(cycleId);
+  return match ? Number(match[1]) : eventIndex;
+}
+
+function sourceRowForLearning(event, attrs, eventIndex) {
+  return {
+    source: "events",
+    eventIndex,
+    eventType: event.eventType ?? event.kind ?? null,
+    cycleId: normalizeSpace(eventField(event, attrs, "cycleId", "cycle_id")) || null,
+    cycleIdx: eventField(event, attrs, "cycleIdx", "cycle_idx", "cycleIndex", "cycle_index") ?? null,
+    caseId: normalizeSpace(eventField(event, attrs, "caseId", "case_id", "externalId", "external_id")) || null,
+    pool: normalizedPool(eventField(event, attrs, "pool", "split")),
+    ruleId: normalizeSpace(eventField(event, attrs, "ruleId", "rule_id", "ruleCategory", "rule_category")) || null,
+    excludeFromDistiller: eventField(event, attrs, "excludeFromDistiller", "exclude_from_distiller") === true,
+    excludeFromCreditTraining: eventField(event, attrs, "excludeFromCreditTraining", "exclude_from_credit_training") === true,
+  };
 }
 
 function textForKnowledge(item) {
@@ -454,6 +524,456 @@ function confidenceForKnowledge(item) {
     return EQUITY_THESIS_TEMPLATE_CONFIDENCE_BY_SIDE[side];
   }
   return null;
+}
+
+export function extractLearningDecisionRows(events = []) {
+  const rows = [];
+  events.forEach((event, eventIndex) => {
+    const attrs = eventAttributes(event);
+    const sourceRow = sourceRowForLearning(event, attrs, eventIndex);
+    const idFallbackAllowed = Boolean(sourceRow.pool || sourceRow.ruleId || eventField(event, attrs, "groundTruthDecision", "ground_truth_decision", "expectedDecision", "expected_decision"));
+    const caseId = sourceRow.caseId || (idFallbackAllowed ? normalizeSpace(eventField(event, attrs, "id")) : "");
+    const predictedDecision = normalizedDecision(eventField(
+      event,
+      attrs,
+      "predictedDecision",
+      "predicted_decision",
+      "predictionDecision",
+      "prediction_decision",
+      "actualDecision",
+      "actual_decision",
+      "candidateDecision",
+      "candidate_decision",
+      "modelDecision",
+      "model_decision",
+      "selectedDecision",
+      "selected_decision",
+      "decision",
+    ));
+    const groundTruthDecision = normalizedDecision(eventField(
+      event,
+      attrs,
+      "groundTruthDecision",
+      "ground_truth_decision",
+      "expectedDecision",
+      "expected_decision",
+      "oracleDecision",
+      "oracle_decision",
+    ));
+    const explicitCorrect = booleanOutcome(eventField(
+      event,
+      attrs,
+      "correct",
+      "decisionCorrect",
+      "decision_correct",
+      "decisionMatchesExpected",
+      "decision_matches_expected",
+      "success",
+      "passed",
+      "outcome",
+      "result",
+    ));
+    const correct = explicitCorrect ?? (
+      predictedDecision && groundTruthDecision ? predictedDecision === groundTruthDecision : null
+    );
+    const confidence = boundedConfidence(eventField(
+      event,
+      attrs,
+      "confidence",
+      "decisionConfidence",
+      "decision_confidence",
+      "predictionConfidence",
+      "prediction_confidence",
+      "confidenceScore",
+      "confidence_score",
+    ));
+    if (!caseId || correct == null) return;
+    rows.push({
+      sourceRow: { ...sourceRow, caseId },
+      eventIndex,
+      order: eventOrderKey(event, attrs, eventIndex),
+      cycleId: sourceRow.cycleId,
+      caseId,
+      pool: sourceRow.pool,
+      ruleId: sourceRow.ruleId,
+      excludeFromDistiller: sourceRow.excludeFromDistiller,
+      excludeFromCreditTraining: sourceRow.excludeFromCreditTraining,
+      predictedDecision,
+      groundTruthDecision,
+      correct,
+      confidence,
+      brier: confidence == null ? null : round6((confidence - (correct ? 1 : 0)) ** 2),
+    });
+  });
+  return rows.sort((a, b) => a.order - b.order || a.eventIndex - b.eventIndex);
+}
+
+function normalCdf(value) {
+  const x = Math.abs(value);
+  const t = 1 / (1 + 0.2316419 * x);
+  const d = 0.3989423 * Math.exp(-(x * x) / 2);
+  const prob = d * t * (
+    0.3193815 +
+    t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274)))
+  );
+  return value > 0 ? 1 - prob : prob;
+}
+
+export function mannKendallTrend(values = []) {
+  const clean = values.map(Number).filter(Number.isFinite);
+  const n = clean.length;
+  if (n < LEARNING_MIN_TREND_BLOCKS) {
+    return { status: "LOW_COVERAGE", n, s: null, z: null, pValue: null, direction: null, significant: false };
+  }
+  let s = 0;
+  for (let i = 0; i < n - 1; i += 1) {
+    for (let j = i + 1; j < n; j += 1) {
+      s += Math.sign(clean[j] - clean[i]);
+    }
+  }
+  const ties = countBy(clean, (value) => String(value));
+  const tieCorrection = Object.values(ties)
+    .map(Number)
+    .filter((count) => count > 1)
+    .reduce((sum, count) => sum + count * (count - 1) * (2 * count + 5), 0);
+  const variance = (n * (n - 1) * (2 * n + 5) - tieCorrection) / 18;
+  const z = variance <= 0 ? 0 : (s > 0 ? (s - 1) / Math.sqrt(variance) : s < 0 ? (s + 1) / Math.sqrt(variance) : 0);
+  const pValue = variance <= 0 ? 1 : round6(2 * (1 - normalCdf(Math.abs(z))));
+  return {
+    status: "OK",
+    n,
+    s,
+    z: round6(z),
+    pValue,
+    direction: s > 0 ? "positive" : s < 0 ? "negative" : "flat",
+    significant: pValue != null && pValue < 0.05,
+  };
+}
+
+function chunkRows(rows, blockSize) {
+  const blocks = [];
+  for (let i = 0; i < rows.length; i += blockSize) {
+    blocks.push(rows.slice(i, i + blockSize));
+  }
+  return blocks;
+}
+
+function evaluateLearningCurve(rows, { blockSize = 10, minSamples = LEARNING_MIN_SAMPLES } = {}) {
+  const size = Math.max(1, Math.trunc(Number(blockSize) || 10));
+  const scored = rows.filter((row) => row.correct != null);
+  const blocks = chunkRows(scored, size);
+  const coverage = {
+    scored: scored.length,
+    blockSize: size,
+    blockCount: blocks.length,
+    minSamples,
+    minBlocks: LEARNING_MIN_TREND_BLOCKS,
+  };
+  if (scored.length < minSamples || blocks.length < LEARNING_MIN_TREND_BLOCKS) {
+    return {
+      status: "LOW_COVERAGE",
+      ...coverage,
+      accuracySeries: [],
+      brierSeries: [],
+      accuracyTrend: null,
+      brierTrend: null,
+      sourceRows: scored.map((row) => row.sourceRow),
+    };
+  }
+  const blockRows = blocks.map((block, index) => {
+    const brierRows = block.filter((row) => row.brier != null);
+    const correctCount = block.filter((row) => row.correct).length;
+    return {
+      block: index + 1,
+      startOrder: block[0]?.order ?? null,
+      endOrder: block.at(-1)?.order ?? null,
+      n: block.length,
+      correct: correctCount,
+      accuracy: round6(correctCount / block.length),
+      brierN: brierRows.length,
+      brierScore: brierRows.length === 0 ? null : round6(brierRows.reduce((sum, row) => sum + row.brier, 0) / brierRows.length),
+      sourceRows: block.map((row) => row.sourceRow),
+    };
+  });
+  const accuracySeries = blockRows.map((block) => ({
+    block: block.block,
+    n: block.n,
+    accuracy: block.accuracy,
+    sourceRows: block.sourceRows,
+  }));
+  const brierSeries = blockRows
+    .filter((block) => block.brierScore != null)
+    .map((block) => ({
+      block: block.block,
+      n: block.brierN,
+      brierScore: block.brierScore,
+      sourceRows: block.sourceRows,
+    }));
+  const brierLowCoverage = brierSeries.length < LEARNING_MIN_TREND_BLOCKS ||
+    brierSeries.reduce((sum, block) => sum + block.n, 0) < minSamples;
+  return {
+    status: "OK",
+    ...coverage,
+    accuracySeries,
+    brierSeries: brierLowCoverage ? [] : brierSeries,
+    accuracyTrend: mannKendallTrend(accuracySeries.map((block) => block.accuracy)),
+    brierTrend: brierLowCoverage ? {
+      status: "LOW_COVERAGE",
+      n: brierSeries.length,
+      s: null,
+      z: null,
+      pValue: null,
+      direction: null,
+      significant: false,
+    } : mannKendallTrend(brierSeries.map((block) => block.brierScore)),
+    sourceRows: scored.map((row) => row.sourceRow),
+  };
+}
+
+function normalizeOracleAnswers(input) {
+  const rawAnswers = Array.isArray(input)
+    ? input
+    : (Array.isArray(input?.answers) ? input.answers : []);
+  const map = new Map();
+  rawAnswers.forEach((answer, oracleIndex) => {
+    const caseId = normalizeSpace(field(answer, "caseId", "case_id", "externalId", "external_id", "id"));
+    const oracleDecision = normalizedDecision(field(answer, "oracleDecision", "oracle_decision", "decision", "groundTruthDecision", "ground_truth_decision", "expectedDecision", "expected_decision"));
+    if (!caseId || !oracleDecision) return;
+    map.set(caseId, {
+      caseId,
+      oracleDecision,
+      groundTruthDecision: normalizedDecision(field(answer, "groundTruthDecision", "ground_truth_decision", "expectedDecision", "expected_decision")),
+      sourceRow: { source: "oracle_answers", oracleIndex, caseId },
+    });
+  });
+  return map;
+}
+
+function evaluateCumulativeRegret(rows, oracleAnswers, { minSamples = LEARNING_MIN_SAMPLES } = {}) {
+  const oracleByCase = normalizeOracleAnswers(oracleAnswers);
+  const matched = rows
+    .filter((row) => row.predictedDecision && oracleByCase.has(row.caseId))
+    .map((row) => {
+      const oracle = oracleByCase.get(row.caseId);
+      const modelError = row.predictedDecision === oracle.oracleDecision ? 0 : 1;
+      return {
+        ...row,
+        oracleDecision: oracle.oracleDecision,
+        modelError,
+        oracleSourceRow: oracle.sourceRow,
+      };
+    });
+  if (matched.length < minSamples) {
+    return {
+      status: "LOW_COVERAGE",
+      scored: matched.length,
+      oracleAnswerCount: oracleByCase.size,
+      minSamples,
+      cumulativeErrorCurve: [],
+      headSlope: null,
+      tailSlope: null,
+      tailSlopeBelowHeadSlope: null,
+      sourceRows: matched.map((row) => ({ event: row.sourceRow, oracle: row.oracleSourceRow })),
+    };
+  }
+  let cumulativeError = 0;
+  const cumulativeErrorCurve = matched.map((row, index) => {
+    cumulativeError += row.modelError;
+    return {
+      index: index + 1,
+      caseId: row.caseId,
+      cycleId: row.cycleId,
+      modelError: row.modelError,
+      cumulativeError,
+      predictedDecision: row.predictedDecision,
+      oracleDecision: row.oracleDecision,
+      sourceRows: { event: row.sourceRow, oracle: row.oracleSourceRow },
+    };
+  });
+  const windowSize = Math.max(1, Math.floor(matched.length / 3));
+  const head = matched.slice(0, windowSize);
+  const tail = matched.slice(-windowSize);
+  const headSlope = round6(head.reduce((sum, row) => sum + row.modelError, 0) / head.length);
+  const tailSlope = round6(tail.reduce((sum, row) => sum + row.modelError, 0) / tail.length);
+  return {
+    status: "OK",
+    scored: matched.length,
+    oracleAnswerCount: oracleByCase.size,
+    minSamples,
+    finalCumulativeError: cumulativeError,
+    cumulativeErrorCurve,
+    headSlope,
+    tailSlope,
+    tailSlopeBelowHeadSlope: tailSlope < headSlope,
+    sourceRows: matched.map((row) => ({ event: row.sourceRow, oracle: row.oracleSourceRow })),
+  };
+}
+
+function summarizeDistribution(values) {
+  const sorted = values.map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  if (sorted.length === 0) return null;
+  return {
+    n: sorted.length,
+    min: sorted[0],
+    p25: percentile(sorted, 25),
+    median: percentile(sorted, 50),
+    p75: percentile(sorted, 75),
+    max: sorted.at(-1),
+    mean: round6(sorted.reduce((sum, value) => sum + value, 0) / sorted.length),
+  };
+}
+
+function learningOutcomeByCycle(rows) {
+  const out = new Map();
+  for (const row of rows) {
+    const cycleId = row.cycleId || row.caseId;
+    if (cycleId) out.set(cycleId, { cycleId, correct: row.correct });
+  }
+  return out;
+}
+
+function knowledgeInjectionTraceEvents(events = []) {
+  return events
+    .map((event, eventIndex) => ({ event, attrs: eventAttributes(event), eventIndex }))
+    .filter(({ event, attrs }) => (
+      event?.kind === "knowledge_injection" ||
+      event?.eventType === "knowledge_injection" ||
+      event?.name === "build_prior_knowledge_context" ||
+      Array.isArray(attrs.injectedKnowledgeIds) ||
+      Array.isArray(attrs.candidateIds)
+    ))
+    .map(({ event, attrs, eventIndex }) => ({
+      ...event,
+      cycleId: normalizeSpace(eventField(event, attrs, "cycleId", "cycle_id")) || null,
+      attributes: attrs,
+      sourceRow: {
+        source: "events",
+        eventIndex,
+        eventType: event.eventType ?? event.kind ?? null,
+        cycleId: normalizeSpace(eventField(event, attrs, "cycleId", "cycle_id")) || null,
+        candidateIds: Array.isArray(attrs.candidateIds) ? attrs.candidateIds : [],
+        injectedKnowledgeIds: Array.isArray(attrs.injectedKnowledgeIds) ? attrs.injectedKnowledgeIds : [],
+      },
+    }));
+}
+
+function evaluateKnowledgeROI(events, rows) {
+  const heldoutRows = rows.filter((row) => row.pool === "heldout" || row.excludeFromCreditTraining);
+  const trainingRows = rows.filter((row) => row.pool !== "heldout" && !row.excludeFromCreditTraining);
+  const trainingCycleIds = new Set(trainingRows.map((row) => row.cycleId || row.caseId).filter(Boolean));
+  const traces = knowledgeInjectionTraceEvents(events).filter((trace) => trainingCycleIds.has(trace.cycleId));
+  const outcomes = learningOutcomeByCycle(trainingRows);
+  const roiMap = estimateMarginalValue(traces, outcomes);
+  const details = Array.from(roiMap.entries()).map(([knowledgeId, value]) => ({
+    knowledgeId,
+    ...value,
+  }));
+  const okRows = details.filter((row) => row.status === "OK" && Number.isFinite(row.delta));
+  const lowCoverageCount = details.filter((row) => row.status === "LOW_COVERAGE").length;
+  if (details.length === 0 || okRows.length === 0) {
+    return {
+      status: "LOW_COVERAGE",
+      knowledgeCount: details.length,
+      okCount: okRows.length,
+      lowCoverageCount,
+      deltaDistribution: null,
+      details,
+      eligiblePool: "train",
+      trainingOutcomeCount: trainingRows.length,
+      trainingOutcomeCaseIds: trainingRows.map((row) => row.caseId),
+      excludedHeldoutCount: heldoutRows.length,
+      sourceRows: traces.map((trace) => trace.sourceRow),
+    };
+  }
+  return {
+    status: "OK",
+    knowledgeCount: details.length,
+    okCount: okRows.length,
+    lowCoverageCount,
+    deltaDistribution: summarizeDistribution(okRows.map((row) => row.delta)),
+    details,
+    eligiblePool: "train",
+    trainingOutcomeCount: trainingRows.length,
+    trainingOutcomeCaseIds: trainingRows.map((row) => row.caseId),
+    excludedHeldoutCount: heldoutRows.length,
+    sourceRows: traces.map((trace) => trace.sourceRow),
+  };
+}
+
+function evaluateHeldOutAccuracy(rows, { minSamples = LEARNING_MIN_SAMPLES } = {}) {
+  const trainRows = rows.filter((row) => row.pool === "train");
+  const heldoutRows = rows.filter((row) => row.pool === "heldout");
+  if (heldoutRows.length < minSamples) {
+    return {
+      status: "LOW_COVERAGE",
+      heldoutScored: heldoutRows.length,
+      trainScored: trainRows.length,
+      minSamples,
+      heldOutAccuracy: null,
+      heldoutCorrect: null,
+      trainAccuracy: null,
+      sourceRows: heldoutRows.map((row) => row.sourceRow),
+    };
+  }
+  const heldoutCorrect = heldoutRows.filter((row) => row.correct).length;
+  const trainCorrect = trainRows.filter((row) => row.correct).length;
+  return {
+    status: "OK",
+    heldoutScored: heldoutRows.length,
+    trainScored: trainRows.length,
+    minSamples,
+    heldoutCorrect,
+    heldOutAccuracy: round6(heldoutCorrect / heldoutRows.length),
+    trainAccuracy: trainRows.length === 0 ? null : round6(trainCorrect / trainRows.length),
+    sourceRows: heldoutRows.map((row) => row.sourceRow),
+  };
+}
+
+function evaluateForgettingRate(rows, { minSamples = LEARNING_MIN_SAMPLES } = {}) {
+  const midpoint = Math.floor(rows.length / 2);
+  const firstHalf = rows.slice(0, midpoint);
+  const secondHalf = rows.slice(midpoint);
+  const retainedRules = new Set(firstHalf
+    .filter((row) => row.correct && row.ruleId)
+    .map((row) => row.ruleId));
+  const retainedSecondHalf = secondHalf.filter((row) => row.ruleId && retainedRules.has(row.ruleId));
+  if (retainedRules.size === 0 || retainedSecondHalf.length < minSamples) {
+    return {
+      status: "LOW_COVERAGE",
+      firstHalfCorrectRuleCount: retainedRules.size,
+      secondHalfScored: retainedSecondHalf.length,
+      minSamples,
+      retention: null,
+      forgettingRate: null,
+      ruleCategories: Array.from(retainedRules).sort(),
+      sourceRows: retainedSecondHalf.map((row) => row.sourceRow),
+    };
+  }
+  const retainedCorrect = retainedSecondHalf.filter((row) => row.correct).length;
+  const retention = round6(retainedCorrect / retainedSecondHalf.length);
+  return {
+    status: "OK",
+    firstHalfCorrectRuleCount: retainedRules.size,
+    secondHalfScored: retainedSecondHalf.length,
+    minSamples,
+    retention,
+    forgettingRate: round6(1 - retention),
+    ruleCategories: Array.from(retainedRules).sort(),
+    sourceRows: retainedSecondHalf.map((row) => row.sourceRow),
+  };
+}
+
+export function evaluateLearningLoopMetrics({ events = [], oracleAnswers = null, blockSize = 10 } = {}) {
+  const rows = extractLearningDecisionRows(events);
+  const learningMetrics = {
+    learningCurve: evaluateLearningCurve(rows, { blockSize }),
+    cumulativeRegret: evaluateCumulativeRegret(rows, oracleAnswers),
+    knowledgeROI: evaluateKnowledgeROI(events, rows),
+    heldOutAccuracy: evaluateHeldOutAccuracy(rows),
+    forgettingRate: evaluateForgettingRate(rows),
+    sourceRows: rows.map((row) => row.sourceRow),
+  };
+  return learningMetrics;
 }
 
 function calibrationTruthFromEvents(events = []) {
@@ -1463,8 +1983,25 @@ export function latencyAndEfficiencyMetrics({ events = [], samples = [], llmCall
   };
 }
 
-export function summarizeEquityThesisQuality({ knowledgeItems = [], events = [], samples = [], llmCalls = [], evidenceCorpus = [], faithfulnessJudge = "lexical", passKAggregate = null, dedupeMode = "exact", enforceLatencySlo = false } = {}) {
+export function summarizeEquityThesisQuality({
+  knowledgeItems = [],
+  events = [],
+  samples = [],
+  llmCalls = [],
+  evidenceCorpus = [],
+  faithfulnessJudge = "lexical",
+  passKAggregate = null,
+  dedupeMode = "exact",
+  enforceLatencySlo = false,
+  learningOracleAnswers = null,
+  learningBlockSize = 10,
+} = {}) {
   const rssSlope = rssSlopeMbPerHour(samples);
+  const learningMetrics = evaluateLearningLoopMetrics({
+    events,
+    oracleAnswers: learningOracleAnswers,
+    blockSize: learningBlockSize,
+  });
   return {
     generatedAt: new Date().toISOString(),
     expectedDecision: EXPECTED_EQUITY_THESIS_DECISION,
@@ -1472,6 +2009,12 @@ export function summarizeEquityThesisQuality({ knowledgeItems = [], events = [],
     resolutionAccuracy: scoreResolutionAccuracy(events, { dedupeMode }),
     confidenceCalibration: evaluateConfidenceCalibration(knowledgeItems, { events }),
     faithfulness: evaluateFaithfulness({ knowledgeItems, events, evidenceCorpus, judgeMode: faithfulnessJudge }),
+    learningCurve: learningMetrics.learningCurve,
+    cumulativeRegret: learningMetrics.cumulativeRegret,
+    knowledgeROI: learningMetrics.knowledgeROI,
+    heldOutAccuracy: learningMetrics.heldOutAccuracy,
+    forgettingRate: learningMetrics.forgettingRate,
+    learningMetricSourceRows: learningMetrics.sourceRows,
     latencyAndEfficiency: latencyAndEfficiencyMetrics({ events, samples, llmCalls, enforceLatencySlo }),
     rssSlopeMbPerHour: rssSlope,
     rssSlopeThresholdMbPerHour: 50,
@@ -1483,6 +2026,11 @@ export function summarizeEquityThesisQuality({ knowledgeItems = [], events = [],
         resolutionAccuracy: "conflict resolution / implicit inference accuracy over deterministic oracle pair rules",
         faithfulness: "claim-level lexical NLI proxy for RAGAS/TruLens-style faithfulness; LLM judge interface is reserved but off by default",
         confidenceCalibration: "expected calibration error / reliability table over confidence_score or extracted confidence text",
+        learningCurve: "cycle-block decision accuracy and Brier series with Mann-Kendall trend statistics; LOW_COVERAGE suppresses point estimates",
+        cumulativeRegret: "cumulative model errors relative to exported oracle_answers.json; analyzer does not recompute oracle answers",
+        knowledgeROI: "counterfactual marginal value summary from knowledge injection traces and outcomes",
+        heldOutAccuracy: "heldout-only decision accuracy reported separately from train pool",
+        forgettingRate: "second-half retention for rule categories answered correctly in the first half",
       },
     ],
   };

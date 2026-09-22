@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -20,6 +20,7 @@ function makeLogDir(name) {
   writeFileSync(join(dir, "watchdog.jsonl"), `${JSON.stringify({ ok: true, checkedAt: "2026-06-12T00:00:00.000Z" })}\n`);
   writeFileSync(join(dir, "summary.json"), JSON.stringify({
     validationDurationMs: 24 * 3_600_000,
+    scenario: { runId: "shadow-fixture" },
     assessment: {
       criteria: {
         deltaReached8: true,
@@ -67,8 +68,13 @@ function makeLogDir(name) {
   return dir;
 }
 
-function analyze(dir) {
-  return spawnSync(process.execPath, ["scripts/shadow-analyze.mjs", dir], {
+function analyze(dir, extraArgs = []) {
+  const args = [...extraArgs];
+  if (args.includes("--analysis-mode=compressed-precheck")) {
+    if (!args.some((arg) => arg.startsWith("--invocation-nonce="))) args.push("--invocation-nonce=shadow-test-nonce");
+    if (!args.some((arg) => arg.startsWith("--expected-replicate-id="))) args.push("--expected-replicate-id=shadow-fixture");
+  }
+  return spawnSync(process.execPath, ["scripts/shadow-analyze.mjs", dir, ...args], {
     cwd: root,
     encoding: "utf8",
   });
@@ -98,12 +104,24 @@ function createQualityDb(dir, knowledgeRows = []) {
     );
     CREATE TABLE llm_calls (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cycle_id TEXT,
       agent TEXT,
+      provider TEXT,
+      model TEXT,
+      route_reason TEXT,
+      prompt_version TEXT,
+      input_summary TEXT,
+      output_summary TEXT,
+      schema_valid INTEGER,
+      llm_failure_type TEXT,
+      retry_count INTEGER,
       latency_ms INTEGER,
       input_token_count INTEGER,
       output_token_count INTEGER,
       token_count INTEGER,
-      estimated_cost REAL
+      token_source TEXT,
+      estimated_cost REAL,
+      ts TEXT
     );
   `);
   const insertKnowledge = db.prepare(`
@@ -131,6 +149,132 @@ test("shadow analyzer passes complete fixture and marks zero early backlog as N/
   const report = readFileSync(join(dir, "SHADOW_FINDINGS.md"), "utf8");
   assert.match(report, /Summary: PASS/);
   assert.match(report, /humanGateDropAtLeast30pct \| N\/A/);
+});
+
+test("compressed analyzer excludes exactly the two duration checks while formal mode remains blocking", () => {
+  const dir = makeLogDir("shadow-compressed-duration-only");
+  const summaryPath = join(dir, "summary.json");
+  const summary = JSON.parse(readFileSync(summaryPath, "utf8"));
+  summary.validationDurationMs = 3 * 3_600_000;
+  writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
+  const firstSnapshot = readFileSync(join(dir, "metrics", "snapshot_0001.txt"), "utf8");
+  const firstSnapshotJson = readFileSync(join(dir, "metrics", "snapshot_0001.json"), "utf8");
+  rmSync(join(dir, "metrics"), { recursive: true });
+  mkdirSync(join(dir, "metrics"));
+  writeFileSync(join(dir, "metrics", "snapshot_0001.txt"), firstSnapshot);
+  writeFileSync(join(dir, "metrics", "snapshot_0001.json"), firstSnapshotJson);
+
+  const formal = analyze(dir);
+  assert.equal(formal.status, 1);
+  assert.equal(existsSync(join(dir, "compressed_precheck_analysis.json")), false);
+  assert.match(readFileSync(join(dir, "SHADOW_FINDINGS.md"), "utf8"), /Summary: FAIL \(2 failing checks\)/);
+
+  const compressed = analyze(dir, ["--analysis-mode=compressed-precheck"]);
+  assert.equal(compressed.status, 0, compressed.stderr);
+  const classification = JSON.parse(readFileSync(join(dir, "compressed_precheck_analysis.json"), "utf8"));
+  assert.equal(classification.status, "PASS");
+  assert.equal(classification.durationOnlyFormalFailure, true);
+  assert.deepEqual(classification.excludedFailureNames, ["durationAtLeast24h", "metricsSnapshotsAtLeast48"]);
+  assert.deepEqual(classification.blockingFailureNames, []);
+  assert.equal(classification.invocationNonce, "shadow-test-nonce");
+  assert.equal(classification.expectedReplicateId, "shadow-fixture");
+  assert.equal(classification.actualReplicateId, "shadow-fixture");
+  assert.ok(Date.parse(classification.generatedAt) > 0);
+  assert.match(classification.sourceDigest, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(classification.checkContract?.status, "PASS");
+});
+
+test("compressed analyzer fails closed when the invocation is bound to another replicate", () => {
+  const dir = makeLogDir("shadow-compressed-wrong-replicate");
+  const result = analyze(dir, [
+    "--analysis-mode=compressed-precheck",
+    "--invocation-nonce=wrong-replicate-nonce",
+    "--expected-replicate-id=another-replicate",
+  ]);
+  assert.equal(result.status, 1);
+  const classification = JSON.parse(readFileSync(join(dir, "compressed_precheck_analysis.json"), "utf8"));
+  assert.equal(classification.status, "FAIL");
+  assert.equal(classification.bindingStatus, "FAIL");
+  assert.equal(classification.expectedReplicateId, "another-replicate");
+  assert.equal(classification.actualReplicateId, "shadow-fixture");
+});
+
+test("compressed analyzer keeps non-duration failures blocking", () => {
+  const dir = makeLogDir("shadow-compressed-nonduration");
+  writeFileSync(join(dir, "events.jsonl"), `${JSON.stringify({ eventType: "runner_crashed", error: "boom" })}\n`);
+  const result = analyze(dir, ["--analysis-mode=compressed-precheck"]);
+  assert.equal(result.status, 1);
+  const classification = JSON.parse(readFileSync(join(dir, "compressed_precheck_analysis.json"), "utf8"));
+  assert.equal(classification.status, "FAIL");
+  assert.ok(classification.blockingFailureNames.includes("runnerCrashedZero"));
+});
+
+test("compressed analyzer inventories every model-calling agent and exposes non-learning agent route drift", () => {
+  const dir = makeLogDir("shadow-model-call-inventory");
+  const summaryPath = join(dir, "summary.json");
+  const summary = JSON.parse(readFileSync(summaryPath, "utf8"));
+  summary.scenario = {
+    name: "learning-cases",
+    runId: "shadow-fixture",
+    requiredModelCallingAgents: ["orchestrator", "sensor", "builder", "distiller", "librarian"],
+  };
+  summary.llmProvider = "openai";
+  summary.model = "MiniMax-M3";
+  writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
+  writeFileSync(join(dir, "events.jsonl"), `${JSON.stringify({
+    eventType: "learning_case_resolved",
+    arm: "treatment",
+    ordinal: 1,
+    caseId: "case_001",
+    cycleId: "cycle_001",
+    pool: "train",
+    parseStatus: "ok",
+    predictedDecision: "reduce_exposure",
+    groundTruthDecision: "reduce_exposure",
+    knowledgeInjection: { injectedKnowledgeIds: [], rankingMode: "thompson", epsilon: 0.1 },
+  })}\n`);
+  createQualityDb(dir);
+  const db = new Database(join(dir, "health-signal.db"));
+  const insert = db.prepare(`
+    INSERT INTO llm_calls (
+      cycle_id,agent,provider,model,route_reason,prompt_version,input_summary,output_summary,
+      schema_valid,llm_failure_type,retry_count,latency_ms,input_token_count,output_token_count,
+      token_count,token_source,estimated_cost,ts
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `);
+  for (const [index, agent] of ["orchestrator", "sensor", "builder", "distiller", "librarian"].entries()) {
+    insert.run(
+      `cycle_${index + 1}`,
+      agent,
+      "openai",
+      agent === "sensor" ? "unexpected-model" : "MiniMax-M3",
+      "test",
+      "v1",
+      "input",
+      "output",
+      1,
+      null,
+      0,
+      10,
+      100,
+      20,
+      120,
+      "provider",
+      0.01,
+      "2026-06-12T00:00:00.000Z",
+    );
+  }
+  db.close();
+
+  const result = analyze(dir, ["--analysis-mode=compressed-precheck"]);
+  assert.equal(result.status, 1);
+  const quality = JSON.parse(readFileSync(join(dir, "quality_summary.json"), "utf8"));
+  assert.equal(quality.modelCallInventory.callCount, 5);
+  assert.deepEqual(quality.modelCallInventory.observedAgents, ["orchestrator", "sensor", "builder", "distiller", "librarian"]);
+  assert.deepEqual(quality.modelCallInventory.missingAgents, []);
+  assert.equal(quality.modelCallInventory.providerRouteRatio, 0.8);
+  assert.deepEqual(quality.modelCallInventory.unexpectedRouteCallIds, [2]);
+  assert.equal(quality.modelCallInventory.status, "FAIL");
 });
 
 test("shadow analyzer fails incomplete/crashed fixture", () => {

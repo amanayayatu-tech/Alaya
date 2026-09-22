@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { summarizeEquityThesisQuality } from "./lib/health-signal-quality.mjs";
+import {
+  classifyCompressedAnalyzerChecks,
+  computeAnalyzerSourceDigest,
+  summarizeLearningGovernanceAudit,
+  summarizeModelCallInventory,
+} from "./lib/learning-precheck-gates.mjs";
 
 function readJson(path, fallback = null) {
   try {
@@ -24,6 +30,23 @@ function readJsonl(path) {
         return { eventType: "unparseable_jsonl", raw: line };
       }
     });
+}
+
+function analyzerSourceDigest(logDir) {
+  const parts = [
+    ["summary.json", existsSync(join(logDir, "summary.json")) ? readFileSync(join(logDir, "summary.json"), "utf8") : "<missing>"],
+    ["events.jsonl", existsSync(join(logDir, "events.jsonl")) ? readFileSync(join(logDir, "events.jsonl"), "utf8") : "<missing>"],
+    ["watchdog.jsonl", existsSync(join(logDir, "watchdog.jsonl")) ? readFileSync(join(logDir, "watchdog.jsonl"), "utf8") : "<missing>"],
+    ["monitor_log.csv", existsSync(join(logDir, "monitor_log.csv")) ? readFileSync(join(logDir, "monitor_log.csv"), "utf8") : "<missing>"],
+    ["health-signal.db", existsSync(join(logDir, "health-signal.db")) ? readFileSync(join(logDir, "health-signal.db")) : "<missing>"],
+  ];
+  const metricsDir = join(logDir, "metrics");
+  if (existsSync(metricsDir)) {
+    for (const name of readdirSync(metricsDir).filter((entry) => /^snapshot_\d+\.(?:txt|json)$/.test(entry)).sort()) {
+      parts.push([`metrics/${name}`, readFileSync(join(metricsDir, name))]);
+    }
+  }
+  return computeAnalyzerSourceDigest(parts);
 }
 
 function parseArgs(argv) {
@@ -122,6 +145,28 @@ function avg(values) {
 
 function unique(values) {
   return Array.from(new Set(values.filter((value) => value != null && value !== "")));
+}
+
+function normalizeLlmCallRow(row) {
+  return {
+    id: row?.id ?? null,
+    cycleId: row?.cycleId ?? row?.cycle_id ?? null,
+    agent: row?.agent ?? null,
+    provider: row?.provider ?? null,
+    model: row?.model ?? null,
+    routeReason: row?.routeReason ?? row?.route_reason ?? null,
+    promptVersion: row?.promptVersion ?? row?.prompt_version ?? null,
+    schemaValid: row?.schemaValid ?? row?.schema_valid ?? null,
+    llmFailureType: row?.llmFailureType ?? row?.llm_failure_type ?? null,
+    retryCount: row?.retryCount ?? row?.retry_count ?? null,
+    latencyMs: row?.latencyMs ?? row?.latency_ms ?? null,
+    inputTokenCount: row?.inputTokenCount ?? row?.input_token_count ?? null,
+    outputTokenCount: row?.outputTokenCount ?? row?.output_token_count ?? null,
+    tokenCount: row?.tokenCount ?? row?.token_count ?? null,
+    tokenSource: row?.tokenSource ?? row?.token_source ?? null,
+    estimatedCost: row?.estimatedCost ?? row?.estimated_cost ?? null,
+    ts: row?.ts ?? null,
+  };
 }
 
 // Mirrors cumulativeConflictEvidence() in scripts/health-signal-36h-validation.mjs.
@@ -260,8 +305,17 @@ function formatExcludedAsNonConflict(summary) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  const analysisMode = args["analysis-mode"] ?? "formal";
+  assert.ok(["formal", "compressed-precheck"].includes(analysisMode), `unsupported analysis mode: ${analysisMode}`);
+  const compressedPrecheckMode = analysisMode === "compressed-precheck";
   const logDir = resolve(args._[0] || args["log-dir"] || "");
   assert.ok(logDir && existsSync(logDir), `log directory not found: ${logDir}`);
+  const invocationNonce = String(args["invocation-nonce"] ?? "").trim();
+  const expectedReplicateId = String(args["expected-replicate-id"] ?? "").trim();
+  if (compressedPrecheckMode) {
+    assert.ok(invocationNonce, "compressed-precheck requires --invocation-nonce");
+    assert.ok(expectedReplicateId, "compressed-precheck requires --expected-replicate-id");
+  }
   try {
     globalThis.__betterSqlite3 = (await import("better-sqlite3")).default;
   } catch {
@@ -270,6 +324,8 @@ async function main() {
 
   const summary = readJson(join(logDir, "summary.json"), {});
   const events = readJsonl(join(logDir, "events.jsonl"));
+  const oracleAnswersPath = args["oracle-answers"] ? resolve(args["oracle-answers"]) : join(logDir, "oracle_answers.json");
+  const oracleAnswers = existsSync(oracleAnswersPath) ? readJson(oracleAnswersPath, null) : null;
   const watchdog = readJsonl(join(logDir, "watchdog.jsonl"));
   const samples = readCsv(join(logDir, "monitor_log.csv"));
   const metricsDir = join(logDir, "metrics");
@@ -359,9 +415,10 @@ async function main() {
     FROM knowledge_items
     ORDER BY rowid ASC
   `);
-  const llmCallRows = allDb(dbPath, `
-    SELECT agent, latency_ms, input_token_count, output_token_count, token_count, estimated_cost
-    FROM llm_calls
+  const llmCallRows = allDb(dbPath, "SELECT * FROM llm_calls ORDER BY id ASC").map(normalizeLlmCallRow);
+  const auditRows = allDb(dbPath, `
+    SELECT id, actor, table_name AS tableName, op, before, after, cycle_idx AS cycleIdx, ts
+    FROM event_log
     ORDER BY id ASC
   `);
   const qualitySummary = summarizeEquityThesisQuality({
@@ -372,14 +429,34 @@ async function main() {
     faithfulnessJudge: args["faithfulness-judge"] || "lexical",
     dedupeMode: args["dedupe-mode"] || "exact",
     enforceLatencySlo: boolArg(args, "enforce-latency-slo", false),
+    learningOracleAnswers: oracleAnswers,
+    learningBlockSize: Number(args["learning-block-size"] ?? 10),
   });
   const qualityPath = join(logDir, "quality_summary.json");
+  const experimentArm = process.env.ALAYA_EXPERIMENT_ARM ?? events.find((event) => event?.eventType === "learning_case_resolved")?.arm ?? "unknown";
+  const learningScenario = summary?.scenario?.name === "learning-cases" || events.some((event) => event?.eventType === "learning_case_resolved");
+  const governanceAudit = learningScenario
+    ? summarizeLearningGovernanceAudit({ auditRows, knowledgeRows, events, arm: experimentArm })
+    : { status: "NOT_APPLICABLE", reason: "not_learning_cases_scenario" };
+  const modelCallInventory = compressedPrecheckMode && learningScenario
+    ? summarizeModelCallInventory({
+      modelCalls: llmCallRows,
+      expectedProvider: summary?.llmProvider,
+      expectedModel: summary?.model,
+      declaredRequiredAgents: summary?.scenario?.requiredModelCallingAgents,
+    })
+    : null;
   writeFileSync(qualityPath, JSON.stringify({
     ...qualitySummary,
+    governanceAudit,
+    ...(modelCallInventory ? { modelCallInventory } : {}),
     sources: {
       knowledge: knowledgeRows.length > 0 ? "health-signal.db:knowledge_items" : "unavailable",
       llmCalls: llmCallRows.length > 0 ? "health-signal.db:llm_calls" : "unavailable",
       resolutionEvents: "events.jsonl:knowledge_review_resolved",
+      learningEvents: "events.jsonl:learning decision rows",
+      oracleAnswers: oracleAnswers ? oracleAnswersPath : "unavailable",
+      knowledgeInjectionTraces: "events.jsonl:knowledge_injection trace events",
       apiRequestLatency: "events.jsonl:api_request_timing",
       rss: "monitor_log.csv:appRssMb",
     },
@@ -389,6 +466,7 @@ async function main() {
       "pass^k multi-seed reliability is intentionally deferred to v2.",
       "API latency is runner/harness-observed polling and control request latency under validation load, not an isolated production retrieval SLO.",
       "Resolution accuracy is blocking only when scoreable coverage meets the configured threshold.",
+      "Learning-loop metrics are local analyzer metrics; LOW_COVERAGE suppresses attractive point estimates when sample support is too small.",
     ],
   }, null, 2));
   const meaningBudgetRows = snapshotJson.map((row) => row.opsMetrics?.meaningGateBudget).filter(Boolean);
@@ -397,7 +475,14 @@ async function main() {
   const aClass = [
     ["deltaReached8", pass(Boolean(finalCriteria.deltaReached8), `last=${observed.lastDelta ?? "n/a"}`)],
     ["activeNeverZero", pass(Boolean(finalCriteria.activeNeverZero), `min=${observed.minActiveKnowledgeCount ?? "n/a"}`)],
-    ["tokenSourceProviderAtLeast95pct", pass(providerRatio >= 0.95, `providerRatio=${providerRatio}`)],
+    ["tokenSourceProviderAtLeast95pct", pass(
+      compressedPrecheckMode && learningScenario
+        ? modelCallInventory?.status === "PASS" && modelCallInventory.providerRouteRatio === 1 && modelCallInventory.tokenSourceProviderRatio >= 0.95
+        : providerRatio >= 0.95,
+      compressedPrecheckMode && learningScenario
+        ? `providerRouteRatio=${modelCallInventory?.providerRouteRatio ?? "n/a"} tokenSourceProviderRatio=${modelCallInventory?.tokenSourceProviderRatio ?? "n/a"} inventory=${modelCallInventory?.status ?? "MISSING"}`
+        : `providerRatio=${providerRatio}`,
+    )],
     ["semanticContradictionBypassZero", pass(Boolean(finalCriteria.semanticContradictionBypassZero), `count=${observed.semanticContradictionBypassCount ?? "n/a"}`)],
     ["conflictAtLeast5", pass(Boolean(finalCriteria.conflictAtLeast5), `max=${observed.maxConflictCount ?? "n/a"}`)],
     ["conflictResolvedAtLeast3", pass(Boolean(finalCriteria.conflictResolvedAtLeast3), `resolved=${observed.maxResolvedConflictReviews ?? "n/a"}`)],
@@ -428,6 +513,12 @@ async function main() {
   const resolution = qualitySummary.resolutionAccuracy;
   const calibration = qualitySummary.confidenceCalibration;
   const faithfulness = qualitySummary.faithfulness;
+  const learningCurve = qualitySummary.learningCurve;
+  const cumulativeRegret = qualitySummary.cumulativeRegret;
+  const knowledgeROI = qualitySummary.knowledgeROI;
+  const learningGovernanceAudit = governanceAudit;
+  const heldOutAccuracy = qualitySummary.heldOutAccuracy;
+  const forgettingRate = qualitySummary.forgettingRate;
   const latency = qualitySummary.latencyAndEfficiency;
   const rssSlope = qualitySummary.rssSlopeMbPerHour;
   const qualityRows = [
@@ -449,6 +540,24 @@ async function main() {
       : faithfulness.status === "low_coverage"
         ? lowCoverage(`faithfulness=${faithfulness.faithfulness ?? "n/a"} scored=${faithfulness.scored} scoreableKnowledge=${faithfulness.scoreableKnowledgeItems ?? "n/a"} eligible=${faithfulness.eligible ?? "n/a"} denominator=${faithfulness.denominator ?? faithfulness.scoreableDenominator ?? "n/a"} minEligible=${faithfulness.minEligible ?? "n/a"} coverage=${faithfulness.scoreableCoverage} unsupported=${faithfulness.unsupported} indeterminateReasons=${topCounts(faithfulness.indeterminateReasonCounts ?? faithfulness.indeterminateReasons)} excluded=${faithfulness.excludedAsNonConflict?.count ?? 0}`)
         : pass(faithfulness.status === "pass" || faithfulness.status === "warn", `status=${faithfulness.status} faithfulness=${faithfulness.faithfulness ?? "n/a"} hallucination=${faithfulness.hallucinationRate ?? "n/a"} scored=${faithfulness.scored} scoreableKnowledge=${faithfulness.scoreableKnowledgeItems ?? "n/a"} eligible=${faithfulness.eligible ?? "n/a"} denominator=${faithfulness.denominator ?? faithfulness.scoreableDenominator ?? "n/a"} coverage=${faithfulness.scoreableCoverage} unsupported=${faithfulness.unsupported} indeterminateReasons=${topCounts(faithfulness.indeterminateReasonCounts ?? faithfulness.indeterminateReasons)} excluded=${faithfulness.excludedAsNonConflict?.count ?? 0}`)],
+    ["learningCurve", learningCurve.status === "LOW_COVERAGE"
+      ? lowCoverage(`scored=${learningCurve.scored} blocks=${learningCurve.blockCount} blockSize=${learningCurve.blockSize} minSamples=${learningCurve.minSamples} minBlocks=${learningCurve.minBlocks}`)
+      : info(`blocks=${learningCurve.blockCount} blockSize=${learningCurve.blockSize} accuracyS=${learningCurve.accuracyTrend?.s ?? "n/a"} accuracyP=${learningCurve.accuracyTrend?.pValue ?? "n/a"} accuracyDirection=${learningCurve.accuracyTrend?.direction ?? "n/a"} brierS=${learningCurve.brierTrend?.s ?? "n/a"} brierP=${learningCurve.brierTrend?.pValue ?? "n/a"} brierDirection=${learningCurve.brierTrend?.direction ?? "n/a"}`)],
+    ["cumulativeRegret", cumulativeRegret.status === "LOW_COVERAGE"
+      ? lowCoverage(`scored=${cumulativeRegret.scored} oracleAnswers=${cumulativeRegret.oracleAnswerCount} minSamples=${cumulativeRegret.minSamples}; oracleAnswersPath=${oracleAnswers ? oracleAnswersPath : "unavailable"}`)
+      : info(`scored=${cumulativeRegret.scored} finalCumulativeError=${cumulativeRegret.finalCumulativeError} headSlope=${cumulativeRegret.headSlope} tailSlope=${cumulativeRegret.tailSlope} tailBelowHead=${cumulativeRegret.tailSlopeBelowHeadSlope}`)],
+    ["knowledgeROI", knowledgeROI.status === "LOW_COVERAGE"
+      ? lowCoverage(`knowledgeCount=${knowledgeROI.knowledgeCount} okCount=${knowledgeROI.okCount} lowCoverage=${knowledgeROI.lowCoverageCount}`)
+      : info(`knowledgeCount=${knowledgeROI.knowledgeCount} okCount=${knowledgeROI.okCount} lowCoverage=${knowledgeROI.lowCoverageCount} deltaMean=${knowledgeROI.deltaDistribution?.mean ?? "n/a"} deltaMedian=${knowledgeROI.deltaDistribution?.median ?? "n/a"}`)],
+    ["learningGovernanceAudit", learningScenario
+      ? pass(learningGovernanceAudit.status === "PASS", `creditEvents=${learningGovernanceAudit.creditAuditEventCount} malformedCredit=${learningGovernanceAudit.malformedCreditAuditCount} missingCredit=${learningGovernanceAudit.missingCreditKeys.length} heldoutCredit=${learningGovernanceAudit.heldoutCreditKeys.length} ranking=${learningGovernanceAudit.rankingAuditComplete} epsilon=${learningGovernanceAudit.epsilonAuditComplete} strongBypass=${learningGovernanceAudit.humanStrongBypassCount} pollutedInjection=${learningGovernanceAudit.pollutedHighRiskInjectionCount}`)
+      : na("not learning-cases scenario")],
+    ["heldOutAccuracy", heldOutAccuracy.status === "LOW_COVERAGE"
+      ? lowCoverage(`heldoutScored=${heldOutAccuracy.heldoutScored} trainScored=${heldOutAccuracy.trainScored} minSamples=${heldOutAccuracy.minSamples}`)
+      : info(`heldoutAccuracy=${heldOutAccuracy.heldOutAccuracy} heldoutScored=${heldOutAccuracy.heldoutScored} trainScored=${heldOutAccuracy.trainScored} trainAccuracy=${heldOutAccuracy.trainAccuracy ?? "n/a"}`)],
+    ["forgettingRate", forgettingRate.status === "LOW_COVERAGE"
+      ? lowCoverage(`firstHalfCorrectRuleCount=${forgettingRate.firstHalfCorrectRuleCount} secondHalfScored=${forgettingRate.secondHalfScored} minSamples=${forgettingRate.minSamples}`)
+      : info(`retention=${forgettingRate.retention} forgettingRate=${forgettingRate.forgettingRate} ruleCategories=${forgettingRate.ruleCategories.join(",")}`)],
     ["latencyAndEfficiency", latency.slo?.sloBlocking
       ? pass(false, `api_harness_p95=${latency.apiRequest.p95Ms ?? "n/a"}ms sloStatus=${latency.slo.sloStatus}; ${latency.slo.measurementNote}`)
       : info(`api_harness_p95=${latency.apiRequest.p95Ms ?? "n/a"}ms llm_p95=${latency.llmOverall.p95Ms ?? "n/a"}ms costPerCycle=${latency.ratios.costPerClosedCycleUsd ?? "N/A"} tokensPerConflict=${latency.ratios.tokensPerResolvedConflict ?? "N/A"}; sloStatus=${latency.slo?.sloStatus ?? "n/a"} sloBlocking=${latency.slo?.sloBlocking ?? false}; harness polling/control, not production SLO`)],
@@ -459,15 +568,35 @@ async function main() {
 
   const allRows = [...aClass, ...shadowChecks, ...qualityRows];
   const failing = allRows.filter(([, result]) => result.status === "FAIL");
+  const compressedClassification = compressedPrecheckMode ? classifyCompressedAnalyzerChecks(allRows, {
+    invocationNonce,
+    expectedReplicateId,
+    actualReplicateId: summary?.scenario?.runId,
+    generatedAt: new Date().toISOString(),
+    sourceDigest: analyzerSourceDigest(logDir),
+  }) : null;
+  const blockingFailing = compressedPrecheckMode
+    ? allRows.filter(([name]) => compressedClassification.blockingFailureNames.includes(name))
+    : failing;
+  const compressedClassificationPath = join(logDir, "compressed_precheck_analysis.json");
+  if (compressedClassification) {
+    writeFileSync(compressedClassificationPath, `${JSON.stringify(compressedClassification, null, 2)}\n`);
+  }
+  const compressedContractFailure = compressedPrecheckMode && compressedClassification.status !== "PASS" && blockingFailing.length === 0;
+  const reportedBlockingCount = blockingFailing.length + (compressedContractFailure ? 1 : 0);
   const findingsPath = join(logDir, "SHADOW_FINDINGS.md");
   const report = [
     "# SHADOW_FINDINGS",
     "",
     `Log dir: ${logDir}`,
     `Generated at: ${new Date().toISOString()}`,
+    ...(compressedPrecheckMode ? [
+      "Analysis mode: compressed-precheck",
+      `Formal failures: ${failing.length}; excluded duration failures: ${compressedClassification.excludedFailureNames.length}; blocking failures: ${reportedBlockingCount}`,
+    ] : []),
     `Assessment source: ${assessmentSource}`,
     `Duration source: ${durationSource}`,
-    `Summary: ${failing.length === 0 ? "PASS" : "FAIL"} (${failing.length} failing checks)`,
+    `Summary: ${reportedBlockingCount === 0 ? "PASS" : "FAIL"} (${reportedBlockingCount} failing checks)`,
     "",
     "## A 类 9 判据",
     "",
@@ -488,6 +617,7 @@ async function main() {
     `Calibration excluded non-conflict: ${formatExcludedAsNonConflict(calibration.excludedAsNonConflict)}.`,
     `Faithfulness indeterminate reasons: ${topCounts(faithfulness.indeterminateReasonCounts ?? faithfulness.indeterminateReasons, 8)}.`,
     `Faithfulness excluded non-conflict: ${formatExcludedAsNonConflict(faithfulness.excludedAsNonConflict)}.`,
+    `Learning metric source rows: ${qualitySummary.learningMetricSourceRows?.length ?? 0}; oracle answers: ${oracleAnswers ? oracleAnswersPath : "unavailable"}.`,
     "",
     `Quality summary: ${qualityPath}`,
     "",
@@ -508,7 +638,7 @@ async function main() {
   ].join("\n");
   writeFileSync(findingsPath, report);
   console.log(findingsPath);
-  process.exit(failing.length === 0 ? 0 : 1);
+  process.exit(reportedBlockingCount === 0 ? 0 : 1);
 }
 
 main().catch((error) => {
