@@ -1,0 +1,103 @@
+{
+  "projectId": "proj_mqdiq68d",
+  "projectName": "wearable-health-signal-decision",
+  "baseUrl": "http://127.0.0.1:64504",
+  "dbPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/passk_v2_smoke_20260614_144850/seed_2/shadow.db",
+  "logDir": "/Users/LOCAL_USER/Documents/alaya/validation-logs/passk_v2_smoke_20260614_144850/seed_2",
+  "startedAt": "2026-06-14T08:24:37.639Z",
+  "endedAt": "2026-06-14T09:11:58.894Z",
+  "validationStartedAt": "2026-06-14T08:24:37.639Z",
+  "sampleCount": 10,
+  "processDurationMs": 2841255,
+  "validationDurationMs": 2841255,
+  "timing": {
+    "durationMs": 3600000,
+    "sampleMs": 300000,
+    "maxSamples": 10,
+    "progressTicksPerSample": 6
+  },
+  "scenario": {
+    "name": "conflict-flood",
+    "seed": 3,
+    "runId": "passk_seed_2",
+    "evidenceOrder": [
+      "ppg_risk",
+      "ecg_risk",
+      "hybrid_reject",
+      "ecg_support",
+      "ppg_support",
+      "hybrid_support"
+    ],
+    "qualityCanaryOffsetSamples": 2,
+    "conflictFloodHoldSamples": 2,
+    "conflictFloodMaxResolutionsPerSample": 3,
+    "qualityCanaryEverySamples": 5
+  },
+  "llmProvider": "openai",
+  "model": "MiniMax-M3",
+  "decisionVia": "local_api_human_proxy",
+  "finalDrain": {
+    "status": "complete",
+    "attempts": 0,
+    "lastAction": ""
+  },
+  "assessment": {
+    "criteria": {
+      "deltaReached8": true,
+      "activeNeverZero": true,
+      "tokenSourceProviderAtLeast95pct": true,
+      "semanticContradictionBypassZero": true,
+      "conflictAtLeast5": true,
+      "conflictResolvedAtLeast3": true,
+      "humanGateDropAtLeast30pct": null,
+      "stallGuardUnder5pct": true,
+      "sampleFailedZero": true
+    },
+    "observed": {
+      "firstDelta": "1",
+      "lastDelta": "24",
+      "firstCurrentDelta": "1",
+      "lastCurrentDelta": "24",
+      "minActiveKnowledgeCount": 5,
+      "finalActiveKnowledgeCount": "15",
+      "finalLlmTokenSource": "provider",
+      "lastLlmTokenSourceStats": {
+        "total": 144,
+        "provider": 144,
+        "estimated": 0,
+        "providerRatio": 1,
+        "label": "provider"
+      },
+      "semanticContradictionBypassCount": 0,
+      "sampleFailedCount": 0,
+      "maxConflictCount": 9,
+      "maxSnapshotConflictCount": 4,
+      "maxResolvedConflictReviews": 8,
+      "cumulativeConflictEvidence": {
+        "maxOpenReviews": 1,
+        "maxResolvedReviews": 8,
+        "resolvedUniqueReviewCount": 8,
+        "maxScanReviewRequired": 2,
+        "maxScanConflictCandidates": 0,
+        "cumulativeConflictCount": 9
+      },
+      "maxStallGuardCount": 0,
+      "cyclesClosed": 18,
+      "earlyPendingGateAverage": 0.5,
+      "latePendingGateAverage": 0.2,
+      "humanGateDropEligible": false,
+      "humanGateDropEligibilityThreshold": "earlyPendingGateAverage >= 1",
+      "humanGatePendingDropRatio": null
+    }
+  },
+  "files": {
+    "monitorCsv": "/Users/LOCAL_USER/Documents/alaya/validation-logs/passk_v2_smoke_20260614_144850/seed_2/monitor_log.csv",
+    "eventsJsonl": "/Users/LOCAL_USER/Documents/alaya/validation-logs/passk_v2_smoke_20260614_144850/seed_2/events.jsonl",
+    "issuesMd": "/Users/LOCAL_USER/Documents/alaya/validation-logs/passk_v2_smoke_20260614_144850/seed_2/issues.md",
+    "appLogPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/passk_v2_smoke_20260614_144850/seed_2/app.log",
+    "runnerLogPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/passk_v2_smoke_20260614_144850/seed_2/runner.log",
+    "metricsDir": "/Users/LOCAL_USER/Documents/alaya/validation-logs/passk_v2_smoke_20260614_144850/seed_2/metrics",
+    "opsTrendWarningsPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/passk_v2_smoke_20260614_144850/seed_2/ops_trend_warnings.log",
+    "watchdogPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/passk_v2_smoke_20260614_144850/seed_2/watchdog.jsonl"
+  }
+}

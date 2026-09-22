@@ -1,0 +1,49 @@
+{
+  "projectId": "proj_mq3zxl8k",
+  "projectName": "wonz-health-signal-decision",
+  "baseUrl": "http://127.0.0.1:5300",
+  "dbPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/wonz-health-30h_live_20260608_002806/wonz-health.db",
+  "logDir": "/Users/LOCAL_USER/Documents/alaya/validation-logs/wonz-health-30h_live_20260608_002806",
+  "startedAt": "2026-06-09T00:49:08.037Z",
+  "endedAt": "2026-06-09T04:34:18.657Z",
+  "validationStartedAt": "2026-06-07T16:29:55.419Z",
+  "sampleCount": 297,
+  "processDurationMs": 13510620,
+  "validationDurationMs": 129863238,
+  "timing": {
+    "durationMs": 129600000,
+    "sampleMs": 300000,
+    "maxSamples": 432,
+    "progressTicksPerSample": 6
+  },
+  "llmProvider": "openai",
+  "model": "MiniMax-M3",
+  "decisionVia": "telegram_or_local_api_human_proxy",
+  "assessment": {
+    "criteria": {
+      "deltaReached8": true,
+      "conflictAtLeast5": true,
+      "conflictResolvedAtLeast3": true,
+      "humanGateDropAtLeast30pct": true,
+      "stallGuardUnder5pct": true
+    },
+    "observed": {
+      "firstDelta": "0",
+      "lastDelta": "660",
+      "maxConflictCount": 31,
+      "maxResolvedConflictReviews": 280,
+      "maxStallGuardCount": 16,
+      "cyclesClosed": 387,
+      "earlyPendingGateAverage": 0.432,
+      "latePendingGateAverage": 0.107,
+      "humanGatePendingDropRatio": 0.752
+    }
+  },
+  "files": {
+    "monitorCsv": "/Users/LOCAL_USER/Documents/alaya/validation-logs/wonz-health-30h_live_20260608_002806/monitor_log.csv",
+    "eventsJsonl": "/Users/LOCAL_USER/Documents/alaya/validation-logs/wonz-health-30h_live_20260608_002806/events.jsonl",
+    "issuesMd": "/Users/LOCAL_USER/Documents/alaya/validation-logs/wonz-health-30h_live_20260608_002806/issues.md",
+    "appLogPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/wonz-health-30h_live_20260608_002806/app.log",
+    "runnerLogPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/wonz-health-30h_live_20260608_002806/runner.log"
+  }
+}

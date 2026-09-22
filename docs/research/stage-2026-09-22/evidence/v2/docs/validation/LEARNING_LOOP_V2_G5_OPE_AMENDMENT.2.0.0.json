@@ -1,0 +1,27 @@
+{
+  "status": "REVIEW_READY",
+  "version": "2.0.0",
+  "gate": "G5",
+  "kind": "replay_and_fail_closed",
+  "claim_ceiling": "local checks",
+  "statistical_ope_thresholds": null,
+  "unblinded_implementation_already_existed": true,
+  "not": [
+    "IPS/SNIPS/DR/SWITCH effect PASS",
+    "post-hoc ESS/coverage/bias cutoffs chosen after seeing 18/6/7/0"
+  ],
+  "authorization": {
+    "source": "user",
+    "date": "2026-09-18",
+    "scope": "complete remaining offline gates; statistical OPE remains unidentified"
+  },
+  "replay": {
+    "production_reference_byte_equal": true,
+    "timestamp_shuffle_must_fail": true
+  },
+  "ope": {
+    "in_support_without_signed_stats": "OPE_NOT_IDENTIFIED",
+    "no_support": "OPE_NOT_IDENTIFIED",
+    "switch": null
+  }
+}

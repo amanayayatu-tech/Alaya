@@ -1,0 +1,507 @@
+{
+  "generatedAt": "2026-06-14T14:48:00.530Z",
+  "expectedDecision": "hybrid_layered",
+  "decisionTsr": {
+    "status": "pass",
+    "passed": true,
+    "interpretation": "single-scenario pass@1 check: verifies that the final active/strong card state matches the preset Health Signal oracle; it is not an independent reasoning benchmark",
+    "passK": {
+      "implemented": false,
+      "plannedVersion": "v2"
+    },
+    "expectedDecision": "hybrid_layered",
+    "eligibleKnowledgeCount": 8,
+    "hybridLayeredCount": 2,
+    "disallowedFinalCount": 0,
+    "decisions": {
+      "hybrid_layered": 2,
+      "unknown": 6
+    },
+    "disallowedFinalKnowledge": [],
+    "hybridLayeredKnowledge": [
+      {
+        "knowledgeId": "kb_seed_world_m6xg",
+        "title": "初始世界模型",
+        "oracleSide": null,
+        "decision": "hybrid_layered",
+        "status": "strong"
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_dvm6xg_health_signal_contradiction_runner_sample_0004_ecg_risk",
+        "title": "外部反馈: ECG 反证：功耗/交互/成本压力",
+        "oracleSide": "ecg_risk",
+        "decision": "hybrid_layered",
+        "status": "strong"
+      }
+    ]
+  },
+  "resolutionAccuracy": {
+    "status": "pass",
+    "passed": true,
+    "threshold": 0.9,
+    "accuracy": 1,
+    "correct": 5,
+    "scored": 5,
+    "unscored": 2,
+    "totalReviewed": 7,
+    "scoreableCoverage": 0.714286,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": true,
+    "dedupeMode": "exact",
+    "pairTypeCounts": {
+      "ecg_risk|ecg_risk": 1,
+      "ecg_risk|ecg_support": 1,
+      "ecg_risk|hybrid_reject": 1,
+      "ecg_risk|ppg_risk": 1,
+      "ecg_risk|ppg_support": 1,
+      "ecg_support|ppg_risk": 1,
+      "ecg_support|ppg_support": 1
+    },
+    "scoredPairTypeCounts": {
+      "ecg_risk|ecg_risk": 1,
+      "ecg_risk|ecg_support": 1,
+      "ecg_risk|hybrid_reject": 1,
+      "ecg_risk|ppg_support": 1,
+      "ecg_support|ppg_risk": 1
+    },
+    "unscoredPairTypeCounts": {
+      "ecg_risk|ppg_risk": 1,
+      "ecg_support|ppg_support": 1
+    },
+    "unscoredReasonCounts": {
+      "ambiguous_same_layer_t2_risk_pair": 1,
+      "ambiguous_same_layer_t3_support_pair": 1
+    },
+    "duplicatePairTypeCounts": {
+      "ecg_risk|ecg_risk": 1
+    },
+    "scoredEvents": [
+      {
+        "reviewId": "kr_ed7544b5",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_dvm6xg_health_signal_contradiction_runner_sample_0002_ecg_support",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_dvm6xg_health_signal_contradiction_runner_sample_0003_ppg_risk",
+        "action": "quarantine",
+        "oracleSide": "ecg_support",
+        "relatedOracleSide": "ppg_risk",
+        "primaryOracleSide": "ecg_support",
+        "resolutionPairType": "ecg_support|ppg_risk",
+        "resolutionUnorderedPairType": "ecg_support|ppg_risk",
+        "primaryResolutionTier": "T3_single_sensor_support",
+        "relatedResolutionTier": "T2_single_sensor_risk",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "superseded_or_quarantined_when_conflicted",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": "ppg_risk_beats_ecg_support",
+        "scoreableResolutionRationale": "T2 风险证据证伪单传感器优先主张，并推动系统走向 hybrid_layered，因此应胜过 T3 单传感器 support。",
+        "resolutionUnscoredReason": null,
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": true,
+        "resolutionExpectedWinnerSide": "ppg_risk",
+        "resolutionActualWinnerSide": "ppg_risk",
+        "resolutionCorrect": true
+      },
+      {
+        "reviewId": "kr_a64490a7",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_dvm6xg_health_signal_contradiction_runner_sample_0006_hybrid_reject",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_dvm6xg_health_signal_contradiction_runner_sample_0004_ecg_risk",
+        "action": "quarantine",
+        "oracleSide": "hybrid_reject",
+        "relatedOracleSide": "ecg_risk",
+        "primaryOracleSide": "hybrid_reject",
+        "resolutionPairType": "hybrid_reject|ecg_risk",
+        "resolutionUnorderedPairType": "ecg_risk|hybrid_reject",
+        "primaryResolutionTier": "T4_hybrid_reject",
+        "relatedResolutionTier": "T2_single_sensor_risk",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "quarantined_or_deprecated",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": "ecg_risk_beats_hybrid_reject",
+        "scoreableResolutionRationale": "T2 风险证据仍支持分层必要性，而 T4 hybrid_reject 反对分层；按 hybrid_layered 正解，T2 应胜过 T4。",
+        "resolutionUnscoredReason": null,
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": true,
+        "resolutionExpectedWinnerSide": "ecg_risk",
+        "resolutionActualWinnerSide": "ecg_risk",
+        "resolutionCorrect": true
+      },
+      {
+        "reviewId": "kr_6aa99771",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_dvm6xg_health_signal_contradiction_runner_sample_0007_ppg_support",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_dvm6xg_health_signal_contradiction_runner_sample_0004_ecg_risk",
+        "action": "quarantine",
+        "oracleSide": "ppg_support",
+        "relatedOracleSide": "ecg_risk",
+        "primaryOracleSide": "ppg_support",
+        "resolutionPairType": "ppg_support|ecg_risk",
+        "resolutionUnorderedPairType": "ecg_risk|ppg_support",
+        "primaryResolutionTier": "T3_single_sensor_support",
+        "relatedResolutionTier": "T2_single_sensor_risk",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "superseded_or_quarantined_when_conflicted",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": "ecg_risk_beats_ppg_support",
+        "scoreableResolutionRationale": "T2 风险证据证伪单传感器优先主张，并推动系统走向 hybrid_layered，因此应胜过 T3 单传感器 support。",
+        "resolutionUnscoredReason": null,
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": true,
+        "resolutionExpectedWinnerSide": "ecg_risk",
+        "resolutionActualWinnerSide": "ecg_risk",
+        "resolutionCorrect": true
+      },
+      {
+        "reviewId": "kr_0cb7b172",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_dvm6xg_health_signal_contradiction_runner_sample_0008_ecg_support",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_dvm6xg_health_signal_contradiction_runner_sample_0004_ecg_risk",
+        "action": "quarantine",
+        "oracleSide": "ecg_support",
+        "relatedOracleSide": "ecg_risk",
+        "primaryOracleSide": "ecg_support",
+        "resolutionPairType": "ecg_support|ecg_risk",
+        "resolutionUnorderedPairType": "ecg_risk|ecg_support",
+        "primaryResolutionTier": "T3_single_sensor_support",
+        "relatedResolutionTier": "T2_single_sensor_risk",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "superseded_or_quarantined_when_conflicted",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": "ecg_risk_beats_ecg_support",
+        "scoreableResolutionRationale": "T2 风险证据证伪单传感器优先主张，并推动系统走向 hybrid_layered，因此应胜过 T3 单传感器 support。",
+        "resolutionUnscoredReason": null,
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": true,
+        "resolutionExpectedWinnerSide": "ecg_risk",
+        "resolutionActualWinnerSide": "ecg_risk",
+        "resolutionCorrect": true
+      },
+      {
+        "reviewId": "kr_fdd521d7",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_dvm6xg_health_signal_contradiction_runner_sample_0010_ecg_risk",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_dvm6xg_health_signal_contradiction_runner_sample_0004_ecg_risk",
+        "action": "merge_supersede",
+        "oracleSide": "ecg_risk",
+        "relatedOracleSide": "ecg_risk",
+        "primaryOracleSide": "ecg_risk",
+        "resolutionPairType": "ecg_risk|ecg_risk",
+        "resolutionUnorderedPairType": "ecg_risk|ecg_risk",
+        "primaryResolutionTier": "T2_single_sensor_risk",
+        "relatedResolutionTier": "T2_single_sensor_risk",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "retained_over_ecg_support",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": "duplicate_ecg_risk_merge_supersede",
+        "scoreableResolutionRationale": "同侧 pair 是重复项而非真实业务冲突；期望通过 merge_supersede 去重，quarantine 同侧项会丢失有效证据。",
+        "resolutionUnscoredReason": null,
+        "resolutionDuplicatePair": true,
+        "resolutionExpectedAction": "merge_supersede",
+        "resolutionScoreable": true,
+        "resolutionExpectedWinnerSide": "ecg_risk",
+        "resolutionActualWinnerSide": "ecg_risk",
+        "resolutionCorrect": true
+      }
+    ],
+    "unscoredExamples": [
+      {
+        "reviewId": "kr_203c7ebd",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_dvm6xg_health_signal_contradiction_runner_sample_0001_ppg_support",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_dvm6xg_health_signal_contradiction_runner_sample_0002_ecg_support",
+        "action": "quarantine",
+        "oracleSide": "ppg_support",
+        "relatedOracleSide": "ecg_support",
+        "primaryOracleSide": "ppg_support",
+        "resolutionPairType": "ppg_support|ecg_support",
+        "resolutionUnorderedPairType": "ecg_support|ppg_support",
+        "primaryResolutionTier": "T3_single_sensor_support",
+        "relatedResolutionTier": "T3_single_sensor_support",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "superseded_or_quarantined_when_conflicted",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": null,
+        "scoreableResolutionRationale": null,
+        "resolutionUnscoredReason": "ambiguous_same_layer_t3_support_pair",
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": false,
+        "resolutionExpectedWinnerSide": null,
+        "resolutionActualWinnerSide": "ecg_support",
+        "resolutionCorrect": null
+      },
+      {
+        "reviewId": "kr_01a36dbd",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_dvm6xg_health_signal_contradiction_runner_sample_0009_ppg_risk",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_dvm6xg_health_signal_contradiction_runner_sample_0004_ecg_risk",
+        "action": "quarantine",
+        "oracleSide": "ppg_risk",
+        "relatedOracleSide": "ecg_risk",
+        "primaryOracleSide": "ppg_risk",
+        "resolutionPairType": "ppg_risk|ecg_risk",
+        "resolutionUnorderedPairType": "ecg_risk|ppg_risk",
+        "primaryResolutionTier": "T2_single_sensor_risk",
+        "relatedResolutionTier": "T2_single_sensor_risk",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "retained_over_ppg_support",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": null,
+        "scoreableResolutionRationale": null,
+        "resolutionUnscoredReason": "ambiguous_same_layer_t2_risk_pair",
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": false,
+        "resolutionExpectedWinnerSide": null,
+        "resolutionActualWinnerSide": "ecg_risk",
+        "resolutionCorrect": null
+      }
+    ]
+  },
+  "confidenceCalibration": {
+    "status": "low_coverage",
+    "ece": 0.066693,
+    "threshold": 0.05,
+    "warnThreshold": 0.1,
+    "bucketCount": 10,
+    "sampleSize": 1,
+    "scored": 1,
+    "unscored": 0,
+    "totalCandidates": 21,
+    "eligible": 1,
+    "denominator": 1,
+    "eligibleConflictKnowledgeTotal": 1,
+    "minEligible": 10,
+    "totalEligible": 1,
+    "scoreableDenominator": 1,
+    "outOfScopeNoOracle": 2,
+    "excludedAsNonConflict": {
+      "count": 20,
+      "reasonCounts": {
+        "governance_or_task_restatement": 16,
+        "no_oracle_side": 2,
+        "seed_identity_or_world": 2
+      },
+      "exampleIds": [
+        "kb_seed_identity_m6xg",
+        "kb_seed_world_m6xg",
+        "kb_gate_gate_meaning_1_e_1_m6xg_f1",
+        "kb_proj_mqdvm6xg_004",
+        "kb_proj_mqdvm6xg_006",
+        "kb_proj_mqdvm6xg_009",
+        "kb_proj_mqdvm6xg_011",
+        "kb_proj_mqdvm6xg_012",
+        "kb_proj_mqdvm6xg_013",
+        "kb_proj_mqdvm6xg_014",
+        "kb_proj_mqdvm6xg_016",
+        "kb_proj_mqdvm6xg_017",
+        "kb_proj_mqdvm6xg_019",
+        "kb_proj_mqdvm6xg_020",
+        "kb_proj_mqdvm6xg_022",
+        "kb_proj_mqdvm6xg_023",
+        "kb_proj_mqdvm6xg_025",
+        "kb_proj_mqdvm6xg_026",
+        "kb_proj_mqdvm6xg_028",
+        "kb_proj_mqdvm6xg_029"
+      ]
+    },
+    "scoreableCoverage": 1,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": false,
+    "reliabilityTable": [
+      {
+        "bucket": 9,
+        "lowerBound": 0.9,
+        "upperBound": 1,
+        "confMean": 0.933307,
+        "accuracy": 1,
+        "n": 1
+      }
+    ],
+    "unscoredReasonCounts": {},
+    "scoredKnowledge": [
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_dvm6xg_health_signal_contradiction_runner_sample_0004_ecg_risk",
+        "oracleSide": "ecg_risk",
+        "status": "strong",
+        "supersededBy": null,
+        "confidence": 0.933306924262524,
+        "expectedDisposition": "retained_over_ecg_support",
+        "correct": true
+      }
+    ],
+    "unscoredExamples": []
+  },
+  "faithfulness": {
+    "status": "low_coverage",
+    "judgeMode": "lexical",
+    "faithfulness": 1,
+    "hallucinationRate": 0,
+    "threshold": 0.95,
+    "stretchMedicalTarget": 0.98,
+    "scored": 7,
+    "supported": 7,
+    "unsupported": 0,
+    "indeterminate": 0,
+    "totalClaims": 7,
+    "evidenceClaimCount": 50,
+    "totalCandidates": 21,
+    "eligible": 1,
+    "denominator": 1,
+    "eligibleConflictKnowledgeTotal": 1,
+    "minEligible": 10,
+    "scoreableDenominator": 1,
+    "scoreableKnowledge": 1,
+    "scoreableKnowledgeItems": 1,
+    "claimScoreableCoverage": 1,
+    "scoreableCoverage": 1,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": false,
+    "unsupportedClaims": [],
+    "indeterminateReasonCounts": {},
+    "indeterminateReasons": {},
+    "excludedAsNonConflict": {
+      "count": 20,
+      "reasonCounts": {
+        "governance_or_task_restatement": 16,
+        "no_oracle_side": 2,
+        "seed_identity_or_world": 2
+      },
+      "exampleIds": [
+        "kb_seed_identity_m6xg",
+        "kb_seed_world_m6xg",
+        "kb_gate_gate_meaning_1_e_1_m6xg_f1",
+        "kb_proj_mqdvm6xg_004",
+        "kb_proj_mqdvm6xg_006",
+        "kb_proj_mqdvm6xg_009",
+        "kb_proj_mqdvm6xg_011",
+        "kb_proj_mqdvm6xg_012",
+        "kb_proj_mqdvm6xg_013",
+        "kb_proj_mqdvm6xg_014",
+        "kb_proj_mqdvm6xg_016",
+        "kb_proj_mqdvm6xg_017",
+        "kb_proj_mqdvm6xg_019",
+        "kb_proj_mqdvm6xg_020",
+        "kb_proj_mqdvm6xg_022",
+        "kb_proj_mqdvm6xg_023",
+        "kb_proj_mqdvm6xg_025",
+        "kb_proj_mqdvm6xg_026",
+        "kb_proj_mqdvm6xg_028",
+        "kb_proj_mqdvm6xg_029"
+      ]
+    },
+    "indeterminateExamples": []
+  },
+  "latencyAndEfficiency": {
+    "measurementNote": "API request latency is runner/harness-observed latency under validation polling load, not an isolated production retrieval SLO.",
+    "apiRequest": {
+      "sampleSize": 399,
+      "p50Ms": 5,
+      "p95Ms": 20823,
+      "p99Ms": 50284
+    },
+    "apiRequestBySegment": {
+      "runner_control_api_request": {
+        "sampleSize": 82,
+        "p50Ms": 4,
+        "p95Ms": 2087,
+        "p99Ms": 8973
+      },
+      "scheduler_tick": {
+        "sampleSize": 61,
+        "p50Ms": 16962,
+        "p95Ms": 50284,
+        "p99Ms": 83431
+      },
+      "harness_polling_api_request": {
+        "sampleSize": 246,
+        "p50Ms": 4,
+        "p95Ms": 56,
+        "p99Ms": 82
+      },
+      "knowledge_retrieval": {
+        "sampleSize": 10,
+        "p50Ms": 24,
+        "p95Ms": 49,
+        "p99Ms": 49
+      }
+    },
+    "slo": {
+      "sloStatus": "fail",
+      "sloBlocking": false,
+      "enforceLatencySlo": false,
+      "thresholdsMs": {
+        "knowledge_retrieval": 2000,
+        "scheduler_tick": 30000
+      },
+      "includedSegments": [
+        {
+          "segment": "knowledge_retrieval",
+          "sampleSize": 10,
+          "p95Ms": 49,
+          "p95ThresholdMs": 2000,
+          "status": "pass"
+        },
+        {
+          "segment": "scheduler_tick",
+          "sampleSize": 61,
+          "p95Ms": 50284,
+          "p95ThresholdMs": 30000,
+          "status": "fail"
+        }
+      ],
+      "excludedSegments": [
+        "harness_polling_api_request"
+      ],
+      "measurementNote": "harness_polling_api_request is excluded: harness polling is not a production SLO; knowledge_retrieval and scheduler_tick are SLO-observed segments."
+    },
+    "llmOverall": {
+      "sampleSize": 145,
+      "p50Ms": 8391,
+      "p95Ms": 15808,
+      "p99Ms": 20519
+    },
+    "llmAgentP95Ms": {
+      "orchestrator": 15808,
+      "sensor": 13893,
+      "builder": 16358,
+      "distiller": 20415,
+      "librarian": 14445
+    },
+    "totals": {
+      "closedCycles": 17,
+      "resolvedConflicts": 7,
+      "netActiveKnowledge": 7,
+      "totalTokens": 460510,
+      "totalCostUsd": 0.92102
+    },
+    "ratios": {
+      "tokensPerClosedCycle": 27088.823529,
+      "costPerClosedCycleUsd": 0.054178,
+      "tokensPerResolvedConflict": 65787.142857,
+      "costPerResolvedConflictUsd": 0.131574,
+      "tokensPerNetActiveKnowledge": 65787.142857,
+      "costPerNetActiveKnowledgeUsd": 0.131574
+    }
+  },
+  "rssSlopeMbPerHour": -0.360894,
+  "rssSlopeThresholdMbPerHour": 50,
+  "rssSlopeUnder50MbPerHour": true,
+  "notes": [
+    {
+      "type": "benchmark_mapping",
+      "decisionTsr": "task-success-rate style single-scenario oracle check, similar to tau-bench pass@1/pass^k reliability framing",
+      "resolutionAccuracy": "conflict resolution / implicit inference accuracy over deterministic oracle pair rules",
+      "faithfulness": "claim-level lexical NLI proxy for RAGAS/TruLens-style faithfulness; LLM judge interface is reserved but off by default",
+      "confidenceCalibration": "expected calibration error / reliability table over confidence_score or extracted confidence text"
+    },
+    "decisionTsr is a single-scenario pass@1 oracle-state check, not an independent reasoning benchmark.",
+    "pass^k multi-seed reliability is intentionally deferred to v2.",
+    "API latency is runner/harness-observed polling and control request latency under validation load, not an isolated production retrieval SLO.",
+    "Resolution accuracy is blocking only when scoreable coverage meets the configured threshold."
+  ],
+  "sources": {
+    "knowledge": "health-signal.db:knowledge_items",
+    "llmCalls": "health-signal.db:llm_calls",
+    "resolutionEvents": "events.jsonl:knowledge_review_resolved",
+    "apiRequestLatency": "events.jsonl:api_request_timing",
+    "rss": "monitor_log.csv:appRssMb"
+  }
+}

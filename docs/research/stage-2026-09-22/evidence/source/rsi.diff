@@ -1,0 +1,929 @@
+diff --git a/alaya-core/src/llm/provider.ts b/alaya-core/src/llm/provider.ts
+index 0ddbe4a6..e69dfdb4 100644
+--- a/alaya-core/src/llm/provider.ts
++++ b/alaya-core/src/llm/provider.ts
+@@ -222,6 +222,10 @@ export interface OpenAIProviderOptions {
+   temperature?: number;
+   timeoutMs?: number;
+   maxOutputTokens?: number;
++  /** Inject the transport for request receipts or tests; never log auth headers. */
++  fetch?: typeof fetch;
++  /** Experiments can make one logical call equal one HTTP request. Product default stays true. */
++  fallbackToSimplified?: boolean;
+ }
+ 
+ function readSecretFile(path: string | undefined): string {
+@@ -255,6 +259,8 @@ export class OpenAIProvider implements LLMProvider {
+   private temperature: number;
+   private timeoutMs: number;
+   private maxOutputTokens: number;
++  private fetchImpl: typeof fetch;
++  private fallbackToSimplified: boolean;
+ 
+   constructor(options: OpenAIProviderOptions = {}) {
+     this.apiKey = resolveOpenAIApiKey(options.apiKey);
+@@ -265,6 +271,8 @@ export class OpenAIProvider implements LLMProvider {
+     this.temperature = options.temperature ?? 0.2;
+     this.timeoutMs = resolveRequestTimeoutMs(options.timeoutMs);
+     this.maxOutputTokens = resolveMaxOutputTokens(options.maxOutputTokens);
++    this.fetchImpl = options.fetch ?? ((input, init) => fetch(input, init));
++    this.fallbackToSimplified = options.fallbackToSimplified ?? true;
+   }
+ 
+   async call(request: AgentContext): Promise<LLMResponse> {
+@@ -311,6 +319,10 @@ export class OpenAIProvider implements LLMProvider {
+       }
+     }
+ 
++    if (!this.fallbackToSimplified) {
++      return this.degradedResponse(safeRequest, lastError, retryCount, started);
++    }
++
+     try {
+       const simpleSchema = safeRequest.simplifiedSchema ?? DEFAULT_SIMPLIFIED_SCHEMA;
+       const simpleData = await this.callStructuredApi(safeRequest, simpleSchema, redactSensitiveText(lastError));
+@@ -545,7 +557,7 @@ export class OpenAIProvider implements LLMProvider {
+       ? setTimeout(() => controller.abort(), this.timeoutMs)
+       : null;
+     try {
+-      return await fetch(url, { ...init, signal: controller.signal });
++      return await this.fetchImpl(url, { ...init, signal: controller.signal });
+     } catch (err) {
+       if (controller.signal.aborted) {
+         throw new Error(`OpenAI-compatible request timed out after ${this.timeoutMs}ms`);
+@@ -655,22 +667,7 @@ function tryParseJsonObject(text: string): Record<string, unknown> | null {
+     const parsed = JSON.parse(text) as unknown;
+     if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+   } catch {
+-    // Try extracting a final JSON object from provider-specific wrapper text.
+-  }
+-
+-  const end = text.lastIndexOf("}");
+-  if (end < 0) return null;
+-  const starts: number[] = [];
+-  for (let index = text.indexOf("{"); index >= 0; index = text.indexOf("{", index + 1)) {
+-    starts.push(index);
+-  }
+-  for (let i = starts.length - 1; i >= 0; i--) {
+-    try {
+-      const parsed = JSON.parse(text.slice(starts[i], end + 1)) as unknown;
+-      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+-    } catch {
+-      // Continue searching for the root object.
+-    }
++    // A valid nested object is not evidence that the root response was complete.
+   }
+   return null;
+ }
+diff --git a/alaya-core/tests/llm_provider.test.ts b/alaya-core/tests/llm_provider.test.ts
+index 501ddc31..b72e0874 100644
+--- a/alaya-core/tests/llm_provider.test.ts
++++ b/alaya-core/tests/llm_provider.test.ts
+@@ -5,6 +5,35 @@ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+ import { OpenAIProvider, resolveOpenAIApiKey } from "../src/llm/provider.js";
+ 
++test("truncated root JSON must not promote a nested object to a successful response", async () => {
++  const originalFetch = globalThis.fetch;
++  globalThis.fetch = (async () => new Response(JSON.stringify({
++    choices: [{ message: { content: '{"items":[{"summary":"nested is not root"}' }, finish_reason: "length" }],
++    usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
++  }), { status: 200 })) as typeof fetch;
++  try {
++    const result = await new OpenAIProvider({ apiKey: "fake", apiMode: "chat", endpoint: "https://test.invalid", maxRetries: 0 }).call({
++      role: "test", task: "test", promptVersion: "strict-root", context: {},
++      schema: { type: "object", required: ["summary"], properties: { summary: { type: "string" } } },
++    });
++    assert.equal(result.schemaValid, false);
++    assert.equal(result.degradedToHumanGate, true);
++  } finally { globalThis.fetch = originalFetch; }
++});
++
++test("injected transport and disabled fallback give an exact single HTTP attempt", async () => {
++  let calls = 0;
++  const provider = new OpenAIProvider({ apiKey: "fake", apiMode: "chat", endpoint: "https://test.invalid", maxRetries: 0,
++    fallbackToSimplified: false,
++    fetch: (async () => { calls++; return new Response(JSON.stringify({ choices: [{ message: { content: '{"wrong":1}' } }] }), { status: 200 }); }) as typeof fetch,
++  });
++  const result = await provider.call({ role: "test", task: "test", promptVersion: "single-attempt", context: {},
++    schema: { type: "object", required: ["summary"], properties: { summary: { type: "string" } } },
++  });
++  assert.equal(calls, 1);
++  assert.equal(result.schemaValid, false);
++});
++
+ test("OPENAI_API_KEY_FILE provides a local-only API key without putting it in the command", () => {
+   const previousKey = process.env.OPENAI_API_KEY;
+   const previousKeyFile = process.env.OPENAI_API_KEY_FILE;
+diff --git a/experiments/rsi-binpack/analyze.ts b/experiments/rsi-binpack/analyze.ts
+new file mode 100644
+--- /dev/null
++++ b/experiments/rsi-binpack/analyze.ts
+@@ -0,0 +1,97 @@
++import { readFileSync, writeFileSync, existsSync } from "node:fs";
++import { resolve, join } from "node:path";
++import { pathToFileURL } from "node:url";
++import { average, random, hash } from "./domain.ts";
++import { readLines, costEstimate } from "./llm.ts";
++
++export function compare(rows: any[], control: string, treatment: string, phase: number) {
++  const controls = rows.filter(x => x.arm === control);
++  const pairs = controls.map(a => {
++    const b = rows.find(x => x.arm === treatment && x.world === a.world && x.repeat === a.repeat);
++    if (!b) throw Error("INCOMPLETE_PAIR");
++    const c = a.test.valid ? a.test.mean : 256, t = b.test.valid ? b.test.mean : 256;
++    return { world: a.world, repeat: a.repeat, control: c, treatment: t, gainPercent: (c - t) / c * 100 };
++  });
++  const gains = pairs.map(x => x.gainPercent);
++  const byWorld: Record<string, number> = Object.fromEntries([...new Set(pairs.map(x => x.world))].map(w => [w, average(pairs.filter(x => x.world === w).map(x => x.gainPercent))]));
++  const positivePairs = gains.filter(x => x > 0).length;
++  const gainPercent = average(gains);
++  let interval: number[] | null = null;
++  if (phase > 1) {
++    const rng = random("rsi-bootstrap-20260922");
++    const groups = Object.keys(byWorld).map(w => pairs.filter(x => x.world === w));
++    const values = Array.from({ length: 10000 }, () => average(groups.flatMap(g => g.map(() => g[Math.floor(rng() * g.length)].gainPercent)))).sort((a, b) => a - b);
++    const tail = phase === 3 ? 0.0125 : 0.025;
++    interval = [values[Math.floor(tail * values.length)], values[Math.floor((1 - tail) * values.length)]];
++  }
++  const beatsBestFit = average(rows.filter(x => x.arm === treatment).map(x => (x.test.valid ? x.test.mean : 256) - x.bestFitMean)) < 0;
++  return { control, treatment, pairs, gainPercent, positivePairs, byWorld, interval,
++    practicalSignal: gainPercent >= 0.5 && positivePairs >= (phase === 1 ? 2 : 6) && (phase === 1 ? beatsBestFit : Object.values(byWorld).every(x => x >= -0.5)),
++    beatsBestFit, stableSupport: interval !== null && interval[0] > 0 };
++}
++export function phaseDecision(phase: number, rows: any[]) {
++  if (phase === 1) {
++    const comparison = compare(rows, "independent", "v0", phase);
++    return { phase, continue: comparison.practicalSignal, status: comparison.practicalSignal ? "FEEDBACK_SEARCH_PROMISING" : "NO_PRACTICAL_FEEDBACK_GAIN", comparisons: [comparison] };
++  }
++  if (phase === 2) {
++    const comparison = compare(rows, "v0", "v1", phase);
++    return { phase, continue: comparison.practicalSignal, status: comparison.practicalSignal ? "SELF_MODIFICATION_PROMISING" : "NO_PRACTICAL_SELF_MODIFICATION_GAIN", comparisons: [comparison] };
++  }
++  const parent = compare(rows, "v1", "v2", phase), reset = compare(rows, "v2_reset", "v2", phase);
++  return { phase, continue: false, status: parent.practicalSignal ? (reset.practicalSignal ? "BOUNDED_RECURSIVE_SIGNAL" : "ITERATIVE_OPTIMIZATION_ONLY") : "NO_NEXT_GENERATION_GAIN", comparisons: [parent, reset] };
++}
++export function analyze(dir: string) {
++  const rows = readLines(join(dir, "results.jsonl")).filter(x => x.event === "trial_complete");
++  const protocol = JSON.parse(readFileSync(join(dir, "protocol.json"), "utf8"));
++  const requests = readLines(join(dir, "requests.jsonl"));
++  const sent = requests.filter(x => x.event === "request");
++  if (new Set(sent.map(x => x.id)).size !== sent.length) throw Error("DUPLICATE_HTTP_ID");
++  for (const r of sent) if (hash(JSON.stringify(r.body)) !== r.bodyHash) throw Error("REQUEST_HASH_MISMATCH");
++  const responses = requests.filter(x => x.event === "response");
++  const estimates = responses.map(x => costEstimate(x.usage));
++  const attempts = readLines(join(dir, "results.jsonl")).filter(x => x.event === "candidate");
++  const phases: any[] = [];
++  for (let phase = 1; phase <= 3; phase++) {
++    const subset = rows.filter(x => x.phase === phase);
++    if (subset.length === ({1: 6, 2: 18, 3: 27} as any)[phase]) phases.push(phaseDecision(phase, subset));
++  }
++  const summary = { evidence: protocol.mode === "mock" ? "MOCK_ONLY" : "DEVELOPMENT", phases,
++    completedTrials: rows.length, actualHttpRequests: sent.length,
++    responseCount: responses.length, missingOrErrorResponses: sent.length - responses.length,
++    tokens: { input: responses.reduce((s, x) => s + (x.usage?.prompt_tokens ?? 0), 0), output: responses.reduce((s, x) => s + (x.usage?.completion_tokens ?? 0), 0), missingUsageResponses: estimates.filter(x => x.costUsd === null).length },
++    estimatedPaygUsdKnownUsage: estimates.reduce((s, x) => s + (x.costUsd ?? 0), 0), billingIsNotInvoice: true,
++    priceSource: protocol.price, candidateAttempts: attempts.length, legalCandidates: attempts.filter(x => x.train?.valid && x.dev?.valid).length,
++    uniqueCodeHashes: new Set(attempts.map(x => x.codeHash).filter(Boolean)).size,
++    perTrial: rows.map(row => {
++      const calls = responses.filter(x => x.trial === row.trial);
++      const candidates = attempts.filter(x => x.trial === row.trial);
++      return { phase: row.phase, trial: row.trial, arm: row.arm, world: row.world, repeat: row.repeat,
++        selected: row.selected, testMean: row.test.mean, valid: row.test.valid, bestFitMean: row.bestFitMean,
++        calls: sent.filter(x => x.trial === row.trial).length,
++        tokens: calls.reduce((s,x) => s + (x.usage?.total_tokens ?? 0), 0),
++        legalCandidates: candidates.filter(x => x.train?.valid && x.dev?.valid).length,
++        uniqueCodeHashes: new Set(candidates.map(x => x.codeHash)).size,
++        curve: candidates.map(x => ({ attempt: x.attempt, trainMean: x.train?.mean, trainValid: x.train?.valid, devMean: x.dev?.mean, devValid: x.dev?.valid })) };
++    }) };
++  writeFileSync(join(dir, "summary.json"), JSON.stringify(summary, null, 2));
++  const lines = [`# Alaya 受约束 RSI 实验结果`, ``, `证据层：**${summary.evidence}**。底座：${protocol.model.name}；thinking=${protocol.model.thinking}。`, ``,
++    ...[1,2,3].map(p => `- H${p}：${phases.find(x => x.phase === p)?.status ?? "未验证（未满足前阶段条件或尚未完成）"}`), ``,
++    `完成 ${rows.length} 条搜索；实际 HTTP ${sent.length} 次；已记录输入 ${summary.tokens.input}、输出 ${summary.tokens.output} token。`,
++    `已知 usage 的按量价格等值估算：$${summary.estimatedPaygUsdKnownUsage.toFixed(6)}，不是账户账单。缺 usage 响应 ${summary.tokens.missingUsageResponses}；缺失/错误响应 ${summary.missingOrErrorResponses}，均不当作零费用。`,
++    `价格：[MiniMax 官方标准按量价](${protocol.price.source})，核实日期 ${protocol.price.checkedDate}。`, ``,
++    `候选 ${attempts.length} 个，train/dev 合法 ${summary.legalCandidates} 个，代码哈希 ${summary.uniqueCodeHashes} 种。`, ``,
++    `|阶段|世界/重复|方法|test 平均箱数|Best Fit|请求数|`, `|---|---|---|---:|---:|---:|`,
++    ...summary.perTrial.map(x => `|P${x.phase}|${x.world}/${x.repeat}|${x.arm}|${x.testMean.toFixed(4)}|${x.bestFitMean.toFixed(4)}|${x.calls}|`), ``,
++    ...phases.flatMap(p => [`## P${p.phase}: ${p.status}`, ``, ...p.comparisons.map((c: any) => `${c.treatment} 相对 ${c.control}：平均 gain=${c.gainPercent.toFixed(4)}%；正向 ${c.positivePairs}/${c.pairs.length}。配对值：${c.pairs.map((x: any) => x.gainPercent.toFixed(4)).join(", ")}。${c.interval ? `区间 ${JSON.stringify(c.interval)}。` : "P1 是 3 对筛查，不作稳健统计证明。"}`), ``]),
++    `## 结论边界`, ``, `这是固定模型、固定装箱分布与有限调用次数的 DEVELOPMENT 对照。没有训练底座权重、没有写入 Alaya 产品知识库，也不是通用认知增强或无限 RSI 的证明。`,
++    `若 H1 未达到 0.5% 且至少 2/3 为正的预设条件，则按协议停止 P2/P3；不能用某个训练冠军代替主指标。`,
++    `所有模型请求、候选源代码、train/dev 结果、冠军冻结事件和 test 结果保存在本目录；test 从未反馈给模型。`, ``];
++  writeFileSync(join(dir, "report.zh-CN.md"), lines.join("\n"));
++  return summary;
++}
++if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
++  const id = process.argv[process.argv.indexOf("--run-id") + 1];
++  if (!/^[a-zA-Z0-9_-]+$/.test(id ?? "")) throw Error("BAD_RUN_ID");
++  console.log(JSON.stringify(analyze(resolve("outputs/rsi-binpack", id)), null, 2));
++}
+diff --git a/experiments/rsi-binpack/domain.ts b/experiments/rsi-binpack/domain.ts
+new file mode 100644
+--- /dev/null
++++ b/experiments/rsi-binpack/domain.ts
+@@ -0,0 +1,90 @@
++import { createHash } from "node:crypto";
++
++export const CAPACITY = 100;
++export const LENGTH = 256;
++export const WORLDS = ["D1", "D2", "D3", "T1", "T2", "T3", "R1", "R2", "R3"] as const;
++export type World = typeof WORLDS[number];
++export type Split = "train" | "dev" | "test";
++export type Instance = { id: string; world: World; items: number[] };
++export type Dataset = Record<string, Record<Split, Instance[]>>;
++export const BEST_FIT = `function chooseBin(item, remainingCapacities) {
++  let best = -1;
++  for (let i = 0; i < remainingCapacities.length; i++) {
++    if (remainingCapacities[i] >= item && (best === -1 || remainingCapacities[i] < remainingCapacities[best])) best = i;
++  }
++  return best;
++}`;
++export const FIRST_FIT = `function chooseBin(item, remainingCapacities) {
++  for (let i = 0; i < remainingCapacities.length; i++) if (remainingCapacities[i] >= item) return i;
++  return -1;
++}`;
++export function hash(value: unknown): string {
++  return createHash("sha256").update(typeof value === "string" ? value : JSON.stringify(value)).digest("hex");
++}
++export function random(seed: string) {
++  let state = parseInt(hash(seed).slice(0, 8), 16) || 1;
++  return () => {
++    state ^= state << 13; state ^= state >>> 17; state ^= state << 5;
++    return (state >>> 0) / 4294967296;
++  };
++}
++export function generate(world: World, seed: string): number[] {
++  const rng = random(seed);
++  const integer = (a: number, b: number) => a + Math.floor(rng() * (b - a + 1));
++  return Array.from({ length: LENGTH }, (_, i) => {
++    switch (world) {
++      case "D1": return integer(1, 99);
++      case "D2": return rng() < 0.5 ? integer(5, 35) : integer(65, 95);
++      case "D3": return rng() < 0.7 ? integer(10, 40) : integer(60, 90);
++      case "T1": return rng() < 0.25 ? integer(5, 40) : integer(60, 95);
++      case "T2": { const p = rng(); return p < 0.2 ? integer(1, 20) : p < 0.7 ? integer(40, 60) : integer(80, 99); }
++      case "T3": return i < 128 ? integer(51, 79) : integer(21, 49);
++      case "R1": return rng() < 0.6 ? integer(10, 45) : integer(55, 90);
++      case "R2": return integer(25, 75);
++      case "R3": return i < 128 ? integer(1, 49) : integer(51, 99);
++    }
++  });
++}
++export function buildDataset(seed: string, counts = { train: 32, dev: 32, test: 128 }): Dataset {
++  const dataset: Dataset = {};
++  const seen = new Set<string>();
++  for (const world of WORLDS) for (let repeat = 0; repeat < 3; repeat++) {
++    const key = `${world}-${repeat}`;
++    const group = dataset[key] = { train: [], dev: [], test: [] };
++    for (const split of ["train", "dev", "test"] as const) for (let i = 0; i < counts[split]; i++) {
++      const id = `${key}-${split}-${i}`;
++      let salt = 0, items: number[], digest: string;
++      do { items = generate(world, `${seed}:${id}:${salt++}`); digest = hash(items); } while (seen.has(digest));
++      seen.add(digest); group[split].push({ id, world, items });
++    }
++  }
++  return dataset;
++}
++export function bestFit(item: number, bins: number[]) {
++  let best = -1;
++  for (let i = 0; i < bins.length; i++) if (bins[i] >= item && (best < 0 || bins[i] < bins[best])) best = i;
++  return best;
++}
++export function applyChoice(item: number, bins: number[], choice: unknown): void {
++  if (!Number.isInteger(choice) || (choice as number) < -1 || (choice as number) >= bins.length) throw Error("INVALID_INDEX");
++  if (choice === -1) bins.push(CAPACITY - item);
++  else {
++    if (bins[choice as number] < item) throw Error("CAPACITY_EXCEEDED");
++    bins[choice as number] -= item;
++  }
++}
++export function baseline(items: number[]): number {
++  const bins: number[] = [];
++  for (const item of items) applyChoice(item, bins, bestFit(item, bins));
++  return bins.length;
++}
++export const average = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
++export function headroom(dataset: Dataset) {
++  return Object.fromEntries(WORLDS.map(world => {
++    const rows = [0, 1, 2].flatMap(r => [...dataset[`${world}-${r}`].train, ...dataset[`${world}-${r}`].dev]);
++    const bins = rows.map(x => baseline(x.items));
++    const lower = rows.map(x => Math.ceil(x.items.reduce((a, b) => a + b, 0) / CAPACITY));
++    return [world, { meanBins: average(bins), meanCapacityLowerBound: average(lower), meanGap: average(bins.map((b, i) => b - lower[i])), lowerBoundNotNecessarilyAttainable: true }];
++  }));
++}
++export type Score = { valid: boolean; mean: number; bins: number[]; error: string | null; elapsedMs: number; feedback: unknown[] };
+diff --git a/experiments/rsi-binpack/llm.ts b/experiments/rsi-binpack/llm.ts
+new file mode 100644
+--- /dev/null
++++ b/experiments/rsi-binpack/llm.ts
+@@ -0,0 +1,91 @@
++import { appendFileSync, readFileSync, existsSync } from "node:fs";
++import { join } from "node:path";
++import { OpenAIProvider, MockLLM, type AgentContext, type LLMProvider } from "../../alaya-core/src/llm/provider.ts";
++import { hash } from "./domain.ts";
++
++export const SETTINGS = JSON.parse(readFileSync(new URL("./protocol.json", import.meta.url), "utf8"));
++export function append(file: string, value: unknown) { appendFileSync(file, JSON.stringify(value) + "\n"); }
++export function readLines(file: string): any[] {
++  if (!existsSync(file)) return [];
++  return readFileSync(file, "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line));
++}
++export function costEstimate(usage: any) {
++  const p = SETTINGS.price;
++  if (!Number.isFinite(usage?.prompt_tokens) || !Number.isFinite(usage?.completion_tokens)) {
++    return { costUsd: null, conservativeAllocationUsd: (8000 * p.inputPerMillionUsd + 3000 * p.outputPerMillionUsd) / 1e6, costStatus: "usage_unknown_not_zero" };
++  }
++  const cached = Math.min(usage.prompt_tokens, usage.prompt_tokens_details?.cached_tokens ?? 0);
++  return { costUsd: ((usage.prompt_tokens - cached) * p.inputPerMillionUsd + cached * p.cachedInputPerMillionUsd + usage.completion_tokens * p.outputPerMillionUsd) / 1e6, costStatus: "official_payg_equivalent_not_invoice" };
++}
++export class TrialModel {
++  provider: LLMProvider;
++  requests = 0;
++  infrastructureFailures = 0;
++  lastReceipt: any;
++  constructor(readonly dir: string, readonly trial: string, readonly limit: number, keyFile?: string, readonly mock = false) {
++    this.requests = readLines(join(dir, "requests.jsonl")).filter(x => x.trial === trial && x.event === "request").length;
++    if (mock) { this.provider = new MockLLM(); return; }
++    const file = keyFile ?? process.env.OPENAI_API_KEY_FILE ?? "/Users/LOCAL_USER/.config/alaya/openai-api-key";
++    const apiKey = process.env.OPENAI_API_KEY ?? (existsSync(file) ? readFileSync(file, "utf8").trim() : "");
++    if (!apiKey) throw Error("MISSING_EXISTING_API_KEY");
++    this.provider = new OpenAIProvider({ apiKey, model: SETTINGS.model.name, baseUrl: SETTINGS.model.baseUrl,
++      apiMode: "chat", maxRetries: 0, fallbackToSimplified: false, temperature: SETTINGS.model.temperature,
++      maxOutputTokens: SETTINGS.model.maxOutputTokens, timeoutMs: 90000,
++      fetch: (async (url: any, init: any) => {
++        if (this.requests >= this.limit) throw Error("EXPERIMENTAL_ALLOCATION_EXHAUSTED");
++        if (Buffer.byteLength(init.body, "utf8") > SETTINGS.model.maxInputBytes) throw Error("INPUT_EXCEEDS_CONSERVATIVE_BYTE_ALLOCATION");
++        const id = `${trial}:${this.requests++}`;
++        const started = Date.now();
++        append(join(dir, "requests.jsonl"), { event: "request", id, trial, ts: new Date().toISOString(), endpoint: String(url), body: JSON.parse(init.body), bodyHash: hash(init.body) });
++        try {
++          const response = await fetch(url, init);
++          const raw = await response.clone().text();
++          let data: any;
++          try { data = JSON.parse(raw); } catch { data = { raw: raw.slice(0, 50000) }; }
++          this.lastReceipt = { event: "response", id, trial, status: response.status, elapsedMs: Date.now() - started,
++            response: data, usage: data.usage ?? null, ...costEstimate(data.usage), ts: new Date().toISOString() };
++          append(join(dir, "requests.jsonl"), this.lastReceipt);
++          this.infrastructureFailures = response.ok ? 0 : this.infrastructureFailures + 1;
++          return response;
++        } catch (error) {
++          this.infrastructureFailures++;
++          this.lastReceipt = { event: "transport_error", id, trial, elapsedMs: Date.now() - started, error: String(error), usage: null, costUsd: null };
++          append(join(dir, "requests.jsonl"), this.lastReceipt);
++          throw error;
++        }
++      }) as typeof fetch,
++    });
++  }
++  async call(request: AgentContext) {
++    if (this.mock) { this.requests++; return this.provider.call(request); }
++    this.lastReceipt = null;
++    const before = this.requests;
++    // Mock fixtures must never become provider draft_output in real experiments.
++    const { mockData: _offlineFixture, ...liveRequest } = request;
++    const result = await this.provider.call(liveRequest);
++    if (this.infrastructureFailures >= 3) throw Error("REPEATED_INFRASTRUCTURE_FAILURE:" + (this.lastReceipt?.status ?? "transport"));
++    if (this.lastReceipt?.status === 401 || this.lastReceipt?.status === 403) throw Error("PROVIDER_AUTH_REJECTED:" + this.lastReceipt.status);
++    if (before === this.requests) throw Error(result.errorMessage ?? "NO_HTTP_REQUEST_MADE");
++    if ((this.lastReceipt?.usage?.prompt_tokens ?? 0) > 8000 || (this.lastReceipt?.usage?.completion_tokens ?? 0) > 3000) throw Error("PROVIDER_EXCEEDED_FROZEN_TOKEN_ALLOCATION");
++    if (this.lastReceipt?.response?.model && this.lastReceipt.response.model !== SETTINGS.model.name) throw Error("PROVIDER_MODEL_CHANGED");
++    return result;
++  }
++}
++
++export const CODE_SCHEMA = { type: "object" as const, required: ["code", "hypothesis"], additionalProperties: false,
++  properties: { code: { type: "string" }, hypothesis: { type: "string" } } };
++export const POLICY_SCHEMA = { type: "object" as const, required: ["policy", "change_reason"], additionalProperties: false,
++  properties: { policy: { type: "string" }, change_reason: { type: "string" } } };
++export const CONTRACT = "Return JSON with code and hypothesis. code must be a single JavaScript function expression function chooseBin(item, remainingCapacities). Capacity is 100. Return integer index of an existing bin with enough space, or -1 to open a new bin. No future items, I/O, imports, process access, time, randomness, or external libraries. Each sequence resets state. Standard Math/Array arithmetic is available. Aim for code under 1800 characters and a hypothesis under 200 characters. The host independently validates every placement.";
++
++export function fitContext(context: Record<string, any>, policy: string, extraReserve = 0) {
++  const value = structuredClone(context);
++  // Keep the immutable contract, policy and current program. Remove oldest optional history first.
++  while (Buffer.byteLength(JSON.stringify(value)) + Buffer.byteLength(policy) + extraReserve > 5100) {
++    if (value.examples?.length) value.examples.pop();
++    else if (value.history?.length) value.history.shift();
++    else if (value.traces?.length) value.traces.pop();
++    else throw Error("IMMUTABLE_CONTEXT_TOO_LARGE");
++  }
++  return value;
++}
+diff --git a/experiments/rsi-binpack/package.json b/experiments/rsi-binpack/package.json
+new file mode 100644
+--- /dev/null
++++ b/experiments/rsi-binpack/package.json
+@@ -0,0 +1,1 @@
++{ "private": true, "type": "module" }
+diff --git a/experiments/rsi-binpack/policies/v0.md b/experiments/rsi-binpack/policies/v0.md
+new file mode 100644
+--- /dev/null
++++ b/experiments/rsi-binpack/policies/v0.md
+@@ -0,0 +1,8 @@
++You optimize an online bin-packing algorithm under a fixed experimental allocation.
++Return one complete candidate function and one short, falsifiable improvement hypothesis.
++Respect the online input and legal output contract.
++When real history is supplied, inspect the current champion and recent failures, then choose one evidence-based change.
++When history is absent, propose a candidate from the supplied initial algorithm and task description.
++Preserve useful behavior; do not claim tests were executed unless execution receipts were supplied.
++Do not change the evaluator, data access, tools, or resource allocation.
++When asked to improve your own research policy, use actual development traces to propose one limited change to how you form hypotheses, interpret feedback, or choose the next modification.
+diff --git a/experiments/rsi-binpack/preflight.ts b/experiments/rsi-binpack/preflight.ts
+new file mode 100644
+--- /dev/null
++++ b/experiments/rsi-binpack/preflight.ts
+@@ -0,0 +1,37 @@
++import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
++import { resolve, join } from "node:path";
++import { pathToFileURL } from "node:url";
++import { BEST_FIT, buildDataset, baseline, average, headroom } from "./domain.ts";
++import { TrialModel, CODE_SCHEMA, CONTRACT, append } from "./llm.ts";
++import { score } from "./sandbox.ts";
++
++export async function livePreflight(dir: string) {
++  mkdirSync(dir, { recursive: true });
++  const rows = buildDataset("preflight-only-not-experiment-20260922", { train: 4, dev: 1, test: 1 })["D1-0"].train;
++  const model = new TrialModel(dir, "preflight-code-and-repair", 6);
++  const policy = readFileSync(new URL("./policies/v0.md", import.meta.url), "utf8");
++  let currentCode = BEST_FIT;
++  const outcomes = [];
++  for (let index = 0; index < 2; index++) {
++    const response = await model.call({ role: "builder", task: CONTRACT, promptVersion: "rsi-binpack-preflight-v1",
++      knowledgeSummary: policy,
++      context: { currentCode, trainBaselineMean: average(rows.map(x => baseline(x.items))),
++        instruction: index === 0 ? "Propose one legal compact improvement over Best Fit." : "Use the real training execution below to revise the candidate; return valid code even if no gain can be justified.",
++        previousFeedback: outcomes.length ? { mean: outcomes[0].score?.mean, error: outcomes[0].score?.error } : null },
++      schema: CODE_SCHEMA,
++    });
++    const code = typeof response.data.code === "string" ? response.data.code : "";
++    const result = response.schemaValid && code ? await score(code, rows) : null;
++    const entry = { index, schemaValid: response.schemaValid, code, hypothesis: response.data.hypothesis, providerError: response.errorMessage, score: result };
++    outcomes.push(entry);
++    append(join(dir, "preflight.jsonl"), entry);
++    console.log(JSON.stringify({ preflight: index, schemaValid: entry.schemaValid, valid: result?.valid, mean: result?.mean, error: response.errorMessage ?? result?.error }));
++    if (result?.valid) currentCode = code;
++  }
++  const summary = { status: outcomes.every(x => x.score?.valid) ? "RUNTIME_READY" : "PREFLIGHT_NOT_READY", model: "MiniMax-M3", requests: model.requests, learningEvidence: false };
++  writeFileSync(join(dir, "summary.json"), JSON.stringify(summary, null, 2));
++  return summary;
++}
++if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
++  console.log(JSON.stringify(await livePreflight(resolve(process.argv[2] ?? "outputs/rsi-binpack/preflight-20260922"))));
++}
+diff --git a/experiments/rsi-binpack/protocol.json b/experiments/rsi-binpack/protocol.json
+new file mode 100644
+--- /dev/null
++++ b/experiments/rsi-binpack/protocol.json
+@@ -0,0 +1,23 @@
++{
++  "id": "ALAYA-RSI-BINPACK-DEV-20260922",
++  "version": "1.3",
++  "evidence": "DEVELOPMENT",
++  "authorization": "User confirmed execution on 2026-09-22 and removed aggregate spending/request/deadline budgets. Equal experimental allocations remain.",
++  "aggregateBudget": null,
++  "deadline": null,
++  "model": { "name": "MiniMax-M3", "baseUrl": "https://api.minimax.io/openai", "temperature": 0.7, "thinking": "disabled", "maxOutputTokens": 3000, "maxInputBytes": 8000 },
++  "price": { "inputPerMillionUsd": 0.30, "outputPerMillionUsd": 1.20, "cachedInputPerMillionUsd": 0.06, "source": "https://platform.minimax.io/docs/guides/pricing-paygo", "checkedDate": "2026-09-22", "note": "Standard PAYG equivalent; not an account invoice. Unknown usage remains unknown, with a conservative allocation-based estimate." },
++  "counts": { "train": 32, "dev": 32, "test": 128, "repeats": 3 },
++  "phaseCallsPerSearch": { "1": 20, "2": 10, "3": 10 },
++  "policyEditAttempts": 4,
++  "gainPercent": 0.5,
++  "minimumPositivePairs": 6,
++  "maxWorldRegressionPercent": 0.5,
++  "parallelRepeats": 3,
++  "notes": [
++    "Real provider requests exclude mockData fixtures. dev-001 was stopped after discovering its draft_output anchor contamination and is not effectiveness evidence.",
++    "The conservative UTF-8 byte bound is used because no verified MiniMax tokenizer is installed; actual usage is recorded. No financial stop is applied.",
++    "Private test instances and scores never enter model prompts. Policy edits use training-only receipts.",
++    "Host Node 22.22.1 uses existing tsx; Node 20 is pinned inside the candidate container. Both are covered by affected-path checks."
++  ]
++}
+diff --git a/experiments/rsi-binpack/rsi.test.ts b/experiments/rsi-binpack/rsi.test.ts
+new file mode 100644
+--- /dev/null
++++ b/experiments/rsi-binpack/rsi.test.ts
+@@ -0,0 +1,80 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { mkdtempSync, readFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { BEST_FIT, FIRST_FIT, buildDataset, hash, applyChoice, baseline, type Instance } from "./domain.ts";
++import { score } from "./sandbox.ts";
++import { select, contextFor, validPolicy } from "./runner.ts";
++import { compare, phaseDecision } from "./analyze.ts";
++import { TrialModel, CODE_SCHEMA, costEstimate, readLines } from "./llm.ts";
++
++test("deterministic disjoint data, legal host placements and manual counts", () => {
++  const a = buildDataset("unit",{train:2,dev:2,test:2});
++  assert.equal(hash(a),hash(buildDataset("unit",{train:2,dev:2,test:2})));
++  const rows = Object.values(a).flatMap(x => [...x.train,...x.dev,...x.test]);
++  assert.equal(new Set(rows.map(x=>hash(x.items))).size,rows.length);
++  assert.equal(baseline([60,40,60,40]),2);
++  for(const value of [NaN,Infinity,-2,1,0.1,"0",null]) assert.throws(()=>applyChoice(50,[40],value));
++  assert.throws(()=>applyChoice(50,[40],0),/CAPACITY/);
++});
++test("container scoring matches manual counts; hostile candidates cannot become champions", async () => {
++  const rows: Instance[] = [{id:"manual",world:"D1",items:[60,40,60,40]}];
++  for(const code of [BEST_FIT,FIRST_FIT]) { const s=await score(code,rows); assert.equal(s.valid,true,s.error??""); assert.equal(s.mean,2); }
++  for(const code of ["function(){return 999}","function(){return NaN}","function(){return 0}","function(){throw Error('no')}","function(){return process.env.SECRET}","function(){return require('fs').readFileSync('/etc/passwd')} "])
++    assert.equal((await score(code,rows)).valid,false);
++  assert.equal((await score("function(){while(true){}}",rows,1200)).valid,false);
++  // A fresh realm for every sequence: state does not carry from one input sequence to another.
++  const fresh=await score("function(item,bins){globalThis.n=(globalThis.n||0)+1; if(n>4)throw Error('state leaked');return -1}",[...rows,...rows]);
++  assert.equal(fresh.valid,true,fresh.error??"");
++});
++test("selection uses dev only; generated prompt contains training but no dev/test feedback", () => {
++  const s=(mean:number)=>({valid:true,mean,bins:[mean],error:null,elapsedMs:0,feedback:[]});
++  const candidates:any[]=[{id:"base",attempt:-1,code:BEST_FIT,codeHash:hash(BEST_FIT),train:s(10),dev:s(10),hypothesis:"base"},
++    {id:"train-winner",attempt:0,code:"function(){return -1}",codeHash:"x",train:s(9),dev:s(11),hypothesis:"try"},
++    {id:"dev-winner",attempt:1,code:"function(a,b){return -1}",codeHash:"y",train:s(11),dev:s(8),hypothesis:"try two"}];
++  assert.equal(select(candidates,"dev").id,"dev-winner");
++  assert.equal(select(candidates,"train").id,"train-winner");
++  const train=buildDataset("prompt",{train:1,dev:1,test:1})["D1-0"].train;
++  const feedback=contextFor("v0",train,candidates,"policy");
++  assert.equal(feedback.currentCode,candidates[1].code);
++  assert.ok(!JSON.stringify(feedback).includes("\"dev\""));
++  assert.ok(!JSON.stringify(feedback).includes("\"test\""));
++  assert.equal(contextFor("independent",train,candidates,"policy").history,undefined);
++});
++test("predeclared gates and invalid champions are not dropped", () => {
++  const rows=(arms:string[],repeats:number,worlds:string[])=>worlds.flatMap(world=>Array.from({length:repeats},(_,repeat)=>arms.map(arm=>({world,repeat,arm,bestFitMean:101,test:{mean:arm==="independent"||arm==="v0"||arm==="v2_reset"?100:99,valid:true}})))).flat();
++  const p1=rows(["independent","v0"],3,["D"]); p1.filter(x=>x.arm==="v0").forEach(x=>x.test.mean=99);
++  assert.equal(phaseDecision(1,p1).continue,true);
++  p1.filter(x=>x.arm==="v0").forEach(x=>x.test.mean=100);
++  assert.equal(phaseDecision(1,p1).continue,false);
++  const p2=rows(["v0","v1"],3,["T1","T2","T3"]);
++  assert.equal(phaseDecision(2,p2).continue,true);
++  p2[1].test.valid=false;
++  assert.equal(compare(p2,"v0","v1",2).pairs[0].treatment,256);
++  assert.equal(phaseDecision(2,p2).continue,false);
++  assert.equal(validPolicy("function chooseBin(x,y){return -1}"),false);
++  assert.equal(validPolicy("Use actual training traces to identify one change in the research process."),true);
++});
++test("HTTP receipts count real attempts, cap them, reject bad root JSON, and preserve unknown cost", async t => {
++  const original=globalThis.fetch, originalKey=process.env.OPENAI_API_KEY;
++  process.env.OPENAI_API_KEY="unit-test-key-not-a-secret";
++  t.after(()=>{globalThis.fetch=original;if(originalKey===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=originalKey;});
++  let count=0;
++  globalThis.fetch=(async()=>{count++;return new Response(JSON.stringify({model:"MiniMax-M3",choices:[{finish_reason:"stop",message:{content:JSON.stringify({code:BEST_FIT,hypothesis:"unit"})}}]}),{status:200});}) as typeof fetch;
++  const dir=mkdtempSync(join(tmpdir(),"alaya-rsi-receipts-"));
++  const model=new TrialModel(dir,"unit",1);
++  const req={role:"builder",task:"unit",promptVersion:"unit",context:{},schema:CODE_SCHEMA,mockData:{code:BEST_FIT,hypothesis:"offline-only"}};
++  assert.equal((await model.call(req)).schemaValid,true);
++  await assert.rejects(model.call(req),/EXHAUSTED/);
++  assert.equal(count,1);
++  assert.equal(readLines(join(dir,"requests.jsonl")).filter(x=>x.event==="request").length,1);
++  assert.deepEqual(JSON.parse(readLines(join(dir,"requests.jsonl"))[0].body.messages[1].content).draft_output,{});
++  assert.equal(readLines(join(dir,"requests.jsonl"))[1].costUsd,null);
++  assert.ok(!readFileSync(join(dir,"requests.jsonl"),"utf8").includes("unit-test-key"));
++  globalThis.fetch=(async()=>new Response(JSON.stringify({choices:[{message:{content:'{"outer":[{"code":"x","hypothesis":"unit"}'} }]}),{status:200})) as typeof fetch;
++  const bad=new TrialModel(dir,"truncated",1);
++  assert.equal((await bad.call(req)).schemaValid,false);
++  assert.equal(costEstimate(null).costUsd,null);
++  assert.equal(costEstimate({prompt_tokens:1000000,completion_tokens:1000000,prompt_tokens_details:{cached_tokens:0}}).costUsd,1.5);
++});
+diff --git a/experiments/rsi-binpack/runner.ts b/experiments/rsi-binpack/runner.ts
+new file mode 100644
+--- /dev/null
++++ b/experiments/rsi-binpack/runner.ts
+@@ -0,0 +1,238 @@
++import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync, readdirSync, unlinkSync } from "node:fs";
++import { join, resolve, dirname } from "node:path";
++import { fileURLToPath, pathToFileURL } from "node:url";
++import { execFileSync } from "node:child_process";
++import { BEST_FIT, buildDataset, hash, baseline, average, headroom, type Dataset, type Instance, type Split, type Score } from "./domain.ts";
++import { TrialModel, CODE_SCHEMA, POLICY_SCHEMA, CONTRACT, fitContext, SETTINGS, readLines, append } from "./llm.ts";
++import { score, IMAGE } from "./sandbox.ts";
++import { analyze, phaseDecision } from "./analyze.ts";
++import { livePreflight } from "./preflight.ts";
++
++const SOURCE = dirname(fileURLToPath(import.meta.url));
++export function save(file: string, value: unknown) {
++  mkdirSync(dirname(file), { recursive: true });
++  writeFileSync(file + ".tmp", JSON.stringify(value, null, 2)); renameSync(file + ".tmp", file);
++}
++export const read = (file: string): any => JSON.parse(readFileSync(file, "utf8"));
++const event = (dir: string, value: any) => append(join(dir, "events.jsonl"), { actor: "rsi-runner", ts: new Date().toISOString(), ...value });
++function sourceHashes() {
++  const files = readdirSync(SOURCE).filter(x => /\.(ts|mjs|json)$/.test(x)).map(x => join(SOURCE, x));
++  files.push(join(SOURCE, "policies/v0.md"), resolve(SOURCE, "../../alaya-core/src/llm/provider.ts"));
++  return Object.fromEntries(files.map(file => [file, hash(readFileSync(file, "utf8"))]));
++}
++export function prepare(dir: string, mock = false) {
++  if (existsSync(join(dir, "manifest.json"))) { verify(dir); return; }
++  if (existsSync(dir) && readdirSync(dir).length) throw Error("REFUSE_OVERWRITE_EXISTING_RUN");
++  mkdirSync(dir, { recursive: true });
++  for (const sub of ["policies", "candidates", "private-dataset"]) mkdirSync(join(dir, sub));
++  const protocol = { ...SETTINGS, mode: mock ? "mock" : "live", seed: "alaya-rsi-20260922-frozen-v1", containerImage: IMAGE,
++    counts: mock ? { train: 2, dev: 2, test: 4, repeats: 3 } : SETTINGS.counts,
++    phaseCallsPerSearch: mock ? { 1: 1, 2: 1, 3: 1 } : SETTINGS.phaseCallsPerSearch };
++  save(join(dir, "protocol.json"), protocol);
++  const data = buildDataset(protocol.seed, protocol.counts);
++  const hashes: Record<string,string> = {};
++  for (const [key, splits] of Object.entries(data)) for (const [split, rows] of Object.entries(splits)) {
++    const file = `${key}-${split}.json`; save(join(dir, "private-dataset", file), rows); hashes[file] = hash(rows);
++  }
++  save(join(dir, "policies/v0.json"), { id: "v0", policy: readFileSync(join(SOURCE, "policies/v0.md"), "utf8"), parent: null });
++  const planPath = "/Users/LOCAL_USER/Documents/alaya/RSI_EXECUTION_PLAN_2026-09-22.md";
++  save(join(dir, "manifest.json"), { baseSha: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
++    cwd: process.cwd(), createdAt: new Date().toISOString(), runtime: process.version,
++    protocolHash: hash(protocol), planHash: hash(readFileSync(planPath, "utf8")), sourceHashes: sourceHashes(), dataHashes: hashes,
++    headroom: headroom(data), evidence: mock ? "MOCK_ONLY" : "DEVELOPMENT" });
++  event(dir, { event: "prepared", protocolHash: hash(protocol) });
++}
++export function verify(dir: string) {
++  const m = read(join(dir, "manifest.json"));
++  if (hash(read(join(dir, "protocol.json"))) !== m.protocolHash) throw Error("PROTOCOL_CHANGED");
++  for (const [file, digest] of Object.entries(m.sourceHashes)) if (hash(readFileSync(file, "utf8")) !== digest) throw Error(`SOURCE_CHANGED:${file}`);
++  for (const [file, digest] of Object.entries(m.dataHashes)) if (hash(read(join(dir, "private-dataset", file))) !== digest) throw Error(`DATA_CHANGED:${file}`);
++}
++function dataFor(dir: string, worlds: string[], repeat: number, split: Split): Instance[] {
++  return worlds.flatMap(w => read(join(dir, "private-dataset", `${w}-${repeat}-${split}.json`)));
++}
++export type Candidate = { id: string; attempt: number; code: string; codeHash: string; hypothesis: string; train: Score; dev: Score };
++export function select(candidates: Candidate[], split: "train" | "dev") {
++  return candidates.filter(x => x[split].valid).sort((a,b) => a[split].mean - b[split].mean || a.code.length - b.code.length || a.attempt - b.attempt)[0];
++}
++const invalid = (error: string): Score => ({ valid: false, mean: 256, bins: [], error, elapsedMs: 0, feedback: [] });
++const baselineScore = (rows: Instance[]): Score => { const bins = rows.map(x => baseline(x.items)); return { valid: true, mean: average(bins), bins, error: null, elapsedMs: 0, feedback: [] }; };
++export function contextFor(arm: string, rows: Instance[], candidates: Candidate[], policy: string) {
++  const items = rows.flatMap(x => x.items);
++  const context: any = { worlds: [...new Set(rows.map(x => x.world))], train: { instances: rows.length, sequenceLength: rows[0].items.length,
++    itemMean: average(items), histogramTenBuckets: Array.from({ length: 10 }, (_,i) => items.filter(x => Math.floor(x/10) === i).length), bestFitMean: candidates[0].train.mean },
++    currentCode: BEST_FIT, instruction: "Optimize the equal-weight mean bin count. Return one complete candidate. Opening a new bin is always allowed, but is counted. You cannot see future items." };
++  if (arm !== "independent") {
++    const champion = select(candidates, "train");
++    context.currentCode = champion.code;
++    context.currentTrainMean = champion.train.mean;
++    context.history = candidates.slice(1).slice(-4).map(x => ({ attempt: x.attempt, hypothesis: x.hypothesis, valid: x.train.valid, trainMean: x.train.mean, error: x.train.error, code: x.code }));
++    context.examples = candidates.slice(-1)[0].train.feedback;
++  }
++  return fitContext(context, policy);
++}
++async function candidate(dir: string, trial: string, attempt: number, arm: string, policy: string, model: TrialModel, rows: {train: Instance[]; dev: Instance[]}, candidates: Candidate[]) {
++  const prefix = join(dir, "candidates", `${trial}-${attempt}`);
++  if (existsSync(prefix + ".json")) return read(prefix + ".json") as Candidate;
++  let response: any;
++  if (existsSync(prefix + ".response.json")) response = read(prefix + ".response.json");
++  else {
++    const requests = readLines(join(dir, "requests.jsonl")).filter(x => x.event === "request" && x.trial === trial);
++    if (requests.length > attempt) throw Error(`UNRESOLVED_REQUEST_DO_NOT_RESEND:${trial}:${attempt}`);
++    response = await model.call({ role: "builder", task: CONTRACT, promptVersion: "rsi-binpack-v1.3", knowledgeSummary: policy,
++      context: contextFor(arm, rows.train, candidates, policy), schema: CODE_SCHEMA, mockData: { code: BEST_FIT, hypothesis: "mock baseline" } });
++    save(prefix + ".response.json", response);
++  }
++  const code = typeof response.data.code === "string" ? response.data.code : "";
++  const valid = response.schemaValid && !response.degradedToHumanGate && code.length > 0;
++  if (code) writeFileSync(prefix + ".js", code);
++  const previous = candidates.find(x => x.codeHash === hash(code));
++  const train = valid ? (previous?.train ?? await score(code, rows.train)) : invalid(response.errorMessage ?? "INVALID_PROVIDER_RESPONSE");
++  const dev = valid && train.valid ? (previous?.dev ?? await score(code, rows.dev)) : invalid("TRAIN_INVALID");
++  const item: Candidate = { id: `${trial}-${attempt}`, attempt, code, codeHash: hash(code), hypothesis: String(response.data.hypothesis ?? ""), train, dev };
++  save(prefix + ".json", item);
++  return item;
++}
++
++async function pairSearch(dir: string, phase: number, worlds: string[], repeat: number, arms: string[], protocol: any) {
++  const world = worlds.length > 1 ? "D-combined" : worlds[0];
++  const train = dataFor(dir, worlds, repeat, "train"), dev = dataFor(dir, worlds, repeat, "dev");
++  const baselineCandidate: Candidate = { id: "best-fit", attempt: -1, code: BEST_FIT, codeHash: hash(BEST_FIT), hypothesis: "fixed legal initial algorithm", train: baselineScore(train), dev: baselineScore(dev) };
++  const states = arms.map(arm => {
++    const trial = `p${phase}-${world}-r${repeat}-${arm}`;
++    const policy = read(join(dir, "policies", `${arm === "independent" ? "v0" : arm}.json`)).policy;
++    return { arm, trial, policy, model: new TrialModel(dir, trial, protocol.phaseCallsPerSearch[phase], undefined, protocol.mode === "mock"), candidates: [baselineCandidate] };
++  });
++  for (let attempt = 0; attempt < protocol.phaseCallsPerSearch[phase]; attempt++) {
++    const order = (attempt + repeat) % 2 ? [...states].reverse() : states;
++    for (const state of order) {
++      const item = await candidate(dir, state.trial, attempt, state.arm, state.policy, state.model, {train,dev}, state.candidates);
++      state.candidates.push(item);
++      if (!readLines(join(dir, "results.jsonl")).some(x => x.event === "candidate" && x.id === item.id)) append(join(dir, "results.jsonl"), { event: "candidate", phase, trial: state.trial, arm: state.arm, world, repeat, ...item });
++      console.log(JSON.stringify({ phase, trial: state.trial, attempt: attempt + 1, train: item.train.mean, valid: item.train.valid && item.dev.valid, championTrain: select(state.candidates,"train").train.mean }));
++    }
++  }
++  // Freeze both/all champions before opening any test file for this pair.
++  const champions = states.map(s => ({ ...s, champion: select(s.candidates, "dev") }));
++  for (const s of champions) {
++    const file = join(dir, "candidates", `${s.trial}-frozen.json`);
++    const frozen = { selected: s.champion.id, codeHash: s.champion.codeHash, policyHash: hash(s.policy) };
++    if (existsSync(file)) { if (hash(read(file)) !== hash(frozen)) throw Error("CHAMPION_FREEZE_MISMATCH"); }
++    else { save(file, frozen); event(dir, { event: "champion_frozen", trial: s.trial, ...frozen }); }
++  }
++  const test = dataFor(dir, worlds, repeat, "test");
++  for (const s of champions) {
++    if (readLines(join(dir, "results.jsonl")).some(x => x.event === "trial_complete" && x.trial === s.trial)) continue;
++    const scored = await score(s.champion.code, test);
++    append(join(dir, "results.jsonl"), { event: "trial_complete", phase, trial: s.trial, world, repeat, arm: s.arm,
++      selected: s.champion.id, codeHash: s.champion.codeHash, test: { ...scored, feedback: [] }, bestFitMean: baselineScore(test).mean });
++  }
++}
++
++export function validPolicy(policy: unknown): policy is string {
++  return typeof policy === "string" && policy.trim().length > 20 && policy.length <= 6000 && Buffer.byteLength(policy) <= 3000 &&
++    !/function\s+chooseBin|=>|```|\bimport\s|\bprocess\.[a-z_]|private-dataset|test seed|override.*(budget|evaluator)/i.test(policy);
++}
++function trainingTraces(dir: string, phase: number, arm: string) {
++  const all = readLines(join(dir, "results.jsonl")).filter(x => x.event === "candidate" && x.phase === phase && x.arm === arm);
++  const trials = [...new Set(all.map(x => x.trial))].sort();
++  const groups = trials.map(trial => {
++    const records = all.filter(x => x.trial === trial).sort((a,b) => a.attempt - b.attempt);
++    const legal = records.filter(x => x.train.valid);
++    const chosen = [records[0], [...legal].sort((a,b) => a.train.mean-b.train.mean || a.attempt-b.attempt)[0], records.at(-1), [...legal].sort((a,b) => b.train.mean-a.train.mean || a.attempt-b.attempt)[0]].filter(Boolean);
++    return [...new Map(chosen.map(x => [x.id,x])).values()].sort((a,b) => a.attempt-b.attempt).map(x => ({ trial, attempt: x.attempt, code: x.code, hypothesis: x.hypothesis, train: { mean: x.train.mean, valid: x.train.valid, error: x.train.error } }));
++  });
++  // Round-robin across trials before deterministic trailing truncation.
++  return Array.from({length: 4}, (_,i) => groups.map(g => g[i]).filter(Boolean)).flat();
++}
++async function editPolicy(dir: string, id: string, editorId: string, sourceId: string, traces: any[], protocol: any, sharedContext?: any) {
++  const file = join(dir,"policies",`${id}.json`);
++  if (existsSync(file)) return read(file);
++  const editor = read(join(dir,"policies",`${editorId}.json`)).policy;
++  const source = read(join(dir,"policies",`${sourceId}.json`)).policy;
++  const model = new TrialModel(dir, `edit-${id}`, 4, undefined, protocol.mode === "mock");
++  const context = sharedContext ?? fitContext({ sourcePolicy: source, traces }, editor, 700);
++  if (!context.traces.length) throw Error("NO_TRAIN_TRACE_FITS_POLICY_EDIT");
++  for (let attempt = 0; attempt < 4; attempt++) {
++    const responseFile = join(dir,"policies",`${id}-attempt-${attempt}.json`);
++    let result;
++    if (existsSync(responseFile)) result = read(responseFile);
++    else {
++      if (model.requests > attempt) throw Error("UNRESOLVED_POLICY_REQUEST_DO_NOT_RESEND");
++      result = await model.call({ role: "distiller", task: "Return JSON policy and change_reason. Revise the source research policy using only supplied real training traces, following your current editor policy. Change how hypotheses, feedback interpretation, or next edits are chosen. Return a compact natural-language method under 2000 characters and 3000 UTF-8 bytes. No full algorithm, executable code, data, seeds, evaluator/tool/resource changes. This is one bounded method edit, not a claim of success.", promptVersion: "rsi-policy-edit-v1.3", knowledgeSummary: editor,
++        context, schema: POLICY_SCHEMA, mockData: { policy: editor + "\nUse verified training feedback to choose a single small modification.", change_reason: "mock format and lineage check" } });
++      save(responseFile,result);
++    }
++    if (result.schemaValid && !result.degradedToHumanGate && validPolicy(result.data.policy)) {
++      const value = { id, policy: result.data.policy, changeReason: result.data.change_reason, parent: sourceId, editor: editorId,
++        sourceHash: hash(source), editorHash: hash(editor), policyHash: hash(result.data.policy), materialHash: hash(context), material: context,
++        change: { before: source, after: result.data.policy }, acceptedAttempt: attempt, noTestInput: true };
++      save(file,value); event(dir,{event:"policy_frozen", id, editor:editorId, policyHash:value.policyHash, materialHash:value.materialHash}); return value;
++    }
++  }
++  event(dir,{event:"policy_update_failed",id}); throw Error("NO_VALID_POLICY_UPDATE");
++}
++export async function runPhase(dir: string, phase: number, mockExerciseAll = false) {
++  verify(dir);
++  const protocol = read(join(dir,"protocol.json"));
++  if (![1,2,3].includes(phase)) throw Error("BAD_PHASE");
++  const done = join(dir,`phase${phase}.json`);
++  if (existsSync(done)) return read(done);
++  if (phase === 1 && protocol.mode !== "mock") {
++    if (!existsSync(join(dir,"preflight/summary.json")) || read(join(dir,"preflight/summary.json")).status !== "RUNTIME_READY") throw Error("LIVE_PREFLIGHT_REQUIRED");
++    const gaps = read(join(dir,"manifest.json")).headroom;
++    if (["D1","D2","D3"].every(w => gaps[w].meanGap === 0)) throw Error("NO_MEASURABLE_HEADROOM");
++  }
++  if (phase > 1) {
++    const previousFile = join(dir,`phase${phase-1}.json`);
++    if (!existsSync(previousFile)) throw Error("PREVIOUS_PHASE_INCOMPLETE");
++    if (!read(previousFile).continue && !(protocol.mode === "mock" && mockExerciseAll)) throw Error("PREVIOUS_PHASE_STOPPED");
++  }
++  if (phase === 2) await editPolicy(dir,"v1","v0","v0",trainingTraces(dir,1,"v0"),protocol);
++  if (phase === 3) {
++    const v0 = read(join(dir,"policies/v0.json")).policy, v1 = read(join(dir,"policies/v1.json")).policy;
++    const materials = fitContext({sourcePolicy:v1,traces:trainingTraces(dir,2,"v1")}, Buffer.byteLength(v0) > Buffer.byteLength(v1) ? v0 : v1,700);
++    await editPolicy(dir,"v2","v1","v1",materials.traces,protocol,materials);
++    await editPolicy(dir,"v2_reset","v0","v1",materials.traces,protocol,materials);
++  }
++  event(dir,{event:"phase_started",phase,mockExerciseAll:protocol.mode === "mock" && mockExerciseAll});
++  const worlds = phase === 1 ? [["D1","D2","D3"]] : phase === 2 ? [["T1"],["T2"],["T3"]] : [["R1"],["R2"],["R3"]];
++  const arms = phase === 1 ? ["independent","v0"] : phase === 2 ? ["v0","v1"] : ["v1","v2","v2_reset"];
++  for (const group of worlds) {
++    const settled = await Promise.allSettled([0,1,2].map(repeat => pairSearch(dir,phase,group,repeat,arms,protocol)));
++    const failed = settled.find(x => x.status === "rejected");
++    if (failed?.status === "rejected") throw failed.reason;
++  }
++  const rows = readLines(join(dir,"results.jsonl")).filter(x => x.event === "trial_complete" && x.phase === phase);
++  const decision = phaseDecision(phase,rows); save(done,decision); event(dir,{event:"phase_completed",...decision}); analyze(dir); return decision;
++}
++async function main() {
++  const args = process.argv.slice(2), action = args[0];
++  const option = (name: string) => args.indexOf(name) >= 0 ? args[args.indexOf(name)+1] : undefined;
++  const id = option("--run-id");
++  if (!id || !/^[a-zA-Z0-9_-]+$/.test(id)) throw Error("BAD_RUN_ID");
++  const dir = resolve("outputs/rsi-binpack",id);
++  if (action === "prepare") { prepare(dir,args.includes("--mock")); console.log(JSON.stringify({prepared:dir})); return; }
++  verify(dir);
++  const lock = join(dir,"runner.lock");
++  if (existsSync(lock)) {
++    const pid = read(lock).pid;
++    try { process.kill(pid,0); throw Error(`RUN_ALREADY_ACTIVE:${pid}`); }
++    catch(error: any) { if(error.code !== "ESRCH") throw error; }
++    unlinkSync(lock);
++  }
++  writeFileSync(lock,JSON.stringify({pid:process.pid}),{flag:"wx"});
++  try {
++    if (action === "preflight" && args.includes("--live")) {
++      const file = join(dir,"preflight/summary.json");
++      if (existsSync(file)) { console.log(JSON.stringify(read(file))); return; }
++      console.log(JSON.stringify(await livePreflight(join(dir,"preflight"))));
++    } else if (action === "preflight" && args.includes("--mock")) {
++      const checkDir = join(dir,"mock-check"); prepare(checkDir,true);
++      for(let phase=1;phase<=3;phase++) await runPhase(checkDir,phase,true);
++      console.log(JSON.stringify({mock:"ALL_THREE_PHASES_EXERCISED",report:join(checkDir,"report.zh-CN.md")}));
++    } else if (action === "run") console.log(JSON.stringify(await runPhase(dir,Number(option("--phase")))));
++    else throw Error("UNKNOWN_COMMAND");
++  } finally { unlinkSync(lock); }
++}
++if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main().catch(error => { console.error(String(error)); process.exitCode=1; });
+diff --git a/experiments/rsi-binpack/sandbox.ts b/experiments/rsi-binpack/sandbox.ts
+new file mode 100644
+--- /dev/null
++++ b/experiments/rsi-binpack/sandbox.ts
+@@ -0,0 +1,64 @@
++import { spawn, spawnSync } from "node:child_process";
++import { fileURLToPath } from "node:url";
++import { resolve, dirname } from "node:path";
++import { createInterface } from "node:readline";
++import { randomUUID } from "node:crypto";
++import { applyChoice, average, baseline, type Instance, type Score } from "./domain.ts";
++
++export const IMAGE = "node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293";
++export async function score(code: string, instances: Instance[], timeoutMs = 30000): Promise<Score> {
++  const started = Date.now();
++  const name = `alaya-rsi-${randomUUID()}`;
++  const worker = resolve(dirname(fileURLToPath(import.meta.url)), "worker.mjs");
++  const child = spawn("docker", ["run", "--rm", "-i", "--name", name, "--network=none", "--read-only", "--ipc=none",
++    "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=64", "--memory=256m", "--cpus=1", "--user=65534:65534",
++    "--mount", `type=bind,src=${worker},dst=/worker.mjs,readonly`, IMAGE, "node", "/worker.mjs"], { stdio: ["pipe", "pipe", "pipe"] });
++  const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
++  let stderr = "", expired = false;
++  child.stderr.on("data", chunk => { if (stderr.length < 2000) stderr += String(chunk); });
++  child.stdin.on("error", () => {});
++  const timer = setTimeout(() => { expired = true; child.kill("SIGKILL"); spawnSync("docker", ["rm", "-f", name], { timeout: 5000, stdio: "ignore" }); }, timeoutMs);
++  const request = async (value: unknown) => {
++    child.stdin.write(JSON.stringify(value) + "\n");
++    const line = await lines.next();
++    if (line.done) throw Error(expired ? "CANDIDATE_TIMEOUT" : `SANDBOX_EXIT:${stderr}`);
++    if (line.value.length > 65536) throw Error("OUTPUT_TOO_LARGE");
++    const result = JSON.parse(line.value);
++    if (result.error) throw Error(result.error);
++    return result;
++  };
++  const counts: number[] = [], feedback: unknown[] = [];
++  try {
++    // ponytail: four independent realms per batch; increase only if measured IPC cost dominates.
++    for (let offset = 0; offset < instances.length; offset += 4) {
++      const batch = instances.slice(offset, offset + 4);
++      const bins = batch.map(() => [] as number[]);
++      await request({ code, count: batch.length });
++      for (let step = 0; step < batch[0].items.length; step++) {
++        const inputs = batch.map((row, i) => ({ item: row.items[step], bins: bins[i] }));
++        const reply = await request({ inputs });
++        if (!Array.isArray(reply.values) || reply.values.length !== batch.length) throw Error("BAD_DECISION_COUNT");
++        for (let i = 0; i < batch.length; i++) {
++          try { applyChoice(inputs[i].item, bins[i], reply.values[i]); }
++          catch (err) { feedback.push({ item: inputs[i].item, capacities: bins[i].slice(), choice: reply.values[i], error: String(err) }); throw err; }
++        }
++      }
++      for (let i = 0; i < batch.length; i++) {
++        const expectedRemaining = bins[i].length * 100 - batch[i].items.reduce((a, b) => a + b, 0);
++        if (bins[i].reduce((a, b) => a + b, 0) !== expectedRemaining) throw Error("HOST_CONSERVATION_FAILURE");
++        counts.push(bins[i].length);
++        feedback.push({ world: batch[i].world, items: batch[i].items, bins: bins[i].length, bestFitBins: baseline(batch[i].items) });
++      }
++    }
++    feedback.sort((a: any, b: any) => (b.bins - b.bestFitBins) - (a.bins - a.bestFitBins));
++    return { valid: true, mean: average(counts), bins: counts, error: null, elapsedMs: Date.now() - started, feedback: feedback.slice(0, 2) };
++  } catch (error) {
++    return { valid: false, mean: 256, bins: [], error: String(error).slice(0, 1600), elapsedMs: Date.now() - started, feedback: feedback.slice(0, 2) };
++  } finally {
++    clearTimeout(timer); child.stdin.end();
++    if (child.exitCode === null) {
++      child.kill();
++      spawnSync("docker", ["rm", "-f", name], { timeout: 5000, stdio: "ignore" });
++    }
++  }
++}
+diff --git a/experiments/rsi-binpack/worker.mjs b/experiments/rsi-binpack/worker.mjs
+new file mode 100644
+--- /dev/null
++++ b/experiments/rsi-binpack/worker.mjs
+@@ -0,0 +1,28 @@
++// The container is the security boundary. Fresh JS realms also prevent cross-instance state.
++import vm from 'node:vm';
++import readline from 'node:readline';
++let contexts = [];
++const invoke = new vm.Script('JSON.stringify(chooseBin(...JSON.parse(input)))');
++for await (const line of readline.createInterface({ input: process.stdin })) {
++  try {
++    const request = JSON.parse(line);
++    if (request.code !== undefined) {
++      contexts = Array.from({ length: request.count }, () => {
++        const context = vm.createContext(Object.create(null), { codeGeneration: { strings: false, wasm: false } });
++        new vm.Script('Date = undefined; Math.random = () => { throw Error("NONDETERMINISTIC_RANDOM"); }; Object.freeze(Math);').runInContext(context);
++        new vm.Script(`globalThis.chooseBin = (${request.code}); if (typeof chooseBin !== 'function') throw Error('NOT_FUNCTION');`).runInContext(context, { timeout: 1000 });
++        return context;
++      });
++      process.stdout.write('{"ready":true}\n');
++    } else {
++      const values = request.inputs.map((input, i) => {
++        contexts[i].input = JSON.stringify([input.item, input.bins]);
++        const encoded = invoke.runInContext(contexts[i]);
++        return encoded === undefined ? null : JSON.parse(encoded);
++      });
++      process.stdout.write(JSON.stringify({ values }) + '\n');
++    }
++  } catch (error) {
++    process.stdout.write(JSON.stringify({ error: String(error.message).slice(0, 1000) }) + '\n');
++  }
++}

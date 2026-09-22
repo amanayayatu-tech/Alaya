@@ -1,0 +1,1 @@
+function chooseBin(item, remainingCapacities){var n=remainingCapacities.length,best=-1,bestRem=101;for(var i=0;i<n;i++){var r=remainingCapacities[i];if(r>=item){if(r-item<bestRem-item){bestRem=r;best=i}}}return best}

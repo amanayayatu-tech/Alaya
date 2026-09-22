@@ -1,0 +1,91 @@
+[
+  {
+    "case": "direct strong status PATCH",
+    "httpStatus": 200,
+    "before": {
+      "id": "kb_mtsrqivr",
+      "status": "draft",
+      "humanApprovedCount": 0,
+      "evidenceAlpha": 1,
+      "evidenceBeta": 1
+    },
+    "after": {
+      "id": "kb_mtsrqivr",
+      "status": "strong",
+      "humanApprovedCount": 0,
+      "evidenceAlpha": 1,
+      "evidenceBeta": 1
+    }
+  },
+  {
+    "case": "scheduler after rejected direction",
+    "rejectHttpStatus": 200,
+    "gateStatus": "rejected",
+    "firstTick": "opened_direction_gate",
+    "nextTick": {
+      "projectId": "proj_mtsrqivu",
+      "action": "ran_operational_stages",
+      "cycleId": "cycle_1_qivu",
+      "budget": {
+        "budget": 150,
+        "used": 10,
+        "remaining": 140,
+        "pendingEstimatedMinutes": 16,
+        "pendingOverBudget2x": false,
+        "weeklyOverFiveHours": false,
+        "pendingBlocking": 0,
+        "pendingNonBlocking": 2,
+        "oldestBlockingAgeDays": 0,
+        "safetyMode": false
+      },
+      "llmBudget": {
+        "budgetCents": 100,
+        "usedCents": 0,
+        "remainingCents": 100,
+        "usedUsd": 0.004112,
+        "budgetUsd": 1,
+        "weeklyWindowStart": "2026-09-07T00:00:00.000Z",
+        "overBudget": false,
+        "pendingBudgetGate": false,
+        "acknowledgedThisWeek": false
+      },
+      "note": "closed cycle 1; scheduler can create next cycle on next tick"
+    },
+    "cycleStatus": "closed",
+    "agentActions": [
+      "plan_cycle + open_direction_gate",
+      "import_and_cluster_feedback",
+      "emit_task_spec + receive_mock_build_report",
+      "distill_knowledge_candidates",
+      "audit_merge_transition"
+    ]
+  },
+  {
+    "case": "run-full without separate approval",
+    "httpStatus": 200,
+    "directionGates": [
+      {
+        "id": "gate_dir_c1_e_1_qiwx",
+        "status": "approved",
+        "decision": "approve_recommended"
+      }
+    ],
+    "decisions": [
+      {
+        "id": "dec_gate_dir_c1_e_1_qiwx_approve_recommended_mtsrqix2",
+        "cycleId": "cycle_1_qiwx",
+        "gateType": "direction",
+        "decision": "approve_recommended",
+        "rationale": "推荐目标与已验证知识一致",
+        "ts": "2026-09-08T14:32:17.990Z"
+      }
+    ],
+    "agentActions": [
+      "plan_cycle + open_direction_gate",
+      "import_and_cluster_feedback",
+      "emit_task_spec + receive_mock_build_report",
+      "distill_knowledge_candidates",
+      "audit_merge_transition"
+    ]
+  }
+]

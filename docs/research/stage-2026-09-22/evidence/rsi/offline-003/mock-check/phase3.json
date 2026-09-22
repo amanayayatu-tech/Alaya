@@ -1,0 +1,173 @@
+{
+  "phase": 3,
+  "continue": false,
+  "status": "NO_NEXT_GENERATION_GAIN",
+  "comparisons": [
+    {
+      "control": "v1",
+      "treatment": "v2",
+      "pairs": [
+        {
+          "world": "R1",
+          "repeat": 2,
+          "control": 125.75,
+          "treatment": 125.75,
+          "gainPercent": 0
+        },
+        {
+          "world": "R1",
+          "repeat": 1,
+          "control": 120.25,
+          "treatment": 120.25,
+          "gainPercent": 0
+        },
+        {
+          "world": "R1",
+          "repeat": 0,
+          "control": 124.5,
+          "treatment": 124.5,
+          "gainPercent": 0
+        },
+        {
+          "world": "R2",
+          "repeat": 1,
+          "control": 138.75,
+          "treatment": 138.75,
+          "gainPercent": 0
+        },
+        {
+          "world": "R2",
+          "repeat": 0,
+          "control": 138.25,
+          "treatment": 138.25,
+          "gainPercent": 0
+        },
+        {
+          "world": "R2",
+          "repeat": 2,
+          "control": 138,
+          "treatment": 138,
+          "gainPercent": 0
+        },
+        {
+          "world": "R3",
+          "repeat": 2,
+          "control": 161.5,
+          "treatment": 161.5,
+          "gainPercent": 0
+        },
+        {
+          "world": "R3",
+          "repeat": 1,
+          "control": 161.25,
+          "treatment": 161.25,
+          "gainPercent": 0
+        },
+        {
+          "world": "R3",
+          "repeat": 0,
+          "control": 160.75,
+          "treatment": 160.75,
+          "gainPercent": 0
+        }
+      ],
+      "gainPercent": 0,
+      "positivePairs": 0,
+      "byWorld": {
+        "R1": 0,
+        "R2": 0,
+        "R3": 0
+      },
+      "interval": [
+        0,
+        0
+      ],
+      "practicalSignal": false,
+      "beatsBestFit": false,
+      "stableSupport": false
+    },
+    {
+      "control": "v2_reset",
+      "treatment": "v2",
+      "pairs": [
+        {
+          "world": "R1",
+          "repeat": 2,
+          "control": 125.75,
+          "treatment": 125.75,
+          "gainPercent": 0
+        },
+        {
+          "world": "R1",
+          "repeat": 1,
+          "control": 120.25,
+          "treatment": 120.25,
+          "gainPercent": 0
+        },
+        {
+          "world": "R1",
+          "repeat": 0,
+          "control": 124.5,
+          "treatment": 124.5,
+          "gainPercent": 0
+        },
+        {
+          "world": "R2",
+          "repeat": 1,
+          "control": 138.75,
+          "treatment": 138.75,
+          "gainPercent": 0
+        },
+        {
+          "world": "R2",
+          "repeat": 0,
+          "control": 138.25,
+          "treatment": 138.25,
+          "gainPercent": 0
+        },
+        {
+          "world": "R2",
+          "repeat": 2,
+          "control": 138,
+          "treatment": 138,
+          "gainPercent": 0
+        },
+        {
+          "world": "R3",
+          "repeat": 2,
+          "control": 161.5,
+          "treatment": 161.5,
+          "gainPercent": 0
+        },
+        {
+          "world": "R3",
+          "repeat": 1,
+          "control": 161.25,
+          "treatment": 161.25,
+          "gainPercent": 0
+        },
+        {
+          "world": "R3",
+          "repeat": 0,
+          "control": 160.75,
+          "treatment": 160.75,
+          "gainPercent": 0
+        }
+      ],
+      "gainPercent": 0,
+      "positivePairs": 0,
+      "byWorld": {
+        "R1": 0,
+        "R2": 0,
+        "R3": 0
+      },
+      "interval": [
+        0,
+        0
+      ],
+      "practicalSignal": false,
+      "beatsBestFit": false,
+      "stableSupport": false
+    }
+  ]
+}

@@ -6,7 +6,11 @@ Alaya 是一个本地优先的 AI-native「认知复利飞轮」系统。它把�
 
 默认运行使用 deterministic mock LLM，不调用外部模型；只有显式配置 OpenAI-compatible provider 和 capability 后才会走真实 LLM。
 
-**项目当前态**：稳定配置下的 24h 影子基线已 PASS 并冻结；`MINIMAX_THINKING=adaptive` treatment 臂未通过 provider/schema 稳定性门，不能据此声明认知增强有效。认知质量度量（confidence calibration / ECE）已可信化，并进入发布级实验阶段。详见 [认知质量验证](#认知质量验证-cognition-quality)。
+**项目当前态（2026-09-23 阶段收口）**：产品 MVP、确定性 mock 飞轮和既有 24h 影子基线仍可运行；但历史实验没有证明“知识治理/反馈循环带来认知增强”，最新 RSI 装箱 P1 也没有达到继续条件。因此本仓库把失败证据冻结为可审计阶段档案，并把后续工作重心从“继续补齐大脑平台”改为“先在客观评分任务上验证固定搜索，再测 Alaya 的额外增量”。详见[阶段档案与重构方案](./docs/research/stage-2026-09-22/)。
+
+阶段档案中已复现一个校准事实：在官方 FunSearch OR3 装箱数据上，Best Fit 平均 212 箱，公开启发式平均 207.45 箱，改善 2.146%，全部装箱合法，且没有模型调用。这是评测环境可测出优势的 DEVELOPMENT 参照，不是 Alaya 或 RSI 成功证明；[复现回执](./docs/research/stage-2026-09-22/funsearch-reproduction.json)。
+
+> 历史 README、旧实验和产品代码没有被删除。阶段档案明确区分 local checks、smoke、正式验收和 science/public claim；“测试通过”或“工具成功”均不自动等于认知增强。
 
 ---
 
@@ -38,7 +42,7 @@ npm run dev
 | Knowledge | 可运行 | SQLite FTS5、任务前知识注入、合并、冲突复核、时间衰减 |
 | Ops | 可运行 | health/ready/metrics、action ledger、secret scan、Docker shadow、备份恢复 |
 | Validation | 可运行 | health-signal 长测 runner、shadow analyzer、质量评分与趋势报告 |
-| **认知质量验证** | **进行中** | 24h 稳定配置基线已冻结；adaptive treatment 失败不构成增强结论；adaptive-vs-disabled 发布级实验已预注册 |
+| **认知质量验证** | **阶段收口 / 未证明增强** | 24h 稳定配置基线和历史预注册仍可复核；adaptive treatment 失败不构成增强结论；本阶段没有认知增强正结果 |
 
 ---
 

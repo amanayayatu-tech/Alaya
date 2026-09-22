@@ -1,0 +1,644 @@
+{
+  "runDirectory": "/Users/LOCAL_USER/Documents/Codex/2026-09-08/k/work/sql-transfer-final-20260909",
+  "sourceSummary": {
+    "generatorSha256": "f59ab47c352edc9e8df08dc1319c0099bb159d7a2c027982319a9bbb3ab50ed4",
+    "casesSha256": "17f5df3d5f9cf3f6afbfb9318461fce4e10576fe40116730817bd5da599bb4d7",
+    "baseCommit": "b7090b11b41f358f4d82906c86be835a68c06e64"
+  },
+  "counts": {
+    "results": 96,
+    "requests": 120,
+    "requestsStarted": 120,
+    "trainResults": 24,
+    "testResults": 72,
+    "testTaskIds": 24,
+    "testByArm": {
+      "none": 24,
+      "raw": 24,
+      "alaya": 24
+    },
+    "requestsByPhaseArmRole": {
+      "('train', 'alaya', 'builder')": 24,
+      "('train', 'alaya', 'distiller')": 24,
+      "('test', 'none', 'builder')": 24,
+      "('test', 'raw', 'builder')": 24,
+      "('test', 'alaya', 'builder')": 24
+    }
+  },
+  "settings": {
+    "models": [
+      "MiniMax-M3"
+    ],
+    "temperatures": [
+      0
+    ],
+    "maxTokens": [
+      2048
+    ],
+    "httpStatuses": {
+      "200": 120
+    },
+    "usagePresent": 120,
+    "responseParseFailures": 0,
+    "transportErrors": 0
+  },
+  "scores": {
+    "none": {
+      "n": 24,
+      "correct": 18
+    },
+    "raw": {
+      "n": 24,
+      "correct": 24
+    },
+    "alaya": {
+      "n": 24,
+      "correct": 22
+    }
+  },
+  "paired": {
+    "alayaVsRaw": {
+      "n": 24,
+      "wins": 0,
+      "losses": 2,
+      "ties": 22,
+      "difference": -0.08333333333333333,
+      "exactMcNemarTwoSidedP": 0.5
+    },
+    "alayaVsNone": {
+      "n": 24,
+      "wins": 5,
+      "losses": 1,
+      "ties": 18,
+      "difference": 0.16666666666666666,
+      "exactMcNemarTwoSidedP": 0.21875
+    },
+    "records": [
+      {
+        "taskId": "test-aggregation-00",
+        "family": "aggregation",
+        "alaya": true,
+        "raw": true,
+        "none": false,
+        "c_minus_b": 0,
+        "c_minus_a": 1
+      },
+      {
+        "taskId": "test-aggregation-01",
+        "family": "aggregation",
+        "alaya": true,
+        "raw": true,
+        "none": true,
+        "c_minus_b": 0,
+        "c_minus_a": 0
+      },
+      {
+        "taskId": "test-aggregation-02",
+        "family": "aggregation",
+        "alaya": true,
+        "raw": true,
+        "none": true,
+        "c_minus_b": 0,
+        "c_minus_a": 0
+      },
+      {
+        "taskId": "test-aggregation-03",
+        "family": "aggregation",
+        "alaya": false,
+        "raw": true,
+        "none": true,
+        "c_minus_b": -1,
+        "c_minus_a": -1
+      },
+      {
+        "taskId": "test-aggregation-04",
+        "family": "aggregation",
+        "alaya": false,
+        "raw": true,
+        "none": false,
+        "c_minus_b": -1,
+        "c_minus_a": 0
+      },
+      {
+        "taskId": "test-aggregation-05",
+        "family": "aggregation",
+        "alaya": true,
+        "raw": true,
+        "none": true,
+        "c_minus_b": 0,
+        "c_minus_a": 0
+      },
+      {
+        "taskId": "test-aggregation-06",
+        "family": "aggregation",
+        "alaya": true,
+        "raw": true,
+        "none": true,
+        "c_minus_b": 0,
+        "c_minus_a": 0
+      },
+      {
+        "taskId": "test-aggregation-07",
+        "family": "aggregation",
+        "alaya": true,
+        "raw": true,
+        "none": false,
+        "c_minus_b": 0,
+        "c_minus_a": 1
+      },
+      {
+        "taskId": "test-funnel-00",
+        "family": "funnel",
+        "alaya": true,
+        "raw": true,
+        "none": true,
+        "c_minus_b": 0,
+        "c_minus_a": 0
+      },
+      {
+        "taskId": "test-funnel-01",
+        "family": "funnel",
+        "alaya": true,
+        "raw": true,
+        "none": false,
+        "c_minus_b": 0,
+        "c_minus_a": 1
+      },
+      {
+        "taskId": "test-funnel-02",
+        "family": "funnel",
+        "alaya": true,
+        "raw": true,
+        "none": true,
+        "c_minus_b": 0,
+        "c_minus_a": 0
+      },
+      {
+        "taskId": "test-funnel-03",
+        "family": "funnel",
+        "alaya": true,
+        "raw": true,
+        "none": false,
+        "c_minus_b": 0,
+        "c_minus_a": 1
+      },
+      {
+        "taskId": "test-funnel-04",
+        "family": "funnel",
+        "alaya": true,
+        "raw": true,
+        "none": true,
+        "c_minus_b": 0,
+        "c_minus_a": 0
+      },
+      {
+        "taskId": "test-funnel-05",
+        "family": "funnel",
+        "alaya": true,
+        "raw": true,
+        "none": true,
+        "c_minus_b": 0,
+        "c_minus_a": 0
+      },
+      {
+        "taskId": "test-funnel-06",
+        "family": "funnel",
+        "alaya": true,
+        "raw": true,
+        "none": true,
+        "c_minus_b": 0,
+        "c_minus_a": 0
+      },
+      {
+        "taskId": "test-funnel-07",
+        "family": "funnel",
+        "alaya": true,
+        "raw": true,
+        "none": true,
+        "c_minus_b": 0,
+        "c_minus_a": 0
+      },
+      {
+        "taskId": "test-latest-status-00",
+        "family": "latest_status",
+        "alaya": true,
+        "raw": true,
+        "none": true,
+        "c_minus_b": 0,
+        "c_minus_a": 0
+      },
+      {
+        "taskId": "test-latest-status-01",
+        "family": "latest_status",
+        "alaya": true,
+        "raw": true,
+        "none": true,
+        "c_minus_b": 0,
+        "c_minus_a": 0
+      },
+      {
+        "taskId": "test-latest-status-02",
+        "family": "latest_status",
+        "alaya": true,
+        "raw": true,
+        "none": true,
+        "c_minus_b": 0,
+        "c_minus_a": 0
+      },
+      {
+        "taskId": "test-latest-status-03",
+        "family": "latest_status",
+        "alaya": true,
+        "raw": true,
+        "none": true,
+        "c_minus_b": 0,
+        "c_minus_a": 0
+      },
+      {
+        "taskId": "test-latest-status-04",
+        "family": "latest_status",
+        "alaya": true,
+        "raw": true,
+        "none": true,
+        "c_minus_b": 0,
+        "c_minus_a": 0
+      },
+      {
+        "taskId": "test-latest-status-05",
+        "family": "latest_status",
+        "alaya": true,
+        "raw": true,
+        "none": true,
+        "c_minus_b": 0,
+        "c_minus_a": 0
+      },
+      {
+        "taskId": "test-latest-status-06",
+        "family": "latest_status",
+        "alaya": true,
+        "raw": true,
+        "none": true,
+        "c_minus_b": 0,
+        "c_minus_a": 0
+      },
+      {
+        "taskId": "test-latest-status-07",
+        "family": "latest_status",
+        "alaya": true,
+        "raw": true,
+        "none": false,
+        "c_minus_b": 0,
+        "c_minus_a": 1
+      }
+    ]
+  },
+  "context": {
+    "none": {
+      "requests": 24,
+      "allEmpty": true
+    },
+    "raw": {
+      "requests": 24,
+      "allAtLeastOne": true,
+      "allFullFields": true,
+      "allTrainOnly": true,
+      "recordCountDistribution": {
+        "2": 24
+      },
+      "memoryChars": {
+        "min": 5638,
+        "max": 11175
+      },
+      "refsAreTrainEpisodeIds": true
+    },
+    "alaya": {
+      "requests": 24,
+      "nonEmpty": 24,
+      "memoryChars": {
+        "min": 2915,
+        "max": 3148
+      },
+      "refsPerTestRequest": 5,
+      "knowledgeSnapshotCount": 23
+    },
+    "privateLeakCounts": {
+      "containsGoldSql": 0,
+      "containsPrivateKeys": 0
+    }
+  },
+  "integrity": {
+    "sourceHashAllMatch": true,
+    "sourceHashMatches": {
+      "scripts/lib/sql-repair-cases.py": true,
+      "scripts/sql-repair-experiment.mjs": true,
+      "alaya-app/server/sqlRepair.ts": true,
+      "alaya-app/server/knowledgeInjection.ts": true,
+      "alaya-app/server/knowledgeCredit.ts": true,
+      "alaya-core/src/llm/provider.ts": true,
+      "docs/validation/SQL_REPAIR_DEVELOPMENT_PLAN.md": true,
+      "scripts/analyze-sql-repair.mjs": true,
+      "alaya-core/src/core/transition_state.ts": true,
+      "alaya-core/src/core/update_confidence.ts": true,
+      "alaya-app/server/storage.ts": true,
+      "alaya-app/server/trace.ts": true
+    },
+    "manifestFreezeSourceHashesEqual": true,
+    "manifestFreezeCasesHashEqual": true,
+    "casesDigestMatchesManifest": true,
+    "experiencesDigestMatchesFreeze": true,
+    "knowledgeBeforeDigestMatchesFreeze": true,
+    "knowledgeBeforeAfterEqual": true,
+    "summaryKnowledgeFrozen": true,
+    "startedCalls": 120,
+    "completedCalls": 120,
+    "startedCompletedCallSetsEqual": true,
+    "requestDigestMatch": true,
+    "testKeysUnique": true,
+    "eachTestTaskHasThreeArms": true,
+    "outcomeErrorCount": 8,
+    "schemaInvalidCount": 7
+  },
+  "db": {
+    "tables": [
+      "action_ledger",
+      "agent_runs",
+      "agents",
+      "cycles",
+      "decision_log",
+      "distiller_proposals",
+      "event_log",
+      "external_business_signals",
+      "external_feedback_sources",
+      "feedback_items",
+      "gold_cases",
+      "human_gate_items",
+      "knowledge_fts",
+      "knowledge_fts_config",
+      "knowledge_fts_data",
+      "knowledge_fts_docsize",
+      "knowledge_fts_idx",
+      "knowledge_items",
+      "knowledge_review_items",
+      "llm_calls",
+      "notification_digests",
+      "observations",
+      "org_modules",
+      "pending_attributions",
+      "predictions",
+      "projects",
+      "review_sessions",
+      "sensor_error_accumulators",
+      "sqlite_sequence",
+      "tasks",
+      "trace_events"
+    ],
+    "llm_calls": {
+      "count": 120,
+      "columns": [
+        "id",
+        "cycle_id",
+        "agent",
+        "provider",
+        "model",
+        "route_reason",
+        "prompt_version",
+        "input_summary",
+        "output_summary",
+        "schema_valid",
+        "retry_count",
+        "latency_ms",
+        "input_token_count",
+        "output_token_count",
+        "token_count",
+        "token_source",
+        "estimated_cost",
+        "ts",
+        "llm_failure_type"
+      ]
+    },
+    "knowledge_items": {
+      "count": 23,
+      "columns": [
+        "id",
+        "project_id",
+        "type",
+        "title",
+        "content",
+        "source_type",
+        "source_ref",
+        "evidence_alpha",
+        "evidence_beta",
+        "confidence_score",
+        "confidence_level",
+        "status",
+        "human_approved_count",
+        "external_verified_count",
+        "valid_from",
+        "valid_until",
+        "last_validated_cycle",
+        "created_by_cycle",
+        "created_by",
+        "approved_by",
+        "usage_count",
+        "last_injected_at",
+        "last_verified_at",
+        "last_decayed_at",
+        "gray_streak",
+        "storage_strength",
+        "novelty_score",
+        "source_round",
+        "tags",
+        "notes",
+        "superseded_by",
+        "semantic_key",
+        "version"
+      ]
+    },
+    "cycles": {
+      "count": 96,
+      "columns": [
+        "id",
+        "project_id",
+        "idx",
+        "goal",
+        "status",
+        "e_cycle",
+        "worst_claim_error",
+        "reasoning",
+        "speculative",
+        "parent_cycle_id",
+        "depends_on",
+        "assumed_outcomes",
+        "draft_status",
+        "apply_scheduled_at",
+        "applied_at",
+        "co_applied_set",
+        "version"
+      ]
+    },
+    "agent_runs": {
+      "count": 480,
+      "columns": [
+        "id",
+        "cycle_id",
+        "cycle_idx",
+        "agent",
+        "action",
+        "output_summary",
+        "knowledge_refs_used",
+        "ts"
+      ]
+    },
+    "trace_events": {
+      "count": 144,
+      "columns": [
+        "id",
+        "trace_id",
+        "span_id",
+        "parent_span_id",
+        "project_id",
+        "cycle_id",
+        "cycle_idx",
+        "kind",
+        "name",
+        "agent",
+        "status",
+        "attributes",
+        "started_at",
+        "ended_at",
+        "duration_ms"
+      ]
+    },
+    "llmModels": {
+      "MiniMax-M3": 120
+    },
+    "llmAgents": {
+      "builder": 96,
+      "distiller": 24
+    },
+    "knowledgeStatuses": {
+      "active": 23
+    },
+    "knowledgeProjects": {
+      "sql_aggregation_alaya": 8,
+      "sql_funnel_alaya": 7,
+      "sql_latest_status_alaya": 8
+    }
+  },
+  "runValidity": {
+    "development": true,
+    "calls120": true,
+    "paired72": true,
+    "providerAll200": true,
+    "singleObservedModel": true,
+    "settingsUniform": true,
+    "usagePresent120": true,
+    "knowledgeFrozen": true,
+    "sourceHashCurrent": true,
+    "noPrivateKeysInTestRequests": true,
+    "dbLlmcalls120": true,
+    "dbModelRequested": true,
+    "validForDirectionalInterpretation": true
+  },
+  "limitations": [
+    "DEVELOPMENT synthetic SQLite task families only.",
+    "24 heldout task clusters across three shared template families; four database fixtures are repeated variants, not iid tasks.",
+    "Raw arm is a strong train-record baseline; C versus raw tests Alaya bundle increment, not memory existence.",
+    "The paired results are small-sample directional evidence and cannot establish general cognition or long-term learning."
+  ],
+  "familyScoresAndPairs": {
+    "aggregation": {
+      "none": {
+        "n": 8,
+        "correct": 5,
+        "schemaFailures": 0
+      },
+      "raw": {
+        "n": 8,
+        "correct": 8,
+        "schemaFailures": 0
+      },
+      "alaya": {
+        "n": 8,
+        "correct": 6,
+        "schemaFailures": 0
+      },
+      "alayaVsRaw": {
+        "wins": 0,
+        "losses": 2,
+        "ties": 6,
+        "difference": -0.25,
+        "exactMcNemarTwoSidedP": 0.5
+      },
+      "alayaVsNone": {
+        "wins": 2,
+        "losses": 1,
+        "ties": 5,
+        "difference": 0.125,
+        "exactMcNemarTwoSidedP": 1
+      }
+    },
+    "funnel": {
+      "none": {
+        "n": 8,
+        "correct": 6,
+        "schemaFailures": 2
+      },
+      "raw": {
+        "n": 8,
+        "correct": 8,
+        "schemaFailures": 0
+      },
+      "alaya": {
+        "n": 8,
+        "correct": 8,
+        "schemaFailures": 0
+      },
+      "alayaVsRaw": {
+        "wins": 0,
+        "losses": 0,
+        "ties": 8,
+        "difference": 0.0,
+        "exactMcNemarTwoSidedP": 1.0
+      },
+      "alayaVsNone": {
+        "wins": 2,
+        "losses": 0,
+        "ties": 6,
+        "difference": 0.25,
+        "exactMcNemarTwoSidedP": 0.5
+      }
+    },
+    "latest_status": {
+      "none": {
+        "n": 8,
+        "correct": 7,
+        "schemaFailures": 1
+      },
+      "raw": {
+        "n": 8,
+        "correct": 8,
+        "schemaFailures": 0
+      },
+      "alaya": {
+        "n": 8,
+        "correct": 8,
+        "schemaFailures": 0
+      },
+      "alayaVsRaw": {
+        "wins": 0,
+        "losses": 0,
+        "ties": 8,
+        "difference": 0.0,
+        "exactMcNemarTwoSidedP": 1.0
+      },
+      "alayaVsNone": {
+        "wins": 1,
+        "losses": 0,
+        "ties": 7,
+        "difference": 0.125,
+        "exactMcNemarTwoSidedP": 1
+      }
+    }
+  }
+}

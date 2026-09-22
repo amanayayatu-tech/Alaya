@@ -1,0 +1,10 @@
+{
+  "status": "ABORTED_BEFORE_HELDOUT",
+  "reason": "Independent review found Python/SQLite rounding mismatch and unstated input nullability; repair before any heldout collection. Remove active-memory prerequisite to preserve negative results.",
+  "stoppedAt": "2026-09-08T16:59:54.699309+00:00",
+  "completedCalls": 25,
+  "heldoutCalls": 0,
+  "issuedCallsUpperBound": 26,
+  "inFlightUsageUnknown": true,
+  "sourceIdentity": "See unchanged manifest.json and cases.json in this aborted run. The working code was subsequently repaired."
+}

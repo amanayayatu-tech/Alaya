@@ -1,0 +1,119 @@
+{
+  "kind": "root_final_readback",
+  "frozenSourceArchiveSha256": "de0ec35304fa453ffc04874f97f95d1da928512f19eff1d4d7897cd0b4effc7a",
+  "frozenSourceMatchesRun": {
+    "scripts/lib/sql-repair-cases.py": true,
+    "scripts/sql-repair-experiment.mjs": true,
+    "alaya-app/server/sqlRepair.ts": true,
+    "alaya-app/server/knowledgeInjection.ts": true,
+    "alaya-app/server/knowledgeCredit.ts": true,
+    "alaya-core/src/llm/provider.ts": true,
+    "docs/validation/SQL_REPAIR_DEVELOPMENT_PLAN.md": true,
+    "scripts/analyze-sql-repair.mjs": true,
+    "alaya-core/src/core/transition_state.ts": true,
+    "alaya-core/src/core/update_confidence.ts": true,
+    "alaya-app/server/storage.ts": true,
+    "alaya-app/server/trace.ts": true
+  },
+  "posthocSemanticScores": {
+    "none": 21,
+    "raw": 24,
+    "alaya": 22
+  },
+  "posthocPairs": {
+    "rawVsnone": {
+      "wins": 3,
+      "losses": 0,
+      "ties": 21,
+      "difference": 0.125,
+      "exactMcNemarTwoSidedP": 0.25
+    },
+    "alayaVsnone": {
+      "wins": 2,
+      "losses": 1,
+      "ties": 21,
+      "difference": 0.041666666666666664,
+      "exactMcNemarTwoSidedP": 1
+    },
+    "alayaVsraw": {
+      "wins": 0,
+      "losses": 2,
+      "ties": 22,
+      "difference": -0.08333333333333333,
+      "exactMcNemarTwoSidedP": 0.5
+    }
+  },
+  "postfixDev": {
+    "evidenceMode": "DEVELOPMENT",
+    "startedAt": "2026-09-08T17:19:38.396Z",
+    "baseCommit": "b7090b11b41f358f4d82906c86be835a68c06e64",
+    "modelRequested": "MiniMax-M3",
+    "baseUrl": "https://api.minimax.io/openai",
+    "temperature": 0,
+    "maxOutputTokens": 2048,
+    "retries": 0,
+    "simplifiedFallback": false,
+    "maxCalls": 6,
+    "testConcurrency": 3,
+    "memoryCharCeiling": 12000,
+    "rawMemoryK": 2,
+    "ranking": "static",
+    "epsilon": 0,
+    "sourceHashes": {
+      "scripts/lib/sql-repair-cases.py": "f59ab47c352edc9e8df08dc1319c0099bb159d7a2c027982319a9bbb3ab50ed4",
+      "scripts/sql-repair-experiment.mjs": "eb9b8a6834986c77debb7466491be84d732f0c0d72ac90f7dddf5cb6b7dda5c8",
+      "alaya-app/server/sqlRepair.ts": "0fcab7254faba2567c9f723aef3c4b54738020e2b69479f136b6d80f1d5ce97b",
+      "alaya-app/server/knowledgeInjection.ts": "54c087374456981eb0fb14843e69a6982b47bc19ecc34fb563a47c0f704708bf",
+      "alaya-app/server/knowledgeCredit.ts": "faf99374addb218d56a881c788ece2921b76b5f9775606b700efdb039ad03cf8",
+      "alaya-core/src/llm/provider.ts": "5357fd567848e18d220832761b3cb63012ceb40877c4af4f1d8768e599b09856",
+      "docs/validation/SQL_REPAIR_DEVELOPMENT_PLAN.md": "8c0faf11c1298d9241f51ad168e2f25f32294ac777248b26760c0f8eea97b645",
+      "scripts/analyze-sql-repair.mjs": "2fb20a59de7fc3f749343193ca24f5c6148b853cffc42913012112157ee239c0",
+      "alaya-core/src/core/transition_state.ts": "dd88bd3c6205fb3f091d3392bbd580c36ab81b21687155719a463d263a26987b",
+      "alaya-core/src/core/update_confidence.ts": "a800faa90aba2e8eaa26dc9178134be564b25ef5a42ef8ff3bd913b05c635e4f",
+      "alaya-app/server/storage.ts": "60bdce80e838babbb89bb6fe90d2eed3d97cc8f3eac3b337bbafa679cbcbba50",
+      "alaya-app/server/trace.ts": "93323a89c9651d03394c91b362d0106fdc5b3f3b82949a5d9eb386f95b8637b2"
+    },
+    "casesSha256": "17f5df3d5f9cf3f6afbfb9318461fce4e10576fe40116730817bd5da599bb4d7",
+    "initialKnowledgeSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "evaluator": {
+      "cases": 54,
+      "ok": true,
+      "splits": {
+        "dev": 6,
+        "test": 24,
+        "train": 24
+      }
+    },
+    "devOnly": true,
+    "completedAt": "2026-09-08T17:19:59.322Z",
+    "issuedCalls": 6,
+    "completedCalls": 6,
+    "scores": {
+      "none": {
+        "n": 6,
+        "correct": 6,
+        "schemaFailures": 0
+      },
+      "raw": {
+        "n": 0,
+        "correct": 0,
+        "schemaFailures": 0
+      },
+      "alaya": {
+        "n": 0,
+        "correct": 0,
+        "schemaFailures": 0
+      }
+    },
+    "knowledgeFrozen": null,
+    "observedModels": [
+      "MiniMax-M3"
+    ],
+    "providerTokens": {
+      "input": 5451,
+      "output": 1990,
+      "cached": 768
+    },
+    "providerUsageMissing": 0
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "status": "PREFLIGHT_PASS",
+  "reason": "9/9 contract; positive 3/3; distill candidate; transfer 3/3",
+  "runDir": "/Users/LOCAL_USER/.codex/worktrees/alaya-m1/alaya/validation-logs/m1/preflight-2026-09-19T09-56-27-363Z",
+  "budget": {
+    "requests": 10,
+    "tokens": 7697,
+    "maxRequests": 12,
+    "maxTokens": 30000
+  },
+  "diagnosticOnly": true,
+  "handwrittenNeverOfficial": true
+}

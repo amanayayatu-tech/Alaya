@@ -1,0 +1,350 @@
+{
+  "generatedAt": "2026-06-17T04:54:46.091Z",
+  "expectedDecision": "tiered_thesis",
+  "decisionTsr": {
+    "status": "pass",
+    "passed": true,
+    "interpretation": "single-scenario pass@1 check: verifies that the final active/strong card state matches the preset equity-thesis oracle; it is not an independent reasoning benchmark",
+    "passK": {
+      "implemented": false,
+      "plannedVersion": "v2"
+    },
+    "expectedDecision": "tiered_thesis",
+    "eligibleKnowledgeCount": 6,
+    "tieredThesisCount": 4,
+    "disallowedFinalCount": 0,
+    "decisions": {
+      "tiered_thesis": 4,
+      "unknown": 2
+    },
+    "disallowedFinalKnowledge": [],
+    "tieredThesisKnowledge": [
+      {
+        "knowledgeId": "kb_seed_identity_h0f8",
+        "title": "种子身份",
+        "oracleSide": null,
+        "decision": "tiered_thesis",
+        "status": "active"
+      },
+      {
+        "knowledgeId": "kb_seed_world_h0f8",
+        "title": "初始世界模型",
+        "oracleSide": null,
+        "decision": "tiered_thesis",
+        "status": "active"
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlh0f8_equity_thesis_contradiction_runner_sample_0001_tiered_support",
+        "title": "外部反馈: Phase2 校准样本 001：订单恢复与毛利率弹性",
+        "oracleSide": "tiered_support",
+        "decision": "tiered_thesis",
+        "status": "active"
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlh0f8_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "title": "外部反馈: Phase2 校准样本 002：估值修复空间仍在，但事件催化前后波动需以风险预算约束，配合对冲腿的分层仓位方案。",
+        "oracleSide": "tiered_support",
+        "decision": "tiered_thesis",
+        "status": "active"
+      }
+    ]
+  },
+  "resolutionAccuracy": {
+    "status": "insufficient_evidence",
+    "passed": false,
+    "threshold": 0.9,
+    "accuracy": null,
+    "correct": 0,
+    "scored": 0,
+    "unscored": 0,
+    "totalReviewed": 0,
+    "scoreableCoverage": null,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": false,
+    "dedupeMode": "exact",
+    "pairTypeCounts": {},
+    "scoredPairTypeCounts": {},
+    "unscoredPairTypeCounts": {},
+    "unscoredReasonCounts": {},
+    "duplicatePairTypeCounts": {},
+    "scoredEvents": [],
+    "unscoredExamples": []
+  },
+  "confidenceCalibration": {
+    "status": "low_coverage",
+    "ece": 0.204868,
+    "threshold": 0.05,
+    "warnThreshold": 0.1,
+    "bucketCount": 10,
+    "sampleSize": 2,
+    "scored": 2,
+    "unscored": 0,
+    "totalCandidates": 6,
+    "eligible": 2,
+    "denominator": 2,
+    "eligibleConflictKnowledgeTotal": 2,
+    "minEligible": 10,
+    "totalEligible": 2,
+    "scoreableDenominator": 2,
+    "outOfScopeNoOracle": 2,
+    "excludedAsNonConflict": {
+      "count": 4,
+      "reasonCounts": {
+        "no_oracle_side": 2,
+        "seed_identity_or_world": 2
+      },
+      "exampleIds": [
+        "kb_seed_identity_h0f8",
+        "kb_seed_world_h0f8",
+        "kb_gate_gate_meaning_1_e_1_h0f8_f1",
+        "kb_proj_mqhlh0f8_005"
+      ]
+    },
+    "scoreableCoverage": 1,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": false,
+    "reliabilityTable": [
+      {
+        "bucket": 7,
+        "lowerBound": 0.7,
+        "upperBound": 0.8,
+        "confMean": 0.795132,
+        "accuracy": 1,
+        "n": 2
+      }
+    ],
+    "unscoredReasonCounts": {},
+    "scoredKnowledge": [
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlh0f8_equity_thesis_contradiction_runner_sample_0001_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": null,
+        "confidence": 0.7951315481813329,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": true
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlh0f8_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": null,
+        "confidence": 0.7951315481813329,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": true
+      }
+    ],
+    "unscoredExamples": []
+  },
+  "faithfulness": {
+    "status": "low_coverage",
+    "judgeMode": "lexical",
+    "faithfulness": 0.857143,
+    "hallucinationRate": 0.142857,
+    "threshold": 0.95,
+    "stretchMedicalTarget": 0.98,
+    "scored": 14,
+    "supported": 12,
+    "unsupported": 2,
+    "indeterminate": 0,
+    "totalClaims": 14,
+    "evidenceClaimCount": 10,
+    "totalCandidates": 6,
+    "eligible": 2,
+    "denominator": 2,
+    "eligibleConflictKnowledgeTotal": 2,
+    "minEligible": 10,
+    "scoreableDenominator": 2,
+    "scoreableKnowledge": 2,
+    "scoreableKnowledgeItems": 2,
+    "claimScoreableCoverage": 1,
+    "scoreableCoverage": 1,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": false,
+    "unsupportedClaims": [
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlh0f8_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "外部反馈: Phase2 校准样本 002：估值修复空间仍在，但事件催化前后波动需以风险预算约束，配合对冲腿的分层仓位方案",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "分层仓位",
+          "事件催化",
+          "风险预算",
+          "估值修复空间仍在",
+          "但事件催化前后波动需以风险预算约束",
+          "配合对冲腿的分层仓位方案",
+          "002"
+        ],
+        "supportedAnchors": [
+          "分层仓位",
+          "事件催化",
+          "风险预算",
+          "估值修复空间仍在",
+          "002"
+        ],
+        "keywordCoverage": 0.714286,
+        "longestCommonSubstring": 28,
+        "longestCommonSubstringRatio": 0.518519,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlh0f8_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "Phase2 校准样本 002：估值修复空间仍在，但事件催化前后波动需以风险预算约束，配合对冲腿的分层仓位方案",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "分层仓位",
+          "事件催化",
+          "风险预算",
+          "估值修复空间仍在",
+          "但事件催化前后波动需以风险预算约束",
+          "配合对冲腿的分层仓位方案",
+          "002"
+        ],
+        "supportedAnchors": [
+          "分层仓位",
+          "事件催化",
+          "风险预算",
+          "估值修复空间仍在",
+          "002"
+        ],
+        "keywordCoverage": 0.714286,
+        "longestCommonSubstring": 28,
+        "longestCommonSubstringRatio": 0.56,
+        "supported": false
+      }
+    ],
+    "indeterminateReasonCounts": {},
+    "indeterminateReasons": {},
+    "excludedAsNonConflict": {
+      "count": 4,
+      "reasonCounts": {
+        "no_oracle_side": 2,
+        "seed_identity_or_world": 2
+      },
+      "exampleIds": [
+        "kb_seed_identity_h0f8",
+        "kb_seed_world_h0f8",
+        "kb_gate_gate_meaning_1_e_1_h0f8_f1",
+        "kb_proj_mqhlh0f8_005"
+      ]
+    },
+    "indeterminateExamples": []
+  },
+  "latencyAndEfficiency": {
+    "measurementNote": "API request latency is runner/harness-observed latency under validation polling load, not an isolated production retrieval SLO.",
+    "apiRequest": {
+      "sampleSize": 32,
+      "p50Ms": 5,
+      "p95Ms": 23885,
+      "p99Ms": 32480
+    },
+    "apiRequestBySegment": {
+      "runner_control_api_request": {
+        "sampleSize": 7,
+        "p50Ms": 1195,
+        "p95Ms": 9124,
+        "p99Ms": 9124
+      },
+      "scheduler_tick": {
+        "sampleSize": 2,
+        "p50Ms": 23885,
+        "p95Ms": 32480,
+        "p99Ms": 32480
+      },
+      "harness_polling_api_request": {
+        "sampleSize": 22,
+        "p50Ms": 4,
+        "p95Ms": 10,
+        "p99Ms": 11
+      },
+      "knowledge_retrieval": {
+        "sampleSize": 1,
+        "p50Ms": 5,
+        "p95Ms": 5,
+        "p99Ms": 5
+      }
+    },
+    "slo": {
+      "sloStatus": "warn",
+      "sloBlocking": false,
+      "enforceLatencySlo": false,
+      "thresholdsMs": {
+        "knowledge_retrieval": 2000,
+        "scheduler_tick": 30000
+      },
+      "includedSegments": [
+        {
+          "segment": "knowledge_retrieval",
+          "sampleSize": 1,
+          "p95Ms": 5,
+          "p95ThresholdMs": 2000,
+          "status": "pass"
+        },
+        {
+          "segment": "scheduler_tick",
+          "sampleSize": 2,
+          "p95Ms": 32480,
+          "p95ThresholdMs": 30000,
+          "status": "warn"
+        }
+      ],
+      "excludedSegments": [
+        "harness_polling_api_request"
+      ],
+      "measurementNote": "harness_polling_api_request is excluded: harness polling is not a production SLO; knowledge_retrieval and scheduler_tick are SLO-observed segments."
+    },
+    "llmOverall": {
+      "sampleSize": 9,
+      "p50Ms": 5739,
+      "p95Ms": 23864,
+      "p99Ms": 23864
+    },
+    "llmAgentP95Ms": {
+      "orchestrator": 23864,
+      "sensor": 7833,
+      "builder": 16595,
+      "distiller": 5739,
+      "librarian": 2251
+    },
+    "totals": {
+      "closedCycles": 1,
+      "resolvedConflicts": 0,
+      "netActiveKnowledge": 0,
+      "totalTokens": 21833,
+      "totalCostUsd": 0.043666
+    },
+    "ratios": {
+      "tokensPerClosedCycle": 21833,
+      "costPerClosedCycleUsd": 0.043666,
+      "tokensPerResolvedConflict": null,
+      "costPerResolvedConflictUsd": null,
+      "tokensPerNetActiveKnowledge": null,
+      "costPerNetActiveKnowledgeUsd": null
+    }
+  },
+  "rssSlopeMbPerHour": null,
+  "rssSlopeThresholdMbPerHour": 50,
+  "rssSlopeUnder50MbPerHour": null,
+  "notes": [
+    {
+      "type": "benchmark_mapping",
+      "decisionTsr": "task-success-rate style single-scenario oracle check, similar to tau-bench pass@1/pass^k reliability framing",
+      "resolutionAccuracy": "conflict resolution / implicit inference accuracy over deterministic oracle pair rules",
+      "faithfulness": "claim-level lexical NLI proxy for RAGAS/TruLens-style faithfulness; LLM judge interface is reserved but off by default",
+      "confidenceCalibration": "expected calibration error / reliability table over confidence_score or extracted confidence text"
+    },
+    "decisionTsr is a single-scenario pass@1 oracle-state check, not an independent reasoning benchmark.",
+    "pass^k multi-seed reliability is intentionally deferred to v2.",
+    "API latency is runner/harness-observed polling and control request latency under validation load, not an isolated production retrieval SLO.",
+    "Resolution accuracy is blocking only when scoreable coverage meets the configured threshold."
+  ],
+  "sources": {
+    "knowledge": "health-signal.db:knowledge_items",
+    "llmCalls": "health-signal.db:llm_calls",
+    "resolutionEvents": "events.jsonl:knowledge_review_resolved",
+    "apiRequestLatency": "events.jsonl:api_request_timing",
+    "rss": "monitor_log.csv:appRssMb"
+  }
+}

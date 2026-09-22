@@ -1,0 +1,90 @@
+{
+  "phase": 2,
+  "continue": false,
+  "status": "NO_PRACTICAL_SELF_MODIFICATION_GAIN",
+  "comparisons": [
+    {
+      "control": "v0",
+      "treatment": "v1",
+      "pairs": [
+        {
+          "world": "T1",
+          "repeat": 2,
+          "control": 197.5,
+          "treatment": 197.5,
+          "gainPercent": 0
+        },
+        {
+          "world": "T1",
+          "repeat": 1,
+          "control": 197.75,
+          "treatment": 197.75,
+          "gainPercent": 0
+        },
+        {
+          "world": "T1",
+          "repeat": 0,
+          "control": 192.75,
+          "treatment": 192.75,
+          "gainPercent": 0
+        },
+        {
+          "world": "T2",
+          "repeat": 0,
+          "control": 140,
+          "treatment": 140,
+          "gainPercent": 0
+        },
+        {
+          "world": "T2",
+          "repeat": 2,
+          "control": 149.25,
+          "treatment": 149.25,
+          "gainPercent": 0
+        },
+        {
+          "world": "T2",
+          "repeat": 1,
+          "control": 149.25,
+          "treatment": 149.25,
+          "gainPercent": 0
+        },
+        {
+          "world": "T3",
+          "repeat": 1,
+          "control": 132,
+          "treatment": 132,
+          "gainPercent": 0
+        },
+        {
+          "world": "T3",
+          "repeat": 2,
+          "control": 131.25,
+          "treatment": 131.25,
+          "gainPercent": 0
+        },
+        {
+          "world": "T3",
+          "repeat": 0,
+          "control": 130.75,
+          "treatment": 130.75,
+          "gainPercent": 0
+        }
+      ],
+      "gainPercent": 0,
+      "positivePairs": 0,
+      "byWorld": {
+        "T1": 0,
+        "T2": 0,
+        "T3": 0
+      },
+      "interval": [
+        0,
+        0
+      ],
+      "practicalSignal": false,
+      "beatsBestFit": false,
+      "stableSupport": false
+    }
+  ]
+}

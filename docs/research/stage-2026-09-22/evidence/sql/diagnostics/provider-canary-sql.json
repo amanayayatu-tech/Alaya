@@ -1,0 +1,24 @@
+{
+  "schemaValid": true,
+  "data": {
+    "sql": "SELECT 7 AS value"
+  },
+  "receipts": [
+    {
+      "url": "https://api.minimax.io/v1/chat/completions",
+      "modelRequested": "MiniMax-M3",
+      "modelReported": "MiniMax-M3",
+      "status": 200,
+      "usage": {
+        "total_tokens": 296,
+        "total_characters": 0,
+        "prompt_tokens": 286,
+        "completion_tokens": 10,
+        "prompt_tokens_details": {
+          "cached_tokens": 128
+        }
+      },
+      "elapsedMs": 1215
+    }
+  ]
+}

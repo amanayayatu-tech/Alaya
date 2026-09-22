@@ -1,0 +1,173 @@
+{
+  "evidenceMode": "DEVELOPMENT",
+  "closeout": {
+    "kind": "probe",
+    "families": [
+      "line_item_refund",
+      "fx_as_of",
+      "scd2_segment"
+    ],
+    "schemaVersion": "sql-repair-closeout-v1",
+    "distiller": false,
+    "testArms": [
+      "none"
+    ],
+    "hardIfCorrectAtMost": 2,
+    "easyIfCorrectAtLeast": 3,
+    "probeItemsPerFamily": 4,
+    "continueIfHardFamiliesAtLeast": 2,
+    "winNetWinsAtLeast": 3,
+    "winFamiliesPositiveAtLeast": 2
+  },
+  "runValid": true,
+  "conclusion": "PROBE_STOP_INSUFFICIENT_HARD_FAMILIES",
+  "probeDecision": {
+    "hardFamilies": [
+      "line_item_refund"
+    ],
+    "easyFamilies": [
+      "fx_as_of",
+      "scd2_segment"
+    ],
+    "continueToAb": false,
+    "rule": "hard if A<=2/4; easy if A>=3/4; continue A/B iff >=2 hard families"
+  },
+  "scores": {
+    "none": {
+      "n": 12,
+      "correct": 9,
+      "schemaFailures": 0
+    }
+  },
+  "byFamily": {
+    "line_item_refund": {
+      "none": {
+        "n": 4,
+        "correct": 2,
+        "schemaFailures": 0
+      }
+    },
+    "fx_as_of": {
+      "none": {
+        "n": 4,
+        "correct": 3,
+        "schemaFailures": 0
+      }
+    },
+    "scd2_segment": {
+      "none": {
+        "n": 4,
+        "correct": 4,
+        "schemaFailures": 0
+      }
+    }
+  },
+  "fenceRecoveryPosthoc": {
+    "n": 12,
+    "recoveredEnvelopes": 0,
+    "passedAfterRecovery": 9,
+    "rows": [
+      {
+        "taskId": "dev-line-item-refund-00",
+        "arm": "none",
+        "family": "line_item_refund",
+        "recovered": false,
+        "passed": true
+      },
+      {
+        "taskId": "dev-line-item-refund-01",
+        "arm": "none",
+        "family": "line_item_refund",
+        "recovered": false,
+        "passed": false
+      },
+      {
+        "taskId": "dev-line-item-refund-02",
+        "arm": "none",
+        "family": "line_item_refund",
+        "recovered": false,
+        "passed": true
+      },
+      {
+        "taskId": "dev-line-item-refund-03",
+        "arm": "none",
+        "family": "line_item_refund",
+        "recovered": false,
+        "passed": false
+      },
+      {
+        "taskId": "dev-fx-as-of-00",
+        "arm": "none",
+        "family": "fx_as_of",
+        "recovered": false,
+        "passed": true
+      },
+      {
+        "taskId": "dev-fx-as-of-01",
+        "arm": "none",
+        "family": "fx_as_of",
+        "recovered": false,
+        "passed": true
+      },
+      {
+        "taskId": "dev-fx-as-of-02",
+        "arm": "none",
+        "family": "fx_as_of",
+        "recovered": false,
+        "passed": false
+      },
+      {
+        "taskId": "dev-fx-as-of-03",
+        "arm": "none",
+        "family": "fx_as_of",
+        "recovered": false,
+        "passed": true
+      },
+      {
+        "taskId": "dev-scd2-segment-00",
+        "arm": "none",
+        "family": "scd2_segment",
+        "recovered": false,
+        "passed": true
+      },
+      {
+        "taskId": "dev-scd2-segment-01",
+        "arm": "none",
+        "family": "scd2_segment",
+        "recovered": false,
+        "passed": true
+      },
+      {
+        "taskId": "dev-scd2-segment-02",
+        "arm": "none",
+        "family": "scd2_segment",
+        "recovered": false,
+        "passed": true
+      },
+      {
+        "taskId": "dev-scd2-segment-03",
+        "arm": "none",
+        "family": "scd2_segment",
+        "recovered": false,
+        "passed": true
+      }
+    ]
+  },
+  "costs": {
+    "probe/none": {
+      "calls": 12,
+      "builderCalls": 12,
+      "distillerCalls": 0,
+      "inputTokens": 9652,
+      "outputTokens": 3389,
+      "cachedInputTokens": 1664,
+      "missingUsage": 0,
+      "medianMs": 3172,
+      "p95Ms": 7383
+    }
+  },
+  "infrastructureFailures": 0,
+  "sourceModelConsistent": true,
+  "knowledgeFrozen": true,
+  "uncertaintyBoundary": "Probe only scores no-memory A. Four fixtures share hand-crafted traps. A family with A>=3/4 is too easy to prove B>A; continue only with >=2 hard families."
+}

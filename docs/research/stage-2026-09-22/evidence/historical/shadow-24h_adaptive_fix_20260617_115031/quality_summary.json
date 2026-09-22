@@ -1,0 +1,381 @@
+{
+  "generatedAt": "2026-06-17T04:09:47.480Z",
+  "expectedDecision": "tiered_thesis",
+  "decisionTsr": {
+    "status": "pass",
+    "passed": true,
+    "interpretation": "single-scenario pass@1 check: verifies that the final active/strong card state matches the preset equity-thesis oracle; it is not an independent reasoning benchmark",
+    "passK": {
+      "implemented": false,
+      "plannedVersion": "v2"
+    },
+    "expectedDecision": "tiered_thesis",
+    "eligibleKnowledgeCount": 8,
+    "tieredThesisCount": 4,
+    "disallowedFinalCount": 0,
+    "decisions": {
+      "tiered_thesis": 4,
+      "unknown": 4
+    },
+    "disallowedFinalKnowledge": [],
+    "tieredThesisKnowledge": [
+      {
+        "knowledgeId": "kb_seed_identity_9j0y",
+        "title": "种子身份",
+        "oracleSide": null,
+        "decision": "tiered_thesis",
+        "status": "strong"
+      },
+      {
+        "knowledgeId": "kb_seed_world_9j0y",
+        "title": "初始世界模型",
+        "oracleSide": null,
+        "decision": "tiered_thesis",
+        "status": "active"
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hj9j0y_equity_thesis_contradiction_runner_sample_0004_short_risk",
+        "title": "外部反馈: 看空反证：空头拥挤、回补风险和潜在上行催化会抬高单边做空损失概率，证据与看空立场冲突，需进入冲突审查流程。",
+        "oracleSide": "short_risk",
+        "decision": "tiered_thesis",
+        "status": "active"
+      },
+      {
+        "knowledgeId": "kb_proj_mqhj9j0y_015",
+        "title": "种子身份",
+        "oracleSide": null,
+        "decision": "tiered_thesis",
+        "status": "active"
+      }
+    ]
+  },
+  "resolutionAccuracy": {
+    "status": "insufficient_evidence",
+    "passed": false,
+    "threshold": 0.9,
+    "accuracy": null,
+    "correct": 0,
+    "scored": 0,
+    "unscored": 1,
+    "totalReviewed": 1,
+    "scoreableCoverage": 0,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": false,
+    "dedupeMode": "exact",
+    "pairTypeCounts": {
+      "long_support|short_support": 1
+    },
+    "scoredPairTypeCounts": {},
+    "unscoredPairTypeCounts": {
+      "long_support|short_support": 1
+    },
+    "unscoredReasonCounts": {
+      "ambiguous_same_layer_t3_support_pair": 1
+    },
+    "duplicatePairTypeCounts": {},
+    "scoredEvents": [],
+    "unscoredExamples": [
+      {
+        "reviewId": "kr_9626d17f",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_hj9j0y_equity_thesis_contradiction_runner_sample_0001_long_support",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_hj9j0y_equity_thesis_contradiction_runner_sample_0002_short_support",
+        "action": "quarantine",
+        "oracleSide": "long_support",
+        "relatedOracleSide": "short_support",
+        "primaryOracleSide": "long_support",
+        "resolutionPairType": "long_support|short_support",
+        "resolutionUnorderedPairType": "long_support|short_support",
+        "primaryResolutionTier": "T3_single_side_support",
+        "relatedResolutionTier": "T3_single_side_support",
+        "expectedDecision": "tiered_thesis",
+        "expectedDisposition": "superseded_or_quarantined_when_conflicted",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": null,
+        "scoreableResolutionRationale": null,
+        "resolutionUnscoredReason": "ambiguous_same_layer_t3_support_pair",
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": false,
+        "resolutionExpectedWinnerSide": null,
+        "resolutionActualWinnerSide": "short_support",
+        "resolutionCorrect": null
+      }
+    ]
+  },
+  "confidenceCalibration": {
+    "status": "low_coverage",
+    "ece": 0.166667,
+    "threshold": 0.05,
+    "warnThreshold": 0.1,
+    "bucketCount": 10,
+    "sampleSize": 1,
+    "scored": 1,
+    "unscored": 0,
+    "totalCandidates": 12,
+    "eligible": 1,
+    "denominator": 1,
+    "eligibleConflictKnowledgeTotal": 1,
+    "minEligible": 10,
+    "totalEligible": 1,
+    "scoreableDenominator": 1,
+    "outOfScopeNoOracle": 2,
+    "excludedAsNonConflict": {
+      "count": 11,
+      "reasonCounts": {
+        "governance_or_task_restatement": 7,
+        "no_oracle_side": 2,
+        "seed_identity_or_world": 2
+      },
+      "exampleIds": [
+        "kb_seed_identity_9j0y",
+        "kb_seed_world_9j0y",
+        "kb_gate_gate_meaning_1_e_1_9j0y_f1",
+        "kb_proj_mqhj9j0y_004",
+        "kb_proj_mqhj9j0y_006",
+        "kb_proj_mqhj9j0y_008",
+        "kb_proj_mqhj9j0y_010",
+        "kb_proj_mqhj9j0y_011",
+        "kb_proj_mqhj9j0y_013",
+        "kb_proj_mqhj9j0y_014",
+        "kb_proj_mqhj9j0y_015"
+      ]
+    },
+    "scoreableCoverage": 1,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": false,
+    "reliabilityTable": [
+      {
+        "bucket": 8,
+        "lowerBound": 0.8,
+        "upperBound": 0.9,
+        "confMean": 0.833333,
+        "accuracy": 1,
+        "n": 1
+      }
+    ],
+    "unscoredReasonCounts": {},
+    "scoredKnowledge": [
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hj9j0y_equity_thesis_contradiction_runner_sample_0004_short_risk",
+        "oracleSide": "short_risk",
+        "status": "active",
+        "supersededBy": null,
+        "confidence": 0.8333333333333334,
+        "expectedDisposition": "retained_over_short_support",
+        "correct": true
+      }
+    ],
+    "unscoredExamples": []
+  },
+  "faithfulness": {
+    "status": "low_coverage",
+    "judgeMode": "lexical",
+    "faithfulness": 0.714286,
+    "hallucinationRate": 0.285714,
+    "threshold": 0.95,
+    "stretchMedicalTarget": 0.98,
+    "scored": 7,
+    "supported": 5,
+    "unsupported": 2,
+    "indeterminate": 0,
+    "totalClaims": 7,
+    "evidenceClaimCount": 21,
+    "totalCandidates": 12,
+    "eligible": 1,
+    "denominator": 1,
+    "eligibleConflictKnowledgeTotal": 1,
+    "minEligible": 10,
+    "scoreableDenominator": 1,
+    "scoreableKnowledge": 1,
+    "scoreableKnowledgeItems": 1,
+    "claimScoreableCoverage": 1,
+    "scoreableCoverage": 1,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": false,
+    "unsupportedClaims": [
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hj9j0y_equity_thesis_contradiction_runner_sample_0004_short_risk",
+        "oracleSide": "short_risk",
+        "claim": "外部反馈: 看空反证：空头拥挤、回补风险和潜在上行催化会抬高单边做空损失概率，证据与看空立场冲突，需进入冲突审查流程",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "看空反证",
+          "空头拥挤",
+          "回补风险",
+          "回补风险和潜在上行催化会抬高单边做空损失概率",
+          "证据与看空立场冲突"
+        ],
+        "supportedAnchors": [
+          "看空反证",
+          "空头拥挤",
+          "回补风险"
+        ],
+        "keywordCoverage": 0.6,
+        "longestCommonSubstring": 26,
+        "longestCommonSubstringRatio": 0.5,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hj9j0y_equity_thesis_contradiction_runner_sample_0004_short_risk",
+        "oracleSide": "short_risk",
+        "claim": "看空反证：空头拥挤、回补风险和潜在上行催化会抬高单边做空损失概率，证据与看空立场冲突，需进入冲突审查流程",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "看空反证",
+          "空头拥挤",
+          "回补风险",
+          "回补风险和潜在上行催化会抬高单边做空损失概率",
+          "证据与看空立场冲突"
+        ],
+        "supportedAnchors": [
+          "看空反证",
+          "空头拥挤",
+          "回补风险"
+        ],
+        "keywordCoverage": 0.6,
+        "longestCommonSubstring": 26,
+        "longestCommonSubstringRatio": 0.541667,
+        "supported": false
+      }
+    ],
+    "indeterminateReasonCounts": {},
+    "indeterminateReasons": {},
+    "excludedAsNonConflict": {
+      "count": 11,
+      "reasonCounts": {
+        "governance_or_task_restatement": 7,
+        "no_oracle_side": 2,
+        "seed_identity_or_world": 2
+      },
+      "exampleIds": [
+        "kb_seed_identity_9j0y",
+        "kb_seed_world_9j0y",
+        "kb_gate_gate_meaning_1_e_1_9j0y_f1",
+        "kb_proj_mqhj9j0y_004",
+        "kb_proj_mqhj9j0y_006",
+        "kb_proj_mqhj9j0y_008",
+        "kb_proj_mqhj9j0y_010",
+        "kb_proj_mqhj9j0y_011",
+        "kb_proj_mqhj9j0y_013",
+        "kb_proj_mqhj9j0y_014",
+        "kb_proj_mqhj9j0y_015"
+      ]
+    },
+    "indeterminateExamples": []
+  },
+  "latencyAndEfficiency": {
+    "measurementNote": "API request latency is runner/harness-observed latency under validation polling load, not an isolated production retrieval SLO.",
+    "apiRequest": {
+      "sampleSize": 184,
+      "p50Ms": 5,
+      "p95Ms": 19030,
+      "p99Ms": 36889
+    },
+    "apiRequestBySegment": {
+      "runner_control_api_request": {
+        "sampleSize": 41,
+        "p50Ms": 4,
+        "p95Ms": 2811,
+        "p99Ms": 6846
+      },
+      "harness_polling_api_request": {
+        "sampleSize": 113,
+        "p50Ms": 4,
+        "p95Ms": 39,
+        "p99Ms": 51
+      },
+      "scheduler_tick": {
+        "sampleSize": 26,
+        "p50Ms": 14245,
+        "p95Ms": 36889,
+        "p99Ms": 39025
+      },
+      "knowledge_retrieval": {
+        "sampleSize": 4,
+        "p50Ms": 13,
+        "p95Ms": 25,
+        "p99Ms": 25
+      }
+    },
+    "slo": {
+      "sloStatus": "warn",
+      "sloBlocking": false,
+      "enforceLatencySlo": false,
+      "thresholdsMs": {
+        "knowledge_retrieval": 2000,
+        "scheduler_tick": 30000
+      },
+      "includedSegments": [
+        {
+          "segment": "knowledge_retrieval",
+          "sampleSize": 4,
+          "p95Ms": 25,
+          "p95ThresholdMs": 2000,
+          "status": "pass"
+        },
+        {
+          "segment": "scheduler_tick",
+          "sampleSize": 26,
+          "p95Ms": 36889,
+          "p95ThresholdMs": 30000,
+          "status": "warn"
+        }
+      ],
+      "excludedSegments": [
+        "harness_polling_api_request"
+      ],
+      "measurementNote": "harness_polling_api_request is excluded: harness polling is not a production SLO; knowledge_retrieval and scheduler_tick are SLO-observed segments."
+    },
+    "llmOverall": {
+      "sampleSize": 66,
+      "p50Ms": 6751,
+      "p95Ms": 14223,
+      "p99Ms": 14453
+    },
+    "llmAgentP95Ms": {
+      "orchestrator": 14271,
+      "sensor": 9143,
+      "builder": 14239,
+      "distiller": 8866,
+      "librarian": 11823
+    },
+    "totals": {
+      "closedCycles": 8,
+      "resolvedConflicts": 1,
+      "netActiveKnowledge": 0,
+      "totalTokens": 193915,
+      "totalCostUsd": 0.38783
+    },
+    "ratios": {
+      "tokensPerClosedCycle": 24239.375,
+      "costPerClosedCycleUsd": 0.048479,
+      "tokensPerResolvedConflict": 193915,
+      "costPerResolvedConflictUsd": 0.38783,
+      "tokensPerNetActiveKnowledge": null,
+      "costPerNetActiveKnowledgeUsd": null
+    }
+  },
+  "rssSlopeMbPerHour": 0,
+  "rssSlopeThresholdMbPerHour": 50,
+  "rssSlopeUnder50MbPerHour": true,
+  "notes": [
+    {
+      "type": "benchmark_mapping",
+      "decisionTsr": "task-success-rate style single-scenario oracle check, similar to tau-bench pass@1/pass^k reliability framing",
+      "resolutionAccuracy": "conflict resolution / implicit inference accuracy over deterministic oracle pair rules",
+      "faithfulness": "claim-level lexical NLI proxy for RAGAS/TruLens-style faithfulness; LLM judge interface is reserved but off by default",
+      "confidenceCalibration": "expected calibration error / reliability table over confidence_score or extracted confidence text"
+    },
+    "decisionTsr is a single-scenario pass@1 oracle-state check, not an independent reasoning benchmark.",
+    "pass^k multi-seed reliability is intentionally deferred to v2.",
+    "API latency is runner/harness-observed polling and control request latency under validation load, not an isolated production retrieval SLO.",
+    "Resolution accuracy is blocking only when scoreable coverage meets the configured threshold."
+  ],
+  "sources": {
+    "knowledge": "health-signal.db:knowledge_items",
+    "llmCalls": "health-signal.db:llm_calls",
+    "resolutionEvents": "events.jsonl:knowledge_review_resolved",
+    "apiRequestLatency": "events.jsonl:api_request_timing",
+    "rss": "monitor_log.csv:appRssMb"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "id": "ALAYA-RSI-BINPACK-DEV-20260922",
+  "version": "1.2",
+  "evidence": "DEVELOPMENT",
+  "authorization": "User confirmed execution on 2026-09-22 and removed aggregate spending/request/deadline budgets. Equal experimental allocations remain.",
+  "aggregateBudget": null,
+  "deadline": null,
+  "model": {
+    "name": "MiniMax-M3",
+    "baseUrl": "https://api.minimax.io/openai",
+    "temperature": 0.7,
+    "thinking": "disabled",
+    "maxOutputTokens": 3000,
+    "maxInputBytes": 8000
+  },
+  "price": {
+    "inputPerMillionUsd": 0.3,
+    "outputPerMillionUsd": 1.2,
+    "cachedInputPerMillionUsd": 0.06,
+    "source": "https://platform.minimax.io/docs/guides/pricing-paygo",
+    "checkedDate": "2026-09-22",
+    "note": "Standard PAYG equivalent; not an account invoice. Unknown usage remains unknown, with a conservative allocation-based estimate."
+  },
+  "counts": {
+    "train": 32,
+    "dev": 32,
+    "test": 128,
+    "repeats": 3
+  },
+  "phaseCallsPerSearch": {
+    "1": 20,
+    "2": 10,
+    "3": 10
+  },
+  "policyEditAttempts": 4,
+  "gainPercent": 0.5,
+  "minimumPositivePairs": 6,
+  "maxWorldRegressionPercent": 0.5,
+  "parallelRepeats": 3,
+  "notes": [
+    "The conservative UTF-8 byte bound is used because no verified MiniMax tokenizer is installed; actual usage is recorded. No financial stop is applied.",
+    "Private test instances and scores never enter model prompts. Policy edits use training-only receipts.",
+    "Host Node 22.22.1 uses existing tsx; Node 20 is pinned inside the candidate container. Both are covered by affected-path checks."
+  ],
+  "mode": "live",
+  "seed": "alaya-rsi-20260922-frozen-v1",
+  "containerImage": "node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293"
+}

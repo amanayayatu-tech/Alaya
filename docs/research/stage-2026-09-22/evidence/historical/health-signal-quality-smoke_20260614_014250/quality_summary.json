@@ -1,0 +1,134 @@
+{
+  "generatedAt": "2026-06-14T02:12:40.854Z",
+  "expectedDecision": "hybrid_layered",
+  "decisionTsr": {
+    "status": "fail",
+    "passed": false,
+    "interpretation": "single-scenario pass@1 check: verifies that the final active/strong card state matches the preset Health Signal oracle; it is not an independent reasoning benchmark",
+    "passK": {
+      "implemented": false,
+      "plannedVersion": "v2"
+    },
+    "expectedDecision": "hybrid_layered",
+    "eligibleKnowledgeCount": 7,
+    "hybridLayeredCount": 1,
+    "disallowedFinalCount": 1,
+    "decisions": {
+      "hybrid_layered": 1,
+      "ppg_only": 1,
+      "unknown": 5
+    },
+    "disallowedFinalKnowledge": [
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_d4drdf_health_signal_contradiction_runner_sample_0001_ppg_support",
+        "title": "外部反馈: PPG 优先证据：成本与续航匹配",
+        "oracleSide": "ppg_support",
+        "decision": "ppg_only",
+        "status": "strong"
+      }
+    ],
+    "hybridLayeredKnowledge": [
+      {
+        "knowledgeId": "kb_seed_world_drdf",
+        "title": "初始世界模型",
+        "oracleSide": null,
+        "decision": "hybrid_layered",
+        "status": "strong"
+      }
+    ]
+  },
+  "resolutionAccuracy": {
+    "status": "insufficient_evidence",
+    "passed": false,
+    "threshold": 0.9,
+    "accuracy": null,
+    "correct": 0,
+    "scored": 0,
+    "unscored": 0,
+    "totalReviewed": 0,
+    "scoreableCoverage": null,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": false,
+    "scoredEvents": [],
+    "unscoredExamples": []
+  },
+  "latencyAndEfficiency": {
+    "measurementNote": "API request latency is runner/harness-observed latency under validation polling load, not an isolated production retrieval SLO.",
+    "apiRequest": {
+      "sampleSize": 438,
+      "p50Ms": 6,
+      "p95Ms": 29192,
+      "p99Ms": 49287
+    },
+    "apiRequestBySegment": {
+      "runner_control_api_request": {
+        "sampleSize": 92,
+        "p50Ms": 5,
+        "p95Ms": 2605,
+        "p99Ms": 20106
+      },
+      "scheduler_tick": {
+        "sampleSize": 77,
+        "p50Ms": 17837,
+        "p95Ms": 53177,
+        "p99Ms": 59626
+      },
+      "harness_polling_api_request": {
+        "sampleSize": 257,
+        "p50Ms": 4,
+        "p95Ms": 120,
+        "p99Ms": 202
+      },
+      "knowledge_retrieval": {
+        "sampleSize": 12,
+        "p50Ms": 20,
+        "p95Ms": 156,
+        "p99Ms": 156
+      }
+    },
+    "llmOverall": {
+      "sampleSize": 206,
+      "p50Ms": 7794,
+      "p95Ms": 16873,
+      "p99Ms": 19109
+    },
+    "llmAgentP95Ms": {
+      "orchestrator": 17699,
+      "sensor": 12658,
+      "builder": 18039,
+      "distiller": 14153,
+      "librarian": 11400
+    },
+    "totals": {
+      "closedCycles": 24,
+      "resolvedConflicts": 0,
+      "netActiveKnowledge": 5,
+      "totalTokens": 718680,
+      "totalCostUsd": 1.43736
+    },
+    "ratios": {
+      "tokensPerClosedCycle": 29945,
+      "costPerClosedCycleUsd": 0.05989,
+      "tokensPerResolvedConflict": null,
+      "costPerResolvedConflictUsd": null,
+      "tokensPerNetActiveKnowledge": 143736,
+      "costPerNetActiveKnowledgeUsd": 0.287472
+    }
+  },
+  "rssSlopeMbPerHour": -15.692267,
+  "rssSlopeThresholdMbPerHour": 50,
+  "rssSlopeUnder50MbPerHour": true,
+  "sources": {
+    "knowledge": "health-signal.db:knowledge_items",
+    "llmCalls": "health-signal.db:llm_calls",
+    "resolutionEvents": "events.jsonl:knowledge_review_resolved",
+    "apiRequestLatency": "events.jsonl:api_request_timing",
+    "rss": "monitor_log.csv:appRssMb"
+  },
+  "notes": [
+    "decisionTsr is a single-scenario pass@1 oracle-state check, not an independent reasoning benchmark.",
+    "pass^k multi-seed reliability is intentionally deferred to v2.",
+    "API latency is runner/harness-observed polling and control request latency under validation load, not an isolated production retrieval SLO.",
+    "Resolution accuracy is blocking only when scoreable coverage meets the configured threshold."
+  ]
+}

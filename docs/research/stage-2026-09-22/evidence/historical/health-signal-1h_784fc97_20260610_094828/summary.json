@@ -1,0 +1,81 @@
+{
+  "projectId": "proj_mq7evycb",
+  "projectName": "wearable-health-signal-decision",
+  "baseUrl": "http://127.0.0.1:5301",
+  "dbPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/health-signal-1h_784fc97_20260610_094828/health-signal.db",
+  "logDir": "/Users/LOCAL_USER/Documents/alaya/validation-logs/health-signal-1h_784fc97_20260610_094828",
+  "startedAt": "2026-06-10T01:50:53.546Z",
+  "endedAt": "2026-06-10T02:53:51.876Z",
+  "validationStartedAt": "2026-06-10T01:50:53.546Z",
+  "sampleCount": 13,
+  "processDurationMs": 3778330,
+  "validationDurationMs": 3778330,
+  "timing": {
+    "durationMs": 3900000,
+    "sampleMs": 300000,
+    "maxSamples": 13,
+    "progressTicksPerSample": 6
+  },
+  "llmProvider": "openai",
+  "model": "MiniMax-M3",
+  "decisionVia": "codex_real_minimax_smoke",
+  "finalDrain": {
+    "status": "complete",
+    "attempts": 0,
+    "lastAction": ""
+  },
+  "assessment": {
+    "criteria": {
+      "deltaReached8": true,
+      "activeNeverZero": true,
+      "tokenSourceProviderAtLeast95pct": true,
+      "semanticContradictionBypassZero": true,
+      "conflictAtLeast5": false,
+      "conflictResolvedAtLeast3": false,
+      "humanGateDropAtLeast30pct": false,
+      "stallGuardUnder5pct": true,
+      "sampleFailedZero": true
+    },
+    "observed": {
+      "firstDelta": "1",
+      "lastDelta": "22",
+      "firstCurrentDelta": "1",
+      "lastCurrentDelta": "22",
+      "minActiveKnowledgeCount": 1,
+      "finalActiveKnowledgeCount": "1",
+      "finalLlmTokenSource": "provider",
+      "lastLlmTokenSourceStats": {
+        "total": 200,
+        "provider": 200,
+        "estimated": 0,
+        "providerRatio": 1,
+        "label": "provider"
+      },
+      "semanticContradictionBypassCount": 0,
+      "sampleFailedCount": 0,
+      "maxConflictCount": 2,
+      "maxSnapshotConflictCount": 1,
+      "maxResolvedConflictReviews": 2,
+      "cumulativeConflictEvidence": {
+        "maxOpenReviews": 0,
+        "maxResolvedReviews": 2,
+        "resolvedUniqueReviewCount": 2,
+        "maxScanReviewRequired": 2,
+        "maxScanConflictCandidates": 0,
+        "cumulativeConflictCount": 2
+      },
+      "maxStallGuardCount": 1,
+      "cyclesClosed": 24,
+      "earlyPendingGateAverage": 0.667,
+      "latePendingGateAverage": 4,
+      "humanGatePendingDropRatio": -4.997
+    }
+  },
+  "files": {
+    "monitorCsv": "/Users/LOCAL_USER/Documents/alaya/validation-logs/health-signal-1h_784fc97_20260610_094828/monitor_log.csv",
+    "eventsJsonl": "/Users/LOCAL_USER/Documents/alaya/validation-logs/health-signal-1h_784fc97_20260610_094828/events.jsonl",
+    "issuesMd": "/Users/LOCAL_USER/Documents/alaya/validation-logs/health-signal-1h_784fc97_20260610_094828/issues.md",
+    "appLogPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/health-signal-1h_784fc97_20260610_094828/app.log",
+    "runnerLogPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/health-signal-1h_784fc97_20260610_094828/runner.log"
+  }
+}

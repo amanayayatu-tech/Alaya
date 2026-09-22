@@ -1,0 +1,563 @@
+{
+  "generatedAt": "2026-06-17T05:37:46.443Z",
+  "expectedDecision": "tiered_thesis",
+  "decisionTsr": {
+    "status": "pass",
+    "passed": true,
+    "interpretation": "single-scenario pass@1 check: verifies that the final active/strong card state matches the preset equity-thesis oracle; it is not an independent reasoning benchmark",
+    "passK": {
+      "implemented": false,
+      "plannedVersion": "v2"
+    },
+    "expectedDecision": "tiered_thesis",
+    "eligibleKnowledgeCount": 7,
+    "tieredThesisCount": 4,
+    "disallowedFinalCount": 0,
+    "decisions": {
+      "tiered_thesis": 4,
+      "unknown": 3
+    },
+    "disallowedFinalKnowledge": [],
+    "tieredThesisKnowledge": [
+      {
+        "knowledgeId": "kb_seed_identity_xpip",
+        "title": "种子身份",
+        "oracleSide": null,
+        "decision": "tiered_thesis",
+        "status": "active"
+      },
+      {
+        "knowledgeId": "kb_seed_world_xpip",
+        "title": "初始世界模型",
+        "oracleSide": null,
+        "decision": "tiered_thesis",
+        "status": "active"
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0001_tiered_support",
+        "title": "外部反馈: Phase2 校准样本 001：订单恢复与毛利率弹性",
+        "oracleSide": "tiered_support",
+        "decision": "tiered_thesis",
+        "status": "strong"
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "title": "外部反馈: Phase2 校准样本 002：估值修复与事件风险",
+        "oracleSide": "tiered_support",
+        "decision": "tiered_thesis",
+        "status": "strong"
+      }
+    ]
+  },
+  "resolutionAccuracy": {
+    "status": "insufficient_evidence",
+    "passed": false,
+    "threshold": 0.9,
+    "accuracy": null,
+    "correct": 0,
+    "scored": 0,
+    "unscored": 0,
+    "totalReviewed": 0,
+    "scoreableCoverage": null,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": false,
+    "dedupeMode": "exact",
+    "pairTypeCounts": {},
+    "scoredPairTypeCounts": {},
+    "unscoredPairTypeCounts": {},
+    "unscoredReasonCounts": {},
+    "duplicatePairTypeCounts": {},
+    "scoredEvents": [],
+    "unscoredExamples": []
+  },
+  "confidenceCalibration": {
+    "status": "fail",
+    "ece": 0.184341,
+    "threshold": 0.05,
+    "warnThreshold": 0.1,
+    "bucketCount": 10,
+    "sampleSize": 12,
+    "scored": 12,
+    "unscored": 0,
+    "totalCandidates": 17,
+    "eligible": 12,
+    "denominator": 12,
+    "eligibleConflictKnowledgeTotal": 12,
+    "minEligible": 10,
+    "totalEligible": 12,
+    "scoreableDenominator": 12,
+    "outOfScopeNoOracle": 2,
+    "excludedAsNonConflict": {
+      "count": 5,
+      "reasonCounts": {
+        "no_oracle_side": 2,
+        "seed_identity_or_world": 2,
+        "governance_or_task_restatement": 1
+      },
+      "exampleIds": [
+        "kb_seed_identity_xpip",
+        "kb_seed_world_xpip",
+        "kb_gate_gate_meaning_1_e_1_xpip_f1",
+        "kb_proj_mqhmxpip_006",
+        "kb_proj_mqhmxpip_011"
+      ]
+    },
+    "scoreableCoverage": 1,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": true,
+    "reliabilityTable": [
+      {
+        "bucket": 7,
+        "lowerBound": 0.7,
+        "upperBound": 0.8,
+        "confMean": 0.794416,
+        "accuracy": 1,
+        "n": 10
+      },
+      {
+        "bucket": 8,
+        "lowerBound": 0.8,
+        "upperBound": 0.9,
+        "confMean": 0.875,
+        "accuracy": 1,
+        "n": 1
+      },
+      {
+        "bucket": 9,
+        "lowerBound": 0.9,
+        "upperBound": 1,
+        "confMean": 0.96875,
+        "accuracy": 1,
+        "n": 1
+      }
+    ],
+    "correctnessModeCounts": {
+      "calibration_truth_decision": 12
+    },
+    "unscoredReasonCounts": {},
+    "scoredKnowledge": [
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0001_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "strong",
+        "supersededBy": null,
+        "confidence": 0.875,
+        "expectedDisposition": "retained_as_final_decision",
+        "correctnessMode": "calibration_truth_decision",
+        "calibrationTruthExternalId": "sample_0001_tiered_support",
+        "expectedDecision": "tiered_thesis",
+        "actualDecision": "tiered_thesis",
+        "actualOracleSide": "tiered_support",
+        "correct": true
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "strong",
+        "supersededBy": null,
+        "confidence": 0.96875,
+        "expectedDisposition": "retained_as_final_decision",
+        "correctnessMode": "calibration_truth_decision",
+        "calibrationTruthExternalId": "sample_0002_tiered_support",
+        "expectedDecision": "tiered_thesis",
+        "actualDecision": "tiered_thesis",
+        "actualOracleSide": "tiered_support",
+        "correct": true
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0003_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7944534657517216,
+        "expectedDisposition": "retained_as_final_decision",
+        "correctnessMode": "calibration_truth_decision",
+        "calibrationTruthExternalId": "sample_0003_tiered_support",
+        "expectedDecision": "tiered_thesis",
+        "actualDecision": "tiered_thesis",
+        "actualOracleSide": "tiered_support",
+        "correct": true
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0004_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7944259282098807,
+        "expectedDisposition": "retained_as_final_decision",
+        "correctnessMode": "calibration_truth_decision",
+        "calibrationTruthExternalId": "sample_0004_tiered_support",
+        "expectedDecision": "tiered_thesis",
+        "actualDecision": "tiered_thesis",
+        "actualOracleSide": "tiered_support",
+        "correct": true
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0005_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7944259282098807,
+        "expectedDisposition": "retained_as_final_decision",
+        "correctnessMode": "calibration_truth_decision",
+        "calibrationTruthExternalId": "sample_0005_tiered_support",
+        "expectedDecision": "tiered_thesis",
+        "actualDecision": "tiered_thesis",
+        "actualOracleSide": "tiered_support",
+        "correct": true
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0006_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7944259282098807,
+        "expectedDisposition": "retained_as_final_decision",
+        "correctnessMode": "calibration_truth_decision",
+        "calibrationTruthExternalId": "sample_0006_tiered_support",
+        "expectedDecision": "tiered_thesis",
+        "actualDecision": "tiered_thesis",
+        "actualOracleSide": "tiered_support",
+        "correct": true
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0007_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0001_tiered_support",
+        "confidence": 0.7944056162674443,
+        "expectedDisposition": "retained_as_final_decision",
+        "correctnessMode": "calibration_truth_decision",
+        "calibrationTruthExternalId": "sample_0007_tiered_support",
+        "expectedDecision": "tiered_thesis",
+        "actualDecision": "tiered_thesis",
+        "actualOracleSide": "tiered_support",
+        "correct": true
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0009_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7944056162674443,
+        "expectedDisposition": "retained_as_final_decision",
+        "correctnessMode": "calibration_truth_decision",
+        "calibrationTruthExternalId": "sample_0009_tiered_support",
+        "expectedDecision": "tiered_thesis",
+        "actualDecision": "tiered_thesis",
+        "actualOracleSide": "tiered_support",
+        "correct": true
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0008_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7944056162674442,
+        "expectedDisposition": "retained_as_final_decision",
+        "correctnessMode": "calibration_truth_decision",
+        "calibrationTruthExternalId": "sample_0008_tiered_support",
+        "expectedDecision": "tiered_thesis",
+        "actualDecision": "tiered_thesis",
+        "actualOracleSide": "tiered_support",
+        "correct": true
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0010_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7944056162674442,
+        "expectedDisposition": "retained_as_final_decision",
+        "correctnessMode": "calibration_truth_decision",
+        "calibrationTruthExternalId": "sample_0010_tiered_support",
+        "expectedDecision": "tiered_thesis",
+        "actualDecision": "tiered_thesis",
+        "actualOracleSide": "tiered_support",
+        "correct": true
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0011_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7944056162674442,
+        "expectedDisposition": "retained_as_final_decision",
+        "correctnessMode": "calibration_truth_decision",
+        "calibrationTruthExternalId": "sample_0011_tiered_support",
+        "expectedDecision": "tiered_thesis",
+        "actualDecision": "tiered_thesis",
+        "actualOracleSide": "tiered_support",
+        "correct": true
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0012_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7944056162674442,
+        "expectedDisposition": "retained_as_final_decision",
+        "correctnessMode": "calibration_truth_decision",
+        "calibrationTruthExternalId": "sample_0012_tiered_support",
+        "expectedDecision": "tiered_thesis",
+        "actualDecision": "tiered_thesis",
+        "actualOracleSide": "tiered_support",
+        "correct": true
+      }
+    ],
+    "unscoredExamples": []
+  },
+  "faithfulness": {
+    "status": "pass",
+    "judgeMode": "lexical",
+    "faithfulness": 0.954545,
+    "hallucinationRate": 0.045455,
+    "threshold": 0.95,
+    "stretchMedicalTarget": 0.98,
+    "scored": 88,
+    "supported": 84,
+    "unsupported": 4,
+    "indeterminate": 0,
+    "totalClaims": 88,
+    "evidenceClaimCount": 60,
+    "totalCandidates": 17,
+    "eligible": 12,
+    "denominator": 12,
+    "eligibleConflictKnowledgeTotal": 12,
+    "minEligible": 10,
+    "scoreableDenominator": 12,
+    "scoreableKnowledge": 12,
+    "scoreableKnowledgeItems": 12,
+    "claimScoreableCoverage": 1,
+    "scoreableCoverage": 1,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": true,
+    "unsupportedClaims": [
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0003_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "外部反馈: Phase2 校准样本 003：收入指引改善支撑多头假设，组合回撤预算约束裸露仓位，置信度 0.83",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "置信度 0.83",
+          "收入指引改善支撑多头假设",
+          "组合回撤预算约束裸露仓位",
+          "003",
+          "0.83"
+        ],
+        "supportedAnchors": [
+          "置信度 0.83",
+          "003",
+          "0.83"
+        ],
+        "keywordCoverage": 0.6,
+        "longestCommonSubstring": 20,
+        "longestCommonSubstringRatio": 0.416667,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0003_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "Phase2 校准样本 003：收入指引改善支撑多头假设，组合回撤预算约束裸露仓位，置信度 0.83",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "置信度 0.83",
+          "收入指引改善支撑多头假设",
+          "组合回撤预算约束裸露仓位",
+          "003",
+          "0.83"
+        ],
+        "supportedAnchors": [
+          "置信度 0.83",
+          "003",
+          "0.83"
+        ],
+        "keywordCoverage": 0.6,
+        "longestCommonSubstring": 20,
+        "longestCommonSubstringRatio": 0.454545,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0005_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "外部反馈: Phase2 校准样本 005：利润率修复与空头拥挤同时存在，单边方向信号不足，采用多空分层仓位方案",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "利润率修复与空头拥挤同时存在",
+          "采用多空分层仓位方案",
+          "005"
+        ],
+        "supportedAnchors": [
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "005"
+        ],
+        "keywordCoverage": 0.666667,
+        "longestCommonSubstring": 23,
+        "longestCommonSubstringRatio": 0.469388,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hmxpip_equity_thesis_contradiction_runner_sample_0005_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "Phase2 校准样本 005：利润率修复与空头拥挤同时存在，单边方向信号不足，采用多空分层仓位方案",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "利润率修复与空头拥挤同时存在",
+          "采用多空分层仓位方案",
+          "005"
+        ],
+        "supportedAnchors": [
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "005"
+        ],
+        "keywordCoverage": 0.666667,
+        "longestCommonSubstring": 23,
+        "longestCommonSubstringRatio": 0.511111,
+        "supported": false
+      }
+    ],
+    "indeterminateReasonCounts": {},
+    "indeterminateReasons": {},
+    "excludedAsNonConflict": {
+      "count": 5,
+      "reasonCounts": {
+        "no_oracle_side": 2,
+        "seed_identity_or_world": 2,
+        "governance_or_task_restatement": 1
+      },
+      "exampleIds": [
+        "kb_seed_identity_xpip",
+        "kb_seed_world_xpip",
+        "kb_gate_gate_meaning_1_e_1_xpip_f1",
+        "kb_proj_mqhmxpip_006",
+        "kb_proj_mqhmxpip_011"
+      ]
+    },
+    "indeterminateExamples": []
+  },
+  "latencyAndEfficiency": {
+    "measurementNote": "API request latency is runner/harness-observed latency under validation polling load, not an isolated production retrieval SLO.",
+    "apiRequest": {
+      "sampleSize": 118,
+      "p50Ms": 7,
+      "p95Ms": 8941,
+      "p99Ms": 20676
+    },
+    "apiRequestBySegment": {
+      "runner_control_api_request": {
+        "sampleSize": 32,
+        "p50Ms": 16,
+        "p95Ms": 4680,
+        "p99Ms": 8941
+      },
+      "harness_polling_api_request": {
+        "sampleSize": 74,
+        "p50Ms": 5,
+        "p95Ms": 17,
+        "p99Ms": 24
+      },
+      "scheduler_tick": {
+        "sampleSize": 8,
+        "p50Ms": 12778,
+        "p95Ms": 24017,
+        "p99Ms": 24017
+      },
+      "knowledge_retrieval": {
+        "sampleSize": 4,
+        "p50Ms": 6,
+        "p95Ms": 12,
+        "p99Ms": 12
+      }
+    },
+    "slo": {
+      "sloStatus": "pass",
+      "sloBlocking": false,
+      "enforceLatencySlo": false,
+      "thresholdsMs": {
+        "knowledge_retrieval": 2000,
+        "scheduler_tick": 30000
+      },
+      "includedSegments": [
+        {
+          "segment": "knowledge_retrieval",
+          "sampleSize": 4,
+          "p95Ms": 12,
+          "p95ThresholdMs": 2000,
+          "status": "pass"
+        },
+        {
+          "segment": "scheduler_tick",
+          "sampleSize": 8,
+          "p95Ms": 24017,
+          "p95ThresholdMs": 30000,
+          "status": "pass"
+        }
+      ],
+      "excludedSegments": [
+        "harness_polling_api_request"
+      ],
+      "measurementNote": "harness_polling_api_request is excluded: harness polling is not a production SLO; knowledge_retrieval and scheduler_tick are SLO-observed segments."
+    },
+    "llmOverall": {
+      "sampleSize": 29,
+      "p50Ms": 2603,
+      "p95Ms": 12742,
+      "p99Ms": 20657
+    },
+    "llmAgentP95Ms": {
+      "orchestrator": 20657,
+      "sensor": 7312,
+      "builder": 6428,
+      "distiller": 3679,
+      "librarian": 7633
+    },
+    "totals": {
+      "closedCycles": 3,
+      "resolvedConflicts": 0,
+      "netActiveKnowledge": 7,
+      "totalTokens": 60318,
+      "totalCostUsd": 0.120636
+    },
+    "ratios": {
+      "tokensPerClosedCycle": 20106,
+      "costPerClosedCycleUsd": 0.040212,
+      "tokensPerResolvedConflict": null,
+      "costPerResolvedConflictUsd": null,
+      "tokensPerNetActiveKnowledge": 8616.857143,
+      "costPerNetActiveKnowledgeUsd": 0.017234
+    }
+  },
+  "rssSlopeMbPerHour": -1.430046,
+  "rssSlopeThresholdMbPerHour": 50,
+  "rssSlopeUnder50MbPerHour": true,
+  "notes": [
+    {
+      "type": "benchmark_mapping",
+      "decisionTsr": "task-success-rate style single-scenario oracle check, similar to tau-bench pass@1/pass^k reliability framing",
+      "resolutionAccuracy": "conflict resolution / implicit inference accuracy over deterministic oracle pair rules",
+      "faithfulness": "claim-level lexical NLI proxy for RAGAS/TruLens-style faithfulness; LLM judge interface is reserved but off by default",
+      "confidenceCalibration": "expected calibration error / reliability table over confidence_score or extracted confidence text"
+    },
+    "decisionTsr is a single-scenario pass@1 oracle-state check, not an independent reasoning benchmark.",
+    "pass^k multi-seed reliability is intentionally deferred to v2.",
+    "API latency is runner/harness-observed polling and control request latency under validation load, not an isolated production retrieval SLO.",
+    "Resolution accuracy is blocking only when scoreable coverage meets the configured threshold."
+  ],
+  "sources": {
+    "knowledge": "health-signal.db:knowledge_items",
+    "llmCalls": "health-signal.db:llm_calls",
+    "resolutionEvents": "events.jsonl:knowledge_review_resolved",
+    "apiRequestLatency": "events.jsonl:api_request_timing",
+    "rss": "monitor_log.csv:appRssMb"
+  }
+}

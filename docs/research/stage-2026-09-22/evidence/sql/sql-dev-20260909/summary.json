@@ -1,0 +1,68 @@
+{
+  "evidenceMode": "DEVELOPMENT",
+  "startedAt": "2026-09-08T16:45:00.667Z",
+  "baseCommit": "b7090b11b41f358f4d82906c86be835a68c06e64",
+  "modelRequested": "MiniMax-M3",
+  "baseUrl": "https://api.minimax.io/openai",
+  "temperature": 0,
+  "maxOutputTokens": 2048,
+  "retries": 0,
+  "simplifiedFallback": false,
+  "maxCalls": 6,
+  "testConcurrency": 3,
+  "memoryCharCeiling": 12000,
+  "rawMemoryK": 2,
+  "ranking": "static",
+  "epsilon": 0,
+  "sourceHashes": {
+    "scripts/lib/sql-repair-cases.py": "e5b4b3cce286d21a5a3ee28ad7ed9324952c78a8ffd7e1900a6dbeb104954b34",
+    "scripts/sql-repair-experiment.mjs": "78c84328d95c8d57b4b86f816568b63c5707a510d0f1d9629772ef3aca5e9398",
+    "alaya-app/server/sqlRepair.ts": "f973e8da23a541a921f2f56347ca08b3c581cc705dda7d1bb333a3b8604cb715",
+    "alaya-app/server/knowledgeInjection.ts": "54c087374456981eb0fb14843e69a6982b47bc19ecc34fb563a47c0f704708bf",
+    "alaya-app/server/knowledgeCredit.ts": "faf99374addb218d56a881c788ece2921b76b5f9775606b700efdb039ad03cf8",
+    "alaya-core/src/llm/provider.ts": "35e327174f159f883d9f0ead90dc9f759440f05ecd289adad12a0528d4d54878",
+    "docs/validation/SQL_REPAIR_DEVELOPMENT_PLAN.md": "4303206d27bd4a465b8181df323e649423f5c9f65e05301c7d4360c333ee61d4"
+  },
+  "casesSha256": "fdf71076d1318cdf4e3af81f6e5897c2d426e50e32003d1addf815a35de0f3a6",
+  "initialKnowledgeSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "evaluator": {
+    "cases": 54,
+    "ok": true,
+    "splits": {
+      "dev": 6,
+      "test": 24,
+      "train": 24
+    }
+  },
+  "devOnly": true,
+  "completedAt": "2026-09-08T16:45:25.731Z",
+  "issuedCalls": 6,
+  "completedCalls": 6,
+  "scores": {
+    "none": {
+      "n": 6,
+      "correct": 5,
+      "schemaFailures": 0
+    },
+    "raw": {
+      "n": 0,
+      "correct": 0,
+      "schemaFailures": 0
+    },
+    "alaya": {
+      "n": 0,
+      "correct": 0,
+      "schemaFailures": 0
+    }
+  },
+  "knowledgeFrozen": null,
+  "observedModels": [
+    "MiniMax-M3"
+  ],
+  "providerTokens": {
+    "input": 5274,
+    "output": 1894,
+    "cached": 640
+  },
+  "providerUsageMissing": 0
+}

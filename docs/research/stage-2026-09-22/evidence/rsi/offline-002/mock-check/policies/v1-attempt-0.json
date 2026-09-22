@@ -1,0 +1,22 @@
+{
+  "schemaValid": true,
+  "retryCount": 0,
+  "data": {
+    "policy": "You optimize an online bin-packing algorithm under a fixed experimental allocation.\nReturn one complete candidate function and one short, falsifiable improvement hypothesis.\nRespect the online input and legal output contract.\nWhen real history is supplied, inspect the current champion and recent failures, then choose one evidence-based change.\nWhen history is absent, propose a candidate from the supplied initial algorithm and task description.\nPreserve useful behavior; do not claim tests were executed unless execution receipts were supplied.\nDo not change the evaluator, data access, tools, or resource allocation.\nWhen asked to improve your own research policy, use actual development traces to propose one limited change to how you form hypotheses, interpret feedback, or choose the next modification.\n\nUse verified training feedback to choose a single small modification.",
+    "change_reason": "mock format and lineage check"
+  },
+  "log": {
+    "provider": "mock",
+    "agent": "distiller",
+    "promptVersion": "rsi-policy-edit-v1.2",
+    "inputSummary": "{\"task\":\"Return JSON policy and change_reason. Revise the source research policy using only supplied real training traces, following your current editor policy. Change how hypotheses, feedback interpretation, or next edits are chosen. Retu…",
+    "outputSummary": "{\"policy\":\"You optimize an online bin-packing algorithm under a fixed experimental allocation.\\nReturn one complete candidate function and one short, falsifiable improvement hypothesis.\\nRespect the online input and legal output contract.\\…",
+    "schemaValid": true,
+    "retryCount": 0,
+    "latencyMs": 0,
+    "tokenCount": 1391,
+    "estimatedCost": 0,
+    "ts": "2026-09-22T09:03:33.107Z"
+  },
+  "degradedToHumanGate": false
+}

@@ -1,0 +1,109 @@
+{
+  "evidenceMode": "DEVELOPMENT",
+  "closeout": {
+    "kind": "probe",
+    "families": [
+      "line_item_refund",
+      "fx_as_of",
+      "scd2_segment"
+    ],
+    "schemaVersion": "sql-repair-closeout-v1",
+    "distiller": false,
+    "testArms": [
+      "none"
+    ],
+    "hardIfCorrectAtMost": 2,
+    "easyIfCorrectAtLeast": 3,
+    "probeItemsPerFamily": 4,
+    "continueIfHardFamiliesAtLeast": 2,
+    "winNetWinsAtLeast": 3,
+    "winFamiliesPositiveAtLeast": 2
+  },
+  "startedAt": "2026-09-12T18:16:01.830Z",
+  "baseCommit": "b7090b11b41f358f4d82906c86be835a68c06e64",
+  "modelRequested": "MiniMax-M3",
+  "baseUrl": "https://api.minimax.io/openai",
+  "temperature": 0,
+  "maxOutputTokens": 2048,
+  "retries": 0,
+  "simplifiedFallback": false,
+  "maxCalls": 12,
+  "testConcurrency": 1,
+  "memoryCharCeiling": 12000,
+  "rawMemoryK": 2,
+  "ranking": "static",
+  "epsilon": 0,
+  "sourceHashes": {
+    "scripts/lib/sql-repair-closeout.py": "6bdeda84da0f82779a003c2466b4d739f31d2c23244900eee32f6c8f506cce01",
+    "scripts/lib/sql-repair-cases.py": "f59ab47c352edc9e8df08dc1319c0099bb159d7a2c027982319a9bbb3ab50ed4",
+    "scripts/sql-closeout-experiment.mjs": "51a3b7903cf4ed3fab548f49457c4a1f92d0fa15f6975cd677ecb09c5227f98a",
+    "scripts/analyze-sql-closeout.mjs": "3f478bb12ca8c12931a2f313c2eea7edaccb36fc680fb07f3ed3386543ea19bc",
+    "alaya-app/server/sqlRepair.ts": "21e9b9d01967b444fee3d5dd5fbfb8e1fee3d1ee758eeadcbbf39aa11bb1f83f",
+    "alaya-core/src/llm/provider.ts": "5357fd567848e18d220832761b3cb63012ceb40877c4af4f1d8768e599b09856",
+    "alaya-app/server/storage.ts": "60bdce80e838babbb89bb6fe90d2eed3d97cc8f3eac3b337bbafa679cbcbba50",
+    "alaya-app/server/trace.ts": "93323a89c9651d03394c91b362d0106fdc5b3f3b82949a5d9eb386f95b8637b2"
+  },
+  "casesSha256": "5c2983f2cd3a6142f69ccccfd8e03d75ddaad51cb4b7f1ffd69b464c61136c10",
+  "initialKnowledgeSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "evaluator": {
+    "ok": true,
+    "probe": 12,
+    "test": 18,
+    "train": 18
+  },
+  "probe": true,
+  "completedAt": "2026-09-12T18:16:42.357Z",
+  "issuedCalls": 12,
+  "completedCalls": 12,
+  "scores": {
+    "none": {
+      "n": 12,
+      "correct": 9,
+      "schemaFailures": 0
+    }
+  },
+  "byFamily": {
+    "line_item_refund": {
+      "none": {
+        "n": 4,
+        "correct": 2,
+        "schemaFailures": 0
+      }
+    },
+    "fx_as_of": {
+      "none": {
+        "n": 4,
+        "correct": 3,
+        "schemaFailures": 0
+      }
+    },
+    "scd2_segment": {
+      "none": {
+        "n": 4,
+        "correct": 4,
+        "schemaFailures": 0
+      }
+    }
+  },
+  "probeDecision": {
+    "hardFamilies": [
+      "line_item_refund"
+    ],
+    "easyFamilies": [
+      "fx_as_of",
+      "scd2_segment"
+    ],
+    "continueToAb": false,
+    "rule": "hard if A<=2/4; easy if A>=3/4; continue A/B iff >=2 hard families"
+  },
+  "knowledgeFrozen": true,
+  "observedModels": [
+    "MiniMax-M3"
+  ],
+  "providerTokens": {
+    "input": 9652,
+    "output": 3389,
+    "cached": 1664
+  },
+  "providerUsageMissing": 0
+}

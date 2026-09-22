@@ -1,0 +1,1107 @@
+{
+  "generatedAt": "2026-06-17T05:11:18.076Z",
+  "expectedDecision": "tiered_thesis",
+  "decisionTsr": {
+    "status": "pass",
+    "passed": true,
+    "interpretation": "single-scenario pass@1 check: verifies that the final active/strong card state matches the preset equity-thesis oracle; it is not an independent reasoning benchmark",
+    "passK": {
+      "implemented": false,
+      "plannedVersion": "v2"
+    },
+    "expectedDecision": "tiered_thesis",
+    "eligibleKnowledgeCount": 10,
+    "tieredThesisCount": 6,
+    "disallowedFinalCount": 0,
+    "decisions": {
+      "tiered_thesis": 6,
+      "unknown": 4
+    },
+    "disallowedFinalKnowledge": [],
+    "tieredThesisKnowledge": [
+      {
+        "knowledgeId": "kb_seed_identity_pbg4",
+        "title": "种子身份",
+        "oracleSide": null,
+        "decision": "tiered_thesis",
+        "status": "active"
+      },
+      {
+        "knowledgeId": "kb_seed_world_pbg4",
+        "title": "初始世界模型",
+        "oracleSide": null,
+        "decision": "tiered_thesis",
+        "status": "active"
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0001_tiered_support",
+        "title": "外部反馈: Phase2 校准样本 001：订单恢复与毛利率弹性",
+        "oracleSide": "tiered_support",
+        "decision": "tiered_thesis",
+        "status": "strong"
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "title": "外部反馈: Phase2 校准样本 002：估值修复与事件风险",
+        "oracleSide": "tiered_support",
+        "decision": "tiered_thesis",
+        "status": "strong"
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0022_tiered_support",
+        "title": "外部反馈: Phase2 校准样本 022：自由现金流修复提升上行弹性，对冲成本仍可由仓位分层吸收。分层仓位方案置信度 0.82 高于阈值，属于校准通过的指标信号。",
+        "oracleSide": "tiered_support",
+        "decision": "tiered_thesis",
+        "status": "active"
+      },
+      {
+        "knowledgeId": "kb_proj_mqhlpbg4_046",
+        "title": "外部反馈: Phase2 校准样本 001：订单恢复与毛利率弹性",
+        "oracleSide": "tiered_support",
+        "decision": "tiered_thesis",
+        "status": "active"
+      }
+    ]
+  },
+  "resolutionAccuracy": {
+    "status": "insufficient_evidence",
+    "passed": false,
+    "threshold": 0.9,
+    "accuracy": null,
+    "correct": 0,
+    "scored": 0,
+    "unscored": 0,
+    "totalReviewed": 0,
+    "scoreableCoverage": null,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": false,
+    "dedupeMode": "exact",
+    "pairTypeCounts": {},
+    "scoredPairTypeCounts": {},
+    "unscoredPairTypeCounts": {},
+    "unscoredReasonCounts": {},
+    "duplicatePairTypeCounts": {},
+    "scoredEvents": [],
+    "unscoredExamples": []
+  },
+  "confidenceCalibration": {
+    "status": "fail",
+    "ece": 0.697418,
+    "threshold": 0.05,
+    "warnThreshold": 0.1,
+    "bucketCount": 10,
+    "sampleSize": 40,
+    "scored": 40,
+    "unscored": 0,
+    "totalCandidates": 46,
+    "eligible": 40,
+    "denominator": 40,
+    "eligibleConflictKnowledgeTotal": 40,
+    "minEligible": 10,
+    "totalEligible": 40,
+    "scoreableDenominator": 40,
+    "outOfScopeNoOracle": 2,
+    "excludedAsNonConflict": {
+      "count": 6,
+      "reasonCounts": {
+        "governance_or_task_restatement": 2,
+        "no_oracle_side": 2,
+        "seed_identity_or_world": 2
+      },
+      "exampleIds": [
+        "kb_seed_identity_pbg4",
+        "kb_seed_world_pbg4",
+        "kb_gate_gate_meaning_1_e_1_pbg4_f1",
+        "kb_proj_mqhlpbg4_006",
+        "kb_proj_mqhlpbg4_011",
+        "kb_proj_mqhlpbg4_021"
+      ]
+    },
+    "scoreableCoverage": 1,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": true,
+    "reliabilityTable": [
+      {
+        "bucket": 6,
+        "lowerBound": 0.6,
+        "upperBound": 0.7,
+        "confMean": 0.666667,
+        "accuracy": 0.25,
+        "n": 4
+      },
+      {
+        "bucket": 7,
+        "lowerBound": 0.7,
+        "upperBound": 0.8,
+        "confMean": 0.794928,
+        "accuracy": 0,
+        "n": 30
+      },
+      {
+        "bucket": 8,
+        "lowerBound": 0.8,
+        "upperBound": 0.9,
+        "confMean": 0.833333,
+        "accuracy": 0.25,
+        "n": 4
+      },
+      {
+        "bucket": 9,
+        "lowerBound": 0.9,
+        "upperBound": 1,
+        "confMean": 0.975561,
+        "accuracy": 1,
+        "n": 2
+      }
+    ],
+    "unscoredReasonCounts": {},
+    "scoredKnowledge": [
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0001_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "strong",
+        "supersededBy": null,
+        "confidence": 0.9615384615384616,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": true
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "strong",
+        "supersededBy": null,
+        "confidence": 0.9895833333333334,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": true
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0003_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7950280859356598,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0004_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7949968745186189,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0005_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7949968745186189,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0006_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7949968745186189,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0007_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0001_tiered_support",
+        "confidence": 0.7949787755718403,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0009_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7949787755718403,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0008_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7949787755718402,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0010_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7949787755718402,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0011_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7949787755718402,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0012_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7949787755718402,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0013_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0001_tiered_support",
+        "confidence": 0.7949474576134258,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0014_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7949474576134258,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0015_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7949474576134258,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0016_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7949285082792582,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0018_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7949285082792582,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0017_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7949285082792581,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0019_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0001_tiered_support",
+        "confidence": 0.7949285082792581,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0020_tiered_support",
+        "oracleSide": "tiered_support",
+        "status": "active",
+        "supersededBy": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0002_tiered_support",
+        "confidence": 0.7949285082792581,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      }
+    ],
+    "unscoredExamples": []
+  },
+  "faithfulness": {
+    "status": "warn",
+    "judgeMode": "lexical",
+    "faithfulness": 0.920266,
+    "hallucinationRate": 0.079734,
+    "threshold": 0.95,
+    "stretchMedicalTarget": 0.98,
+    "scored": 301,
+    "supported": 277,
+    "unsupported": 24,
+    "indeterminate": 2,
+    "totalClaims": 303,
+    "evidenceClaimCount": 180,
+    "totalCandidates": 46,
+    "eligible": 40,
+    "denominator": 40,
+    "eligibleConflictKnowledgeTotal": 40,
+    "minEligible": 10,
+    "scoreableDenominator": 40,
+    "scoreableKnowledge": 40,
+    "scoreableKnowledgeItems": 40,
+    "claimScoreableCoverage": 0.993399,
+    "scoreableCoverage": 1,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": true,
+    "unsupportedClaims": [
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0003_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "外部反馈: Phase2 calibration sample 003: improved revenue guidance supports the long hypothesis while portfolio max-drawd...",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "improved revenue guidance supports the long hypothesis while portfolio max-drawd...",
+          "revenue guidance supports the long",
+          "guidance supports the long hypothesis",
+          "supports the long hypothesis while",
+          "the long hypothesis while portfolio",
+          "long hypothesis while portfolio max-drawd...",
+          "guidance supports the long",
+          "supports the long hypothesis",
+          "the long hypothesis while",
+          "long hypothesis while portfolio",
+          "supports the long",
+          "the long hypothesis",
+          "long hypothesis while",
+          "the long",
+          "long hypothesis",
+          "003"
+        ],
+        "supportedAnchors": [
+          "003"
+        ],
+        "keywordCoverage": 0.0625,
+        "longestCommonSubstring": 6,
+        "longestCommonSubstringRatio": 0.057692,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0003_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "Phase2 calibration sample 003: improved revenue guidance supports the long hypothesis while portfolio max-drawdown budget caps naked exposure",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "improved revenue guidance supports the long hypothesis while portfolio max-drawdown budget caps naked exposure",
+          "revenue guidance supports the long",
+          "guidance supports the long hypothesis",
+          "supports the long hypothesis while",
+          "the long hypothesis while portfolio",
+          "long hypothesis while portfolio max-drawdown",
+          "guidance supports the long",
+          "supports the long hypothesis",
+          "the long hypothesis while",
+          "long hypothesis while portfolio",
+          "supports the long",
+          "the long hypothesis",
+          "long hypothesis while",
+          "the long",
+          "long hypothesis",
+          "003"
+        ],
+        "supportedAnchors": [
+          "003"
+        ],
+        "keywordCoverage": 0.0625,
+        "longestCommonSubstring": 6,
+        "longestCommonSubstringRatio": 0.04878,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0003_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "tiered thesis confidence 0.83 and long/short layered sizing adopted..",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "confidence 0.83",
+          "tiered thesis confidence 0.83 and long/short layered sizing adopted..",
+          "tiered thesis confidence 0.83 and",
+          "thesis confidence 0.83 and long/short",
+          "confidence 0.83 and long/short layered",
+          "0.83 and long/short layered sizing",
+          "and long/short layered sizing adopted..",
+          "tiered thesis confidence 0.83",
+          "confidence 0.83 and long/short",
+          "0.83 and long/short layered",
+          "and long/short layered sizing",
+          "long/short layered sizing adopted..",
+          "tiered thesis confidence",
+          "0.83 and long/short",
+          "and long/short layered",
+          "long/short layered sizing",
+          "tiered thesis",
+          "and long/short",
+          "long/short layered",
+          "0.83"
+        ],
+        "supportedAnchors": [
+          "0.83"
+        ],
+        "keywordCoverage": 0.05,
+        "longestCommonSubstring": 10,
+        "longestCommonSubstringRatio": 0.163934,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0004_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "关键依据为分层...",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "关键依据为分层..."
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 4,
+        "longestCommonSubstringRatio": 0.4,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0005_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "外部反馈: Phase2 校准样本 005：利润率修复与空头拥挤同时存在，单边方向信号不足，多空分层仓位置信度 0.81",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "置信度 0.81",
+          "分层仓位",
+          "空头拥挤",
+          "利润率修复与空头拥挤同时存在",
+          "多空分层仓位置信度 0.81",
+          "005",
+          "0.81"
+        ],
+        "supportedAnchors": [
+          "置信度 0.81",
+          "分层仓位",
+          "空头拥挤",
+          "005",
+          "0.81"
+        ],
+        "keywordCoverage": 0.714286,
+        "longestCommonSubstring": 23,
+        "longestCommonSubstringRatio": 0.442308,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0005_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "Phase2 校准样本 005：利润率修复与空头拥挤同时存在，单边方向信号不足，多空分层仓位置信度 0.81",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "置信度 0.81",
+          "分层仓位",
+          "空头拥挤",
+          "利润率修复与空头拥挤同时存在",
+          "多空分层仓位置信度 0.81",
+          "005",
+          "0.81"
+        ],
+        "supportedAnchors": [
+          "置信度 0.81",
+          "分层仓位",
+          "空头拥挤",
+          "005",
+          "0.81"
+        ],
+        "keywordCoverage": 0.714286,
+        "longestCommonSubstring": 23,
+        "longestCommonSubstringRatio": 0.479167,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0006_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "外部反馈: Phase2 calibration sample 006: fundamental uplift combined with liquidity constraint requires tiered sizing.",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "fundamental uplift combined with liquidity constraint requires tiered sizing.",
+          "with liquidity constraint requires tiered",
+          "liquidity constraint requires tiered sizing.",
+          "liquidity constraint requires tiered",
+          "constraint requires tiered sizing.",
+          "constraint requires tiered",
+          "requires tiered sizing.",
+          "requires tiered",
+          "tiered sizing.",
+          "006"
+        ],
+        "supportedAnchors": [
+          "006"
+        ],
+        "keywordCoverage": 0.1,
+        "longestCommonSubstring": 6,
+        "longestCommonSubstringRatio": 0.060606,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0006_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "Phase2 calibration sample 006: fundamental uplift combined with liquidity constraint requires tiered sizing..",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "fundamental uplift combined with liquidity constraint requires tiered sizing..",
+          "with liquidity constraint requires tiered",
+          "liquidity constraint requires tiered sizing..",
+          "liquidity constraint requires tiered",
+          "constraint requires tiered sizing..",
+          "constraint requires tiered",
+          "requires tiered sizing..",
+          "requires tiered",
+          "tiered sizing..",
+          "006"
+        ],
+        "supportedAnchors": [
+          "006"
+        ],
+        "keywordCoverage": 0.1,
+        "longestCommonSubstring": 6,
+        "longestCommonSubstringRatio": 0.0625,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0009_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "外部反馈: Phase2 校准样本 009：收入指引改善支持多头假设，但组合最大回撤预算限制裸露仓位",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "收入指引改善支持多头假设",
+          "但组合最大回撤预算限制裸露仓位",
+          "009"
+        ],
+        "supportedAnchors": [
+          "收入指引改善支持多头假设",
+          "009"
+        ],
+        "keywordCoverage": 0.666667,
+        "longestCommonSubstring": 25,
+        "longestCommonSubstringRatio": 0.568182,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0009_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "Phase2 校准样本 009：收入指引改善支持多头假设，但组合最大回撤预算限制裸露仓位",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "收入指引改善支持多头假设",
+          "但组合最大回撤预算限制裸露仓位",
+          "009"
+        ],
+        "supportedAnchors": [
+          "收入指引改善支持多头假设",
+          "009"
+        ],
+        "keywordCoverage": 0.666667,
+        "longestCommonSubstring": 25,
+        "longestCommonSubstringRatio": 0.625,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0011_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "外部反馈: Phase2 校准样本 011：利润率修复与空头拥挤同时存在，单边方向信号不足，采用多空分层仓位方案，置信度 0.80",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "置信度 0.80",
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "利润率修复与空头拥挤同时存在",
+          "采用多空分层仓位方案",
+          "011",
+          "0.80"
+        ],
+        "supportedAnchors": [
+          "置信度 0.80",
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "011",
+          "0.80"
+        ],
+        "keywordCoverage": 0.75,
+        "longestCommonSubstring": 23,
+        "longestCommonSubstringRatio": 0.410714,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0011_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "Phase2 校准样本 011：利润率修复与空头拥挤同时存在，单边方向信号不足，采用多空分层仓位方案，置信度 0.80.",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "置信度 0.80",
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "利润率修复与空头拥挤同时存在",
+          "采用多空分层仓位方案",
+          "置信度 0.80.",
+          "011",
+          "0.80"
+        ],
+        "supportedAnchors": [
+          "置信度 0.80",
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "011",
+          "0.80"
+        ],
+        "keywordCoverage": 0.666667,
+        "longestCommonSubstring": 23,
+        "longestCommonSubstringRatio": 0.433962,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0017_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "外部反馈: Phase2 校准样本 017：利润率修复与空头拥挤同时存在，单边方向信号不足，采用多空分层仓位方案",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "利润率修复与空头拥挤同时存在",
+          "采用多空分层仓位方案",
+          "017"
+        ],
+        "supportedAnchors": [
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "017"
+        ],
+        "keywordCoverage": 0.666667,
+        "longestCommonSubstring": 23,
+        "longestCommonSubstringRatio": 0.469388,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0017_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "Phase2 校准样本 017：利润率修复与空头拥挤同时存在，单边方向信号不足，采用多空分层仓位方案",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "利润率修复与空头拥挤同时存在",
+          "采用多空分层仓位方案",
+          "017"
+        ],
+        "supportedAnchors": [
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "017"
+        ],
+        "keywordCoverage": 0.666667,
+        "longestCommonSubstring": 23,
+        "longestCommonSubstringRatio": 0.511111,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0023_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "外部反馈: Phase2 校准样本 023：利润率修复与空头拥挤同时存在，单边方向信号不足，建议多空分层对冲",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "空头拥挤",
+          "利润率修复与空头拥挤同时存在",
+          "多空分层对冲",
+          "023"
+        ],
+        "supportedAnchors": [
+          "空头拥挤",
+          "023"
+        ],
+        "keywordCoverage": 0.5,
+        "longestCommonSubstring": 23,
+        "longestCommonSubstringRatio": 0.489362,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0023_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "Phase2 校准样本 023：利润率修复与空头拥挤同时存在，单边方向信号不足，建议多空分层对冲",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "空头拥挤",
+          "利润率修复与空头拥挤同时存在",
+          "多空分层对冲",
+          "023"
+        ],
+        "supportedAnchors": [
+          "空头拥挤",
+          "023"
+        ],
+        "keywordCoverage": 0.5,
+        "longestCommonSubstring": 23,
+        "longestCommonSubstringRatio": 0.534884,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0028_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "当前最优仓位决策为多空分层仓位方案，置信度 0.81，理由是分层仓位比单边多头更符合风险预算",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "置信度 0.81",
+          "多空分层仓位方案",
+          "分层仓位",
+          "风险预算",
+          "仓位决策",
+          "为多空分层仓位方案",
+          "理由是分层仓位比单边多头更符合风险预算",
+          "0.81"
+        ],
+        "supportedAnchors": [
+          "置信度 0.81",
+          "多空分层仓位方案",
+          "分层仓位",
+          "风险预算",
+          "仓位决策",
+          "0.81"
+        ],
+        "keywordCoverage": 0.75,
+        "longestCommonSubstring": 16,
+        "longestCommonSubstringRatio": 0.372093,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0028_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "当前最优仓位决策为多空分层仓位方案，置信度 0.81，理由是分层仓位比单边多头更符合风险预算",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "置信度 0.81",
+          "多空分层仓位方案",
+          "分层仓位",
+          "风险预算",
+          "仓位决策",
+          "为多空分层仓位方案",
+          "理由是分层仓位比单边多头更符合风险预算",
+          "0.81"
+        ],
+        "supportedAnchors": [
+          "置信度 0.81",
+          "多空分层仓位方案",
+          "分层仓位",
+          "风险预算",
+          "仓位决策",
+          "0.81"
+        ],
+        "keywordCoverage": 0.75,
+        "longestCommonSubstring": 16,
+        "longestCommonSubstringRatio": 0.372093,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0029_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "外部反馈: Phase2 校准样本 029：利润率修复与空头拥挤同时存在，单边方向信号不足，采用多空分层仓位方案",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "利润率修复与空头拥挤同时存在",
+          "采用多空分层仓位方案",
+          "029"
+        ],
+        "supportedAnchors": [
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "029"
+        ],
+        "keywordCoverage": 0.666667,
+        "longestCommonSubstring": 23,
+        "longestCommonSubstringRatio": 0.469388,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0029_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "Phase2 校准样本 029：利润率修复与空头拥挤同时存在，单边方向信号不足，采用多空分层仓位方案",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "利润率修复与空头拥挤同时存在",
+          "采用多空分层仓位方案",
+          "029"
+        ],
+        "supportedAnchors": [
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "029"
+        ],
+        "keywordCoverage": 0.666667,
+        "longestCommonSubstring": 23,
+        "longestCommonSubstringRatio": 0.511111,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqhlpbg4_039",
+        "oracleSide": "tiered_support",
+        "claim": "本轮应用场景: 把高风险动作审计摘要接入每周复盘报告",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "把高风险动作审计摘要接入每周复盘报告"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 2,
+        "longestCommonSubstringRatio": 0.083333,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0035_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "外部反馈: Phase2 校准样本 035：利润率修复与空头拥挤同时存在，单边方向信号不足，宜采用多空分层仓位方案",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "利润率修复与空头拥挤同时存在",
+          "宜采用多空分层仓位方案",
+          "035"
+        ],
+        "supportedAnchors": [
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "035"
+        ],
+        "keywordCoverage": 0.666667,
+        "longestCommonSubstring": 23,
+        "longestCommonSubstringRatio": 0.46,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_hlpbg4_equity_thesis_contradiction_runner_sample_0035_tiered_support",
+        "oracleSide": "tiered_support",
+        "claim": "Phase2 校准样本 035：利润率修复与空头拥挤同时存在，单边方向信号不足，宜采用多空分层仓位方案.",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "利润率修复与空头拥挤同时存在",
+          "宜采用多空分层仓位方案.",
+          "035"
+        ],
+        "supportedAnchors": [
+          "多空分层仓位方案",
+          "分层仓位",
+          "空头拥挤",
+          "035"
+        ],
+        "keywordCoverage": 0.666667,
+        "longestCommonSubstring": 23,
+        "longestCommonSubstringRatio": 0.489362,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqhlpbg4_046",
+        "oracleSide": "tiered_support",
+        "claim": "本轮应用场景: 为外部反馈风险标签+人工复核建立量化校准基线",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "为外部反馈风险标签+人工复核建立量化校准基线"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 2,
+        "longestCommonSubstringRatio": 0.071429,
+        "supported": false
+      }
+    ],
+    "indeterminateReasonCounts": {
+      "no_deterministic_anchor": 2
+    },
+    "indeterminateReasons": {
+      "no_deterministic_anchor": 2
+    },
+    "excludedAsNonConflict": {
+      "count": 6,
+      "reasonCounts": {
+        "governance_or_task_restatement": 2,
+        "no_oracle_side": 2,
+        "seed_identity_or_world": 2
+      },
+      "exampleIds": [
+        "kb_seed_identity_pbg4",
+        "kb_seed_world_pbg4",
+        "kb_gate_gate_meaning_1_e_1_pbg4_f1",
+        "kb_proj_mqhlpbg4_006",
+        "kb_proj_mqhlpbg4_011",
+        "kb_proj_mqhlpbg4_021"
+      ]
+    },
+    "indeterminateExamples": [
+      {
+        "knowledgeId": "kb_proj_mqhlpbg4_028",
+        "oracleSide": "tiered_support",
+        "claim": "本轮应用场景: 把可回滚审计扩展到批量发布前检查",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqhlpbg4_032",
+        "oracleSide": "tiered_support",
+        "claim": "本轮应用场景: 为团队协作审批添加差异预览和 owner 确认",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      }
+    ]
+  },
+  "latencyAndEfficiency": {
+    "measurementNote": "API request latency is runner/harness-observed latency under validation polling load, not an isolated production retrieval SLO.",
+    "apiRequest": {
+      "sampleSize": 313,
+      "p50Ms": 13,
+      "p95Ms": 9493,
+      "p99Ms": 30148
+    },
+    "apiRequestBySegment": {
+      "runner_control_api_request": {
+        "sampleSize": 72,
+        "p50Ms": 1454,
+        "p95Ms": 5373,
+        "p99Ms": 9407
+      },
+      "harness_polling_api_request": {
+        "sampleSize": 205,
+        "p50Ms": 7,
+        "p95Ms": 41,
+        "p99Ms": 52
+      },
+      "scheduler_tick": {
+        "sampleSize": 24,
+        "p50Ms": 11879,
+        "p95Ms": 36333,
+        "p99Ms": 39161
+      },
+      "knowledge_retrieval": {
+        "sampleSize": 12,
+        "p50Ms": 14,
+        "p95Ms": 23,
+        "p99Ms": 23
+      }
+    },
+    "slo": {
+      "sloStatus": "warn",
+      "sloBlocking": false,
+      "enforceLatencySlo": false,
+      "thresholdsMs": {
+        "knowledge_retrieval": 2000,
+        "scheduler_tick": 30000
+      },
+      "includedSegments": [
+        {
+          "segment": "knowledge_retrieval",
+          "sampleSize": 12,
+          "p95Ms": 23,
+          "p95ThresholdMs": 2000,
+          "status": "pass"
+        },
+        {
+          "segment": "scheduler_tick",
+          "sampleSize": 24,
+          "p95Ms": 36333,
+          "p95ThresholdMs": 30000,
+          "status": "warn"
+        }
+      ],
+      "excludedSegments": [
+        "harness_polling_api_request"
+      ],
+      "measurementNote": "harness_polling_api_request is excluded: harness polling is not a production SLO; knowledge_retrieval and scheduler_tick are SLO-observed segments."
+    },
+    "llmOverall": {
+      "sampleSize": 90,
+      "p50Ms": 4365,
+      "p95Ms": 13098,
+      "p99Ms": 17083
+    },
+    "llmAgentP95Ms": {
+      "orchestrator": 15498,
+      "sensor": 8442,
+      "builder": 15392,
+      "distiller": 9727,
+      "librarian": 8084
+    },
+    "totals": {
+      "closedCycles": 8,
+      "resolvedConflicts": 0,
+      "netActiveKnowledge": 36,
+      "totalTokens": 237203,
+      "totalCostUsd": 0.474406
+    },
+    "ratios": {
+      "tokensPerClosedCycle": 29650.375,
+      "costPerClosedCycleUsd": 0.059301,
+      "tokensPerResolvedConflict": null,
+      "costPerResolvedConflictUsd": null,
+      "tokensPerNetActiveKnowledge": 6588.972222,
+      "costPerNetActiveKnowledgeUsd": 0.013178
+    }
+  },
+  "rssSlopeMbPerHour": 0,
+  "rssSlopeThresholdMbPerHour": 50,
+  "rssSlopeUnder50MbPerHour": true,
+  "notes": [
+    {
+      "type": "benchmark_mapping",
+      "decisionTsr": "task-success-rate style single-scenario oracle check, similar to tau-bench pass@1/pass^k reliability framing",
+      "resolutionAccuracy": "conflict resolution / implicit inference accuracy over deterministic oracle pair rules",
+      "faithfulness": "claim-level lexical NLI proxy for RAGAS/TruLens-style faithfulness; LLM judge interface is reserved but off by default",
+      "confidenceCalibration": "expected calibration error / reliability table over confidence_score or extracted confidence text"
+    },
+    "decisionTsr is a single-scenario pass@1 oracle-state check, not an independent reasoning benchmark.",
+    "pass^k multi-seed reliability is intentionally deferred to v2.",
+    "API latency is runner/harness-observed polling and control request latency under validation load, not an isolated production retrieval SLO.",
+    "Resolution accuracy is blocking only when scoreable coverage meets the configured threshold."
+  ],
+  "sources": {
+    "knowledge": "health-signal.db:knowledge_items",
+    "llmCalls": "health-signal.db:llm_calls",
+    "resolutionEvents": "events.jsonl:knowledge_review_resolved",
+    "apiRequestLatency": "events.jsonl:api_request_timing",
+    "rss": "monitor_log.csv:appRssMb"
+  }
+}

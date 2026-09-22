@@ -1,0 +1,3144 @@
+diff --git a/alaya-core/src/llm/provider.ts b/alaya-core/src/llm/provider.ts
+index 0ddbe4a6..ebeb6b3b 100644
+--- a/alaya-core/src/llm/provider.ts
++++ b/alaya-core/src/llm/provider.ts
+@@ -212,6 +212,18 @@ export class MockLLM implements LLMProvider {
+   }
+ }
+ 
++export type ProviderDiagnosticEvent = {
++  httpStatus: number;
++  rawText: string;
++  finishReason?: string | null;
++  responseModel?: string | null;
++  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
++  usageComplete: boolean;
++  rootKeys: string[] | null;
++  parseError?: string;
++  fetchIndex: number;
++};
++
+ export interface OpenAIProviderOptions {
+   apiKey?: string;
+   model?: string;
+@@ -222,6 +234,8 @@ export interface OpenAIProviderOptions {
+   temperature?: number;
+   timeoutMs?: number;
+   maxOutputTokens?: number;
++  diagnosticSingleAttempt?: boolean;
++  onDiagnosticCapture?: (event: ProviderDiagnosticEvent) => void;
+ }
+ 
+ function readSecretFile(path: string | undefined): string {
+@@ -255,6 +269,9 @@ export class OpenAIProvider implements LLMProvider {
+   private temperature: number;
+   private timeoutMs: number;
+   private maxOutputTokens: number;
++  private diagnosticSingleAttempt: boolean;
++  private onDiagnosticCapture?: (event: ProviderDiagnosticEvent) => void;
++  httpFetchCount = 0;
+ 
+   constructor(options: OpenAIProviderOptions = {}) {
+     this.apiKey = resolveOpenAIApiKey(options.apiKey);
+@@ -265,6 +282,8 @@ export class OpenAIProvider implements LLMProvider {
+     this.temperature = options.temperature ?? 0.2;
+     this.timeoutMs = resolveRequestTimeoutMs(options.timeoutMs);
+     this.maxOutputTokens = resolveMaxOutputTokens(options.maxOutputTokens);
++    this.diagnosticSingleAttempt = Boolean(options.diagnosticSingleAttempt);
++    this.onDiagnosticCapture = options.onDiagnosticCapture;
+   }
+ 
+   async call(request: AgentContext): Promise<LLMResponse> {
+@@ -276,8 +295,9 @@ export class OpenAIProvider implements LLMProvider {
+     const started = Date.now();
+     let lastError = "";
+     let retryCount = 0;
++    const attemptLimit = this.diagnosticSingleAttempt ? 0 : this.maxRetries;
+ 
+-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
++    for (let attempt = 0; attempt <= attemptLimit; attempt++) {
+       retryCount = attempt;
+       try {
+         const data = await this.callStructuredApi(safeRequest, safeRequest.schema, redactSensitiveText(lastError));
+@@ -311,7 +331,7 @@ export class OpenAIProvider implements LLMProvider {
+       }
+     }
+ 
+-    try {
++    if (!this.diagnosticSingleAttempt) try {
+       const simpleSchema = safeRequest.simplifiedSchema ?? DEFAULT_SIMPLIFIED_SCHEMA;
+       const simpleData = await this.callStructuredApi(safeRequest, simpleSchema, redactSensitiveText(lastError));
+       const simpleValid = validateJsonSchema(simpleData, simpleSchema);
+@@ -463,19 +483,13 @@ export class OpenAIProvider implements LLMProvider {
+ 
+     if (!response.ok) {
+       const body = await response.text();
++      this.captureDiagnostic({ httpStatus: response.status, rawText: body.slice(0, 4000), parseError: "http_" + String(response.status) });
+       throw new Error(`OpenAI ${response.status}: ${body.slice(0, 500)}`);
+     }
+ 
+     const json = await response.json() as any;
+     const text = extractOutputText(json);
+-    const parsed = parseJsonObjectText(text, "OpenAI");
+-
+-    parsed.__usage = {
+-      inputTokens: json.usage?.input_tokens,
+-      outputTokens: json.usage?.output_tokens,
+-      totalTokens: json.usage?.total_tokens,
+-    };
+-    return parsed;
++    return this.parseAndCapture(response.status, text, json, "OpenAI");
+   }
+ 
+   private async callChatCompletionsApi(
+@@ -524,22 +538,55 @@ export class OpenAIProvider implements LLMProvider {
+ 
+     if (!response.ok) {
+       const body = await response.text();
++      this.captureDiagnostic({ httpStatus: response.status, rawText: body.slice(0, 4000), parseError: "http_" + String(response.status) });
+       throw new Error(`OpenAI-compatible chat ${response.status}: ${body.slice(0, 500)}`);
+     }
+ 
+     const json = await response.json() as any;
+     const text = extractChatOutputText(json);
+-    const parsed = parseJsonObjectText(text, "OpenAI-compatible chat");
++    return this.parseAndCapture(response.status, text, json, "OpenAI-compatible chat");
++  }
+ 
+-    parsed.__usage = {
+-      inputTokens: json.usage?.prompt_tokens ?? json.usage?.input_tokens,
+-      outputTokens: json.usage?.completion_tokens ?? json.usage?.output_tokens,
+-      totalTokens: json.usage?.total_tokens,
++  private parseAndCapture(httpStatus: number, text: string, json: any, source: string): Record<string, unknown> {
++    try {
++      const parsed = parseJsonObjectText(text, source);
++      const usage = {
++        inputTokens: json.usage?.prompt_tokens ?? json.usage?.input_tokens,
++        outputTokens: json.usage?.completion_tokens ?? json.usage?.output_tokens,
++        totalTokens: json.usage?.total_tokens,
++      };
++      this.captureDiagnostic({ httpStatus, rawText: text, json, parsed, usage });
++      parsed.__usage = usage;
++      return parsed;
++    } catch (err) {
++      this.captureDiagnostic({ httpStatus, rawText: text, json, parseError: err instanceof Error ? err.message : String(err) });
++      throw err;
++    }
++  }
++
++  private captureDiagnostic(args: { httpStatus: number; rawText: string; json?: any; parsed?: Record<string, unknown>; parseError?: string; usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } }) {
++    if (!this.onDiagnosticCapture) return;
++    const usage = args.usage ?? {
++      inputTokens: args.json?.usage?.prompt_tokens ?? args.json?.usage?.input_tokens,
++      outputTokens: args.json?.usage?.completion_tokens ?? args.json?.usage?.output_tokens,
++      totalTokens: args.json?.usage?.total_tokens,
+     };
+-    return parsed;
++    const usageComplete = [usage.inputTokens, usage.outputTokens, usage.totalTokens].some((value) => typeof value === "number");
++    this.onDiagnosticCapture({
++      httpStatus: args.httpStatus,
++      rawText: args.rawText,
++      finishReason: args.json?.choices?.[0]?.finish_reason ?? args.json?.status ?? null,
++      responseModel: args.json?.model ?? null,
++      usage,
++      usageComplete,
++      rootKeys: args.parsed ? Object.keys(args.parsed).filter((key) => key !== "__usage") : null,
++      parseError: args.parseError,
++      fetchIndex: this.httpFetchCount,
++    });
+   }
+ 
+   private async fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
++    this.httpFetchCount += 1;
+     const controller = new AbortController();
+     const timer = this.timeoutMs > 0
+       ? setTimeout(() => controller.abort(), this.timeoutMs)
+diff --git a/package.json b/package.json
+index c59c9887..4a713910 100644
+--- a/package.json
++++ b/package.json
+@@ -25,6 +25,11 @@
+     "test:app": "npm --prefix alaya-app test",
+     "test:scripts": "node --test scripts/tests/*.test.mjs",
+     "test:all": "npm test && npm run test:app && npm run test:scripts",
++    "m1:check": "node --import tsx --test experiments/m1/*.test.ts",
++    "m1:k1-diagnose": "node --import tsx experiments/m1/k1_diagnose.ts",
++    "m1:run": "node --import tsx experiments/m1/runner.ts run",
++    "m1:report": "node --import tsx experiments/m1/runner.ts report",
++    "m1:preflight": "node --import tsx experiments/m1/runner.ts preflight",
+     "validation:summary": "node scripts/validation-summary.mjs",
+     "validation:health-signal": "node scripts/health-signal-36h-validation.mjs",
+     "validation:health-signal:timeseries": "node scripts/health-signal-timeseries-summary.mjs",
+diff --git a/experiments/m1/K1_DIAGNOSIS.md b/experiments/m1/K1_DIAGNOSIS.md
+new file mode 100644
+--- /dev/null
++++ b/experiments/m1/K1_DIAGNOSIS.md
+@@ -0,0 +1,28 @@
++# K1 zero-call diagnosis (ALAYA-M1.1-OFFICIAL)
++
++Old run `2026-09-19T10-00-23-273Z` stays BLOCKED. No Train/Dev/Test replay. No paid call in this step.
++
++## Config actually used by runner
++
++- Model options passed into OpenAIProvider: MiniMax-M3, baseUrl api.minimax.io/openai, temperature 0.2, maxRetries 1, maxOutputTokens 512.
++- This is reconstructed from current `protocol.json` + `runner.ts`, not a byte-for-byte HTTP replay.
++- Chat path still sends `draft_output: request.mockData ?? {}`. Logged `mockDataPresent=false` means the field was absent on AgentContext; the HTTP body can still contain `{}`.
++
++## What the saved K1 row is
++
++Saved `output` matches `degradedResponse()` (summary + human_gate_candidate). It is not the model raw text.
++Saved `request` is AgentContext, not the HTTP messages/system/thinking/max_tokens payload.
++K1 tokenCount 4709 matches ceil(stringify({request,degraded})/4) on that fail path, not summed HTTP usage.
++
++## Fetch-count trap
++
++maxRetries=1 fail path: 2 schema attempts + 1 simplified = 3 fetches. Provider logs retryCount=3. Runner stored providerRequests=retryCount+1=4. Arithmetic of the trap is reproduced offline. Historical 24 is not rewritten.
++
++## Parser trap (constructed truncation, not this MiniMax body)
++
++Baseline `tryParseJsonObject` can return an inner closed knowledge object when the root `items` array is truncated, then schema reports missing `items`. Strict root parse rejects that text. This is a compatible failure mode, not proof the official K1 body was truncated.
++
++## Diagnostic entry
++
++`npm run m1:k1-diagnose` is zero-call by default (`READY_FOR_AUTHORIZED_K1_DIAGNOSE`).
++Live replay, if later authorized, uses `diagnosticSingleAttempt` so there is no simplified extra fetch. Budget proposed by the audit: 2 HTTP / 30000 tokens. Not spent here.
+diff --git a/experiments/m1/README.md b/experiments/m1/README.md
+new file mode 100644
+--- /dev/null
++++ b/experiments/m1/README.md
+@@ -0,0 +1,37 @@
++# Alaya M1 knowledge-transfer experiment
++
++Isolated A/B check: same model, frozen task protocol, B gets a training-distilled snapshot. This is synthetic rule learning, not investment advice and not a product-capability claim.
++
++Live provider calls stay blocked until both `--authorize-live` and `ALAYA_M1_AUTHORIZE_LIVE=1` are set.
++
++## Commands
++
++```bash
++npm run m1:check
++npm run m1:run
++npm run m1:report
++ALAYA_M1_AUTHORIZE_LIVE=1 npm run m1:run -- --authorize-live
++```
++
++Revision `ALAYA-M1.1-CONTRACT-PREFLIGHT` keeps the original 80-item protocol, but empty or failed K2 stops with `NO_CANDIDATE` before Dev.
++
++```bash
++npm run m1:preflight
++ALAYA_M1_AUTHORIZE_LIVE=1 npm run m1:preflight -- --authorize-live
++```
++
++`m1:check` is the no-model gate. `m1:run` / `m1:preflight` without live authorization write `READY_FOR_AUTHORIZED_RUN` and do not call a model.
++Preflight is `diagnostic_only`, capped at 12 provider requests / 30k tokens, and does not write official K1/K2.
++The old run `validation-logs/m1/2026-09-19T09-19-20-583Z` is read-only.
++
++Results go to `validation-logs/m1/<run-id>/` (`manifest.json`, `evidence.jsonl`, `knowledge.json`, `comparison.csv`, `report.md`). That directory is gitignored.
++
++## Status
++
++- `READY_FOR_AUTHORIZED_RUN`: engineering entry is ready; no live experiment.
++- `INVALID`: leak, snapshot mix-up, or identity failure. Do not compare arms.
++- `BLOCKED` / `PARTIAL`: unfinished (auth, budget, or interrupt). Keep evidence.
++- `NO_SIGNAL_ON_DEV`: stop; do not chase Test.
++- `PROMISING` / `NO_CLEAR_GAIN`: Test completed. PROMISING is only an engineering screen for a later real-task check.
++
++PR-L6 is archived. This experiment does not restore PRECHECK3 or RUN-L7.
+diff --git a/experiments/m1/REPLAY_OLD_RUN.md b/experiments/m1/REPLAY_OLD_RUN.md
+new file mode 100644
+--- /dev/null
++++ b/experiments/m1/REPLAY_OLD_RUN.md
+@@ -0,0 +1,33 @@
++# M1.1 replay of 2026-09-19T09-19-20-583Z
++
++Old run is read-only. Scores below are diagnostic and do not replace the original `NO_SIGNAL_ON_DEV`.
++
++## Request replay
++
++Evidence rows store `output` and metadata, not the AgentContext or HTTP body. `draft_output` / `mockData` **cannot be replayed** from this run. Next runs record a sanitized request object.
++
++## Distill path
++
++- K1: provider `schemaValid=true`, `items: []`. This is a legal empty candidate, then frozen to empty knowledge. Hash `8b475aad...`
++- K2: provider degraded after missing `items`; runner called `freezeKnowledge(version, [], ...)` and stored another empty package. Hash `8e80132b...` (differs because version is in the hash). This collapsed generate-failure into a successful empty candidate.
++
++Train feedback `allowedIds` were present on distill evidence (20 then 40 ids). The Distiller output did not use them.
++
++## Diagnostic split (unified empty allowedKnowledgeIds=[])
++
++| split | arm | n | actionCorrect | contractValid | strictTaskSuccess |
++|---|---|---:|---:|---:|---:|
++| train | A | 20 | 3 | 7 | 1 |
++| train | B | 20 | 6 | 9 | 2 |
++| dev | A | 20 | 4 | 5 | 1 |
++| dev | B | 20 | 2 | 8 | 0 |
++
++`actionCorrect` uses the raw `decision` when it is one of the five actions; it does not repair JSON. Original comparison.csv `correct` is `strictTaskSuccess` under the old arm-specific ref errors.
++
++A vs empty-B: both should use the same empty allow-list. Old names `a_arm_must_have_empty_refs` and `unknown_knowledge_ref` described the same empty-set rule. Re-scoring every raw output with `allowedKnowledgeIds=[]` rejects any nonempty refs equally.
++
++## Send vs score gap
++
++Decision schema only typed `knowledgeRefs` as an array. The model request did not include `allowedKnowledgeIds`. Signal ids were therefore a legal-looking array to the provider checker and illegal to the experiment scorer.
++
++Distill schema only required `items` as an array, with no item fields. Empty list was allowed in the task text.
+diff --git a/experiments/m1/dataset.ts b/experiments/m1/dataset.ts
+new file mode 100644
+--- /dev/null
++++ b/experiments/m1/dataset.ts
+@@ -0,0 +1,455 @@
++import { createHash } from "node:crypto";
++import { readFileSync } from "node:fs";
++
++export const PROTOCOL_ID = "ALAYA-M1-KNOWLEDGE-TRANSFER";
++export const SAMPLE_SEED = "alaya-m1-20260919";
++export const WORLD_SEED = "alaya-m1-20260919";
++export const RULES_SOURCE_SHA = "b7090b11b41f358f4d82906c86be835a68c06e64";
++
++export const DECISIONS = [
++  "increase_long",
++  "maintain_long",
++  "reduce_exposure",
++  "avoid_trade",
++  "short_bias",
++] as const;
++export type Decision = (typeof DECISIONS)[number];
++
++export const SIGNAL_IDS = [
++  "earnings_revision",
++  "margin_repair",
++  "cash_flow_quality",
++  "valuation_discount",
++  "upside_catalyst",
++  "short_crowding",
++  "guidance_cut",
++  "liquidity_risk",
++  "event_risk",
++  "drawdown_pressure",
++  "regulatory_risk",
++  "risk_budget_tight",
++] as const;
++export type SignalId = (typeof SIGNAL_IDS)[number];
++
++const CANONICAL_SIGNALS = [
++  { id: "earnings_revision", polarity: "positive", kind: "fundamental" },
++  { id: "margin_repair", polarity: "positive", kind: "fundamental" },
++  { id: "cash_flow_quality", polarity: "positive", kind: "quality" },
++  { id: "valuation_discount", polarity: "positive", kind: "valuation" },
++  { id: "upside_catalyst", polarity: "positive", kind: "catalyst" },
++  { id: "short_crowding", polarity: "positive", kind: "positioning" },
++  { id: "guidance_cut", polarity: "negative", kind: "fundamental" },
++  { id: "liquidity_risk", polarity: "negative", kind: "balance_sheet" },
++  { id: "event_risk", polarity: "negative", kind: "risk" },
++  { id: "drawdown_pressure", polarity: "negative", kind: "technical" },
++  { id: "regulatory_risk", polarity: "negative", kind: "risk" },
++  { id: "risk_budget_tight", polarity: "negative", kind: "portfolio" },
++] as const;
++
++const RULE_BLUEPRINTS = [
++  { id: "R1", decision: "increase_long", requiredPolarity: "positive", requiredCount: 3, avoidPolarity: "negative", avoidCount: 1, confidence: 0.82 },
++  { id: "R2", decision: "maintain_long", requiredPolarity: "positive", requiredCount: 2, avoidPolarity: "negative", avoidCount: 2, confidence: 0.69 },
++  { id: "R3", decision: "reduce_exposure", requiredPolarity: "negative", requiredCount: 2, avoidPolarity: "positive", avoidCount: 1, confidence: 0.75 },
++  { id: "R4", decision: "avoid_trade", requiredPolarity: "mixed", requiredCount: 3, avoidPolarity: "none", avoidCount: 0, confidence: 0.61 },
++  { id: "R5", decision: "short_bias", requiredPolarity: "negative", requiredCount: 3, avoidPolarity: "positive", avoidCount: 1, confidence: 0.84 },
++  { id: "R6", decision: "increase_long", requiredPolarity: "positive", requiredCount: 2, avoidPolarity: "negative", avoidCount: 2, confidence: 0.78 },
++  { id: "R7", decision: "reduce_exposure", requiredPolarity: "negative", requiredCount: 2, avoidPolarity: "none", avoidCount: 0, confidence: 0.72 },
++  { id: "R8", decision: "avoid_trade", requiredPolarity: "mixed", requiredCount: 4, avoidPolarity: "none", avoidCount: 0, confidence: 0.58 },
++] as const;
++
++export type Split = "train" | "dev" | "test";
++
++export type WorldRule = {
++  id: string;
++  ruleRef: string;
++  priority: number;
++  decision: Decision;
++  requiredSignals: string[];
++  avoidSignals: string[];
++  confidenceBase: number;
++  rationaleTemplateIndex: number;
++};
++
++export type DomainConfig = {
++  domainId: string;
++  caseStyle: { task: string; confidencePrompt: string };
++  signalSkins: Record<string, { label: string; text: string; kind: string; polarity: string }>;
++  decisionSkins: Record<string, { label: string; direction: string; text: string }>;
++};
++
++export type M1Item = {
++  id: string;
++  signalKey: string;
++  signalsPresent: SignalId[];
++  label: Decision;
++  ruleId: string | null;
++  split: Split;
++};
++
++export type FrozenDataset = {
++  protocolId: string;
++  sampleSeed: string;
++  worldSeed: string;
++  rules: WorldRule[];
++  items: M1Item[];
++  hashes: {
++    rules: string;
++    visible: string;
++    labels: string;
++    partitions: string;
++  };
++};
++
++export function sha256(value: unknown): string {
++  return createHash("sha256").update(stableStringify(value)).digest("hex");
++}
++
++export function stableStringify(value: unknown): string {
++  if (value === null || typeof value !== "object") return JSON.stringify(value);
++  if (Array.isArray(value)) return "[" + value.map(stableStringify).join(",") + "]";
++  const obj = value as Record<string, unknown>;
++  const keys = Object.keys(obj).sort();
++  return "{" + keys.map((key) => JSON.stringify(key) + ":" + stableStringify(obj[key])).join(",") + "}";
++}
++
++function hashString(input: string): number {
++  let hash = 2166136261;
++  for (let index = 0; index < input.length; index += 1) {
++    hash ^= input.charCodeAt(index);
++    hash = Math.imul(hash, 16777619);
++  }
++  return hash >>> 0;
++}
++
++export function createSeededRng(seed: string): () => number {
++  let state = hashString(String(seed));
++  return function rng() {
++    state += 0x6d2b79f5;
++    let mixed = state;
++    mixed = Math.imul(mixed ^ (mixed >>> 15), mixed | 1);
++    mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61);
++    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
++  };
++}
++
++export function stableShuffle<T>(items: readonly T[], seed: string): T[] {
++  const rng = createSeededRng(seed);
++  const shuffled = [...items];
++  for (let index = shuffled.length - 1; index > 0; index -= 1) {
++    const swapIndex = Math.floor(rng() * (index + 1));
++    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
++  }
++  return shuffled;
++}
++
++function takeSignals(args: {
++  worldSeed: string;
++  ruleIndex: number;
++  polarity: string;
++  count: number;
++  excludeIds?: string[];
++}): Array<{ id: string }> {
++  const { worldSeed, ruleIndex, polarity, count, excludeIds = [] } = args;
++  if (count === 0 || polarity === "none") return [];
++  const excluded = new Set(excludeIds);
++  let pool = CANONICAL_SIGNALS.filter((signal) => !excluded.has(signal.id));
++  if (polarity === "positive" || polarity === "negative") {
++    pool = pool.filter((signal) => signal.polarity === polarity);
++  }
++  if (polarity === "mixed") {
++    const positives = stableShuffle(
++      CANONICAL_SIGNALS.filter((signal) => signal.polarity === "positive" && !excluded.has(signal.id)),
++      worldSeed + ":rule:" + ruleIndex + ":mixed:positive",
++    );
++    const negatives = stableShuffle(
++      CANONICAL_SIGNALS.filter((signal) => signal.polarity === "negative" && !excluded.has(signal.id)),
++      worldSeed + ":rule:" + ruleIndex + ":mixed:negative",
++    );
++    const mixed: Array<{ id: string }> = [];
++    while (mixed.length < count && (positives.length > 0 || negatives.length > 0)) {
++      if (positives.length > 0) mixed.push(positives.shift()!);
++      if (mixed.length < count && negatives.length > 0) mixed.push(negatives.shift()!);
++    }
++    return mixed.slice(0, count);
++  }
++  return stableShuffle(pool, worldSeed + ":rule:" + ruleIndex + ":" + polarity).slice(0, count);
++}
++
++/** Bound to learning-loop@b7090b11 buildWorldRules. New protocol only reuses this pure rule builder. */
++export function buildWorldRules({ worldSeed = WORLD_SEED }: { worldSeed?: string } = {}): WorldRule[] {
++  return RULE_BLUEPRINTS.map((blueprint, index) => {
++    const requiredSignals = takeSignals({
++      worldSeed,
++      ruleIndex: index,
++      polarity: blueprint.requiredPolarity,
++      count: blueprint.requiredCount,
++    });
++    const avoidSignals = takeSignals({
++      worldSeed,
++      ruleIndex: index,
++      polarity: blueprint.avoidPolarity,
++      count: blueprint.avoidCount,
++      excludeIds: requiredSignals.map((signal) => signal.id),
++    });
++    const salt = hashString(worldSeed + ":" + blueprint.id + ":" + requiredSignals.map((signal) => signal.id).join(","));
++    const familyDecisions = blueprint.requiredPolarity === "positive"
++      ? ["increase_long", "maintain_long"]
++      : blueprint.requiredPolarity === "negative"
++        ? ["reduce_exposure", "short_bias"]
++        : ["avoid_trade"];
++    const decision = familyDecisions.includes(blueprint.decision)
++      ? familyDecisions[salt % familyDecisions.length]
++      : blueprint.decision;
++    return {
++      id: blueprint.id,
++      ruleRef: String(worldSeed) + ":" + blueprint.id,
++      priority: index + 1,
++      decision: decision as Decision,
++      requiredSignals: requiredSignals.map((signal) => signal.id),
++      avoidSignals: avoidSignals.map((signal) => signal.id),
++      confidenceBase: blueprint.confidence,
++      rationaleTemplateIndex: salt % 5,
++    };
++  });
++}
++
++export function adjudicate(
++  present: Iterable<string>,
++  rules: WorldRule[],
++): { decision: Decision; ruleId: string | null } {
++  const signals = present instanceof Set ? present : new Set(present);
++  for (const rule of rules) {
++    const requiredOk = rule.requiredSignals.every((id) => signals.has(id));
++    const avoidOk = rule.avoidSignals.every((id) => !signals.has(id));
++    if (requiredOk && avoidOk) return { decision: rule.decision, ruleId: rule.id };
++  }
++  return { decision: "avoid_trade", ruleId: null };
++}
++
++export function loadDomainConfig(): DomainConfig {
++  return JSON.parse(readFileSync(new URL("./domain.json", import.meta.url), "utf8")) as DomainConfig;
++}
++
++export function signalKey(present: Iterable<string>): string {
++  const set = new Set(present);
++  return SIGNAL_IDS.map((id) => (set.has(id) ? "1" : "0")).join("");
++}
++
++export function presentFromKey(key: string): SignalId[] {
++  return SIGNAL_IDS.filter((_, index) => key[index] === "1");
++}
++
++export function publicItemId(key: string): string {
++  return "m1_" + sha256({ k: key }).slice(0, 16);
++}
++
++export function enumerateLabeledUniverse(rules = buildWorldRules()): Array<Omit<M1Item, "split">> {
++  const items: Array<Omit<M1Item, "split">> = [];
++  const seen = new Map<string, Decision>();
++  for (let mask = 0; mask < 2 ** SIGNAL_IDS.length; mask += 1) {
++    const present = SIGNAL_IDS.filter((_, index) => (mask & (1 << index)) !== 0);
++    const key = signalKey(present);
++    const { decision, ruleId } = adjudicate(present, rules);
++    const prior = seen.get(key);
++    if (prior && prior !== decision) {
++      throw new Error("label conflict for " + key + ": " + prior + " vs " + decision);
++    }
++    seen.set(key, decision);
++    items.push({
++      id: publicItemId(key),
++      signalKey: key,
++      signalsPresent: present,
++      label: decision,
++      ruleId,
++    });
++  }
++  return items;
++}
++
++function groupByLabel<T extends { label: Decision }>(items: T[]): Map<Decision, T[]> {
++  const groups = new Map<Decision, T[]>();
++  for (const item of items) {
++    const list = groups.get(item.label) ?? [];
++    list.push(item);
++    groups.set(item.label, list);
++  }
++  return groups;
++}
++
++function sampleStratified<T extends { label: Decision; signalKey: string }>(
++  items: T[],
++  seed: string,
++  n: number,
++): T[] {
++  const groups = groupByLabel(items);
++  if (groups.size < 2) throw new Error("dataset degenerated to fewer than two action classes");
++  const classes = [...groups.keys()].sort();
++  const sizes = classes.map((cls) => groups.get(cls)!.length);
++  const total = sizes.reduce((sum, size) => sum + size, 0);
++  const alloc = classes.map((cls, index) => Math.min(groups.get(cls)!.length, Math.floor((n * sizes[index]) / total)));
++  let leftover = n - alloc.reduce((sum, size) => sum + size, 0);
++  const order = classes
++    .map((_, index) => index)
++    .sort((a, b) => sizes[b] - sizes[a] || classes[a].localeCompare(classes[b]));
++  let guard = 0;
++  while (leftover > 0 && guard < 10_000) {
++    guard += 1;
++    let progressed = false;
++    for (const index of order) {
++      if (leftover <= 0) break;
++      if (alloc[index] < groups.get(classes[index])!.length) {
++        alloc[index] += 1;
++        leftover -= 1;
++        progressed = true;
++      }
++    }
++    if (!progressed) break;
++  }
++  if (leftover !== 0) throw new Error("could not allocate stratified sample");
++  const picked: T[] = [];
++  classes.forEach((cls, index) => {
++    const shuffled = stableShuffle(groups.get(cls)!, seed + ":class:" + cls);
++    picked.push(...shuffled.slice(0, alloc[index]));
++  });
++  return stableShuffle(picked, seed + ":picked");
++}
++
++function splitStratified(items: Array<Omit<M1Item, "split">>, seed: string): M1Item[] {
++  const groups = groupByLabel(items);
++  const assigned: M1Item[] = [];
++  const pattern: Split[] = ["train", "train", "dev", "test"];
++  for (const cls of [...groups.keys()].sort()) {
++    const shuffled = stableShuffle(groups.get(cls)!, seed + ":split:" + cls);
++    shuffled.forEach((item, index) => {
++      assigned.push({ ...item, split: pattern[index % pattern.length] });
++    });
++  }
++  const counts: Record<Split, number> = { train: 0, dev: 0, test: 0 };
++  for (const item of assigned) counts[item.split] += 1;
++  const target: Record<Split, number> = { train: 40, dev: 20, test: 20 };
++  const move = (from: Split, to: Split) => {
++    const candidate = assigned.find((item) => item.split === from);
++    if (!candidate) return false;
++    candidate.split = to;
++    counts[from] -= 1;
++    counts[to] += 1;
++    return true;
++  };
++  let guard = 0;
++  while ((counts.train !== 40 || counts.dev !== 20 || counts.test !== 20) && guard < 10_000) {
++    guard += 1;
++    if (counts.train > target.train && counts.dev < target.dev) move("train", "dev");
++    else if (counts.train > target.train && counts.test < target.test) move("train", "test");
++    else if (counts.dev > target.dev && counts.train < target.train) move("dev", "train");
++    else if (counts.dev > target.dev && counts.test < target.test) move("dev", "test");
++    else if (counts.test > target.test && counts.train < target.train) move("test", "train");
++    else if (counts.test > target.test && counts.dev < target.dev) move("test", "dev");
++    else break;
++  }
++  if (counts.train !== 40 || counts.dev !== 20 || counts.test !== 20) {
++    throw new Error("split counts drifted: " + JSON.stringify(counts));
++  }
++  const order: Record<Split, number> = { train: 0, dev: 1, test: 2 };
++  return assigned.sort((a, b) => order[a.split] - order[b.split] || a.signalKey.localeCompare(b.signalKey));
++}
++
++export function buildFrozenDataset(): FrozenDataset {
++  const rules = buildWorldRules({ worldSeed: WORLD_SEED });
++  const universe = enumerateLabeledUniverse(rules);
++  const sampled = sampleStratified(universe, SAMPLE_SEED, 80);
++  const items = splitStratified(sampled, SAMPLE_SEED + ":split");
++  const classes = new Set(items.map((item) => item.label));
++  if (classes.size < 2) throw new Error("sampled dataset has fewer than two action classes");
++  return {
++    protocolId: PROTOCOL_ID,
++    sampleSeed: SAMPLE_SEED,
++    worldSeed: WORLD_SEED,
++    rules,
++    items,
++    hashes: hashDataset(rules, items),
++  };
++}
++
++export function hashDataset(rules: WorldRule[], items: M1Item[]): FrozenDataset["hashes"] {
++  const bySplit = (split: Split) => items.filter((item) => item.split === split).map((item) => item.signalKey).sort();
++  return {
++    rules: sha256(rules),
++    visible: sha256(items.map((item) => ({ id: item.id, signalKey: item.signalKey, signalsPresent: item.signalsPresent }))),
++    labels: sha256(items.map((item) => ({ id: item.id, label: item.label, ruleId: item.ruleId }))),
++    partitions: sha256({ train: bySplit("train"), dev: bySplit("dev"), test: bySplit("test") }),
++  };
++}
++
++export function actionCatalog(domain = loadDomainConfig()) {
++  return DECISIONS.map((id) => ({
++    id,
++    label: domain.decisionSkins[id]?.label ?? id,
++    text: domain.decisionSkins[id]?.text ?? id,
++  }));
++}
++
++export function visibleSignals(item: Pick<M1Item, "signalsPresent">, domain = loadDomainConfig()) {
++  return item.signalsPresent.map((id) => ({
++    id,
++    label: domain.signalSkins[id]?.label ?? id,
++    text: domain.signalSkins[id]?.text ?? id,
++  }));
++}
++
++export function renderDecisionPrompt(item: Pick<M1Item, "signalsPresent">, domain = loadDomainConfig()) {
++  return {
++    task: [
++      domain.caseStyle.task,
++      "Choose exactly one action from the provided action set.",
++      "This is a synthetic rule-learning task, not investment advice.",
++      "No files, network, git, or other tools are available.",
++    ].join(" "),
++    context: {
++      actions: actionCatalog(domain),
++      signals: visibleSignals(item, domain),
++    },
++  };
++}
++
++export function datasetInvariants(dataset: FrozenDataset): string[] {
++  const errors: string[] = [];
++  const keys = new Set<string>();
++  const labels = new Map<string, Decision>();
++  const splitKeys: Record<Split, Set<string>> = { train: new Set(), dev: new Set(), test: new Set() };
++  const classSet = new Set<Decision>();
++  for (const item of dataset.items) {
++    classSet.add(item.label);
++    if (keys.has(item.signalKey)) errors.push("duplicate signal set " + item.signalKey);
++    keys.add(item.signalKey);
++    const prior = labels.get(item.signalKey);
++    if (prior && prior !== item.label) errors.push("conflicting labels for " + item.signalKey);
++    labels.set(item.signalKey, item.label);
++    splitKeys[item.split].add(item.signalKey);
++    const recomputed = adjudicate(item.signalsPresent, dataset.rules);
++    if (recomputed.decision !== item.label) {
++      errors.push("label drift on " + item.id + ": " + item.label + " vs " + recomputed.decision);
++    }
++  }
++  const counts = {
++    train: dataset.items.filter((item) => item.split === "train").length,
++    dev: dataset.items.filter((item) => item.split === "dev").length,
++    test: dataset.items.filter((item) => item.split === "test").length,
++  };
++  if (dataset.items.length !== 80) errors.push("expected 80 items, got " + String(dataset.items.length));
++  if (counts.train !== 40 || counts.dev !== 20 || counts.test !== 20) errors.push("bad split " + JSON.stringify(counts));
++  if (classSet.size < 2) errors.push("fewer than two action classes");
++  for (const a of ["train", "dev", "test"] as Split[]) {
++    for (const b of ["train", "dev", "test"] as Split[]) {
++      if (a >= b) continue;
++      for (const key of splitKeys[a]) {
++        if (splitKeys[b].has(key)) errors.push("signal set " + key + " appears in " + a + " and " + b);
++      }
++    }
++  }
++  const hashed = hashDataset(dataset.rules, dataset.items);
++  if (hashed.visible !== dataset.hashes.visible) errors.push("visible hash mismatch");
++  if (hashed.labels !== dataset.hashes.labels) errors.push("label hash mismatch");
++  if (hashed.partitions !== dataset.hashes.partitions) errors.push("partition hash mismatch");
++  return errors;
++}
++
+diff --git a/experiments/m1/domain.json b/experiments/m1/domain.json
+new file mode 100644
+--- /dev/null
++++ b/experiments/m1/domain.json
+@@ -0,0 +1,120 @@
++{
++  "schema": "alaya.learning_loop.scenario_domain.v1",
++  "domainId": "equity_thesis_v1",
++  "version": 1,
++  "caseStyle": {
++    "headlinePrefix": "Equity thesis review",
++    "entityPrefix": "ALYA",
++    "briefingTone": "portfolio-review memo",
++    "task": "Choose the thesis direction that best matches the signal bundle.",
++    "confidencePrompt": "Report confidence as the probability that the selected direction matches the hidden world rule."
++  },
++  "signalSkins": {
++    "earnings_revision": {
++      "label": "earnings revision",
++      "text": "Street estimates were revised upward after the latest operating update.",
++      "kind": "fundamental",
++      "polarity": "positive"
++    },
++    "margin_repair": {
++      "label": "margin repair",
++      "text": "Gross margin pressure is easing as mix and procurement normalize.",
++      "kind": "fundamental",
++      "polarity": "positive"
++    },
++    "cash_flow_quality": {
++      "label": "cash flow quality",
++      "text": "Free cash flow conversion is improving without a working-capital pull-forward.",
++      "kind": "quality",
++      "polarity": "positive"
++    },
++    "valuation_discount": {
++      "label": "valuation discount",
++      "text": "The stock trades at a discount to peers after adjusting for growth and leverage.",
++      "kind": "valuation",
++      "polarity": "positive"
++    },
++    "upside_catalyst": {
++      "label": "upside catalyst",
++      "text": "A near-term catalyst can re-rate the thesis if execution remains intact.",
++      "kind": "catalyst",
++      "polarity": "positive"
++    },
++    "short_crowding": {
++      "label": "short crowding",
++      "text": "Short interest is crowded enough to amplify a positive revision.",
++      "kind": "positioning",
++      "polarity": "positive"
++    },
++    "guidance_cut": {
++      "label": "guidance cut",
++      "text": "Management cut forward guidance and narrowed the delivery range.",
++      "kind": "fundamental",
++      "polarity": "negative"
++    },
++    "liquidity_risk": {
++      "label": "liquidity risk",
++      "text": "Liquidity runway tightened and refinancing optionality is lower.",
++      "kind": "balance_sheet",
++      "polarity": "negative"
++    },
++    "event_risk": {
++      "label": "event risk",
++      "text": "A binary event can dominate the near-term return distribution.",
++      "kind": "risk",
++      "polarity": "negative"
++    },
++    "drawdown_pressure": {
++      "label": "drawdown pressure",
++      "text": "Price action is breaking support while realized volatility is rising.",
++      "kind": "technical",
++      "polarity": "negative"
++    },
++    "regulatory_risk": {
++      "label": "regulatory risk",
++      "text": "A regulator opened a review that could delay monetization.",
++      "kind": "risk",
++      "polarity": "negative"
++    },
++    "risk_budget_tight": {
++      "label": "risk budget tight",
++      "text": "Portfolio risk budget is tight and incremental exposure must clear a higher bar.",
++      "kind": "portfolio",
++      "polarity": "negative"
++    }
++  },
++  "decisionSkins": {
++    "increase_long": {
++      "label": "increase long",
++      "direction": "constructive",
++      "text": "Increase long exposure because thesis quality and upside skew dominate."
++    },
++    "maintain_long": {
++      "label": "maintain long",
++      "direction": "constructive",
++      "text": "Maintain the long thesis while waiting for confirmation."
++    },
++    "reduce_exposure": {
++      "label": "reduce exposure",
++      "direction": "defensive",
++      "text": "Reduce exposure because the risk signals now dominate expected upside."
++    },
++    "avoid_trade": {
++      "label": "avoid trade",
++      "direction": "neutral",
++      "text": "Avoid a new trade because signal conflict is too high."
++    },
++    "short_bias": {
++      "label": "short bias",
++      "direction": "bearish",
++      "text": "Adopt a short bias because negative revisions and risk signals dominate."
++    }
++  },
++  "rationaleTemplates": [
++    "The rule rewards quality plus revision strength when risk remains contained.",
++    "The rule penalizes fragile balance-sheet or event-risk combinations.",
++    "The rule treats valuation as useful only when paired with evidence of execution.",
++    "The rule treats crowded positioning as an amplifier, not a standalone thesis.",
++    "The rule favors capital preservation when portfolio constraints are active."
++  ]
++}
+diff --git a/experiments/m1/k1_diagnose.test.ts b/experiments/m1/k1_diagnose.test.ts
+new file mode 100644
+--- /dev/null
++++ b/experiments/m1/k1_diagnose.test.ts
+@@ -0,0 +1,73 @@
++import assert from "node:assert/strict";
++import { test } from "node:test";
++import {
++  TRUNCATED_ITEMS_FIXTURE,
++  baselineTryParseJsonObject,
++  classifyRawDistill,
++  failPathFetchCount,
++  parseRootJsonObject,
++} from "./parse_json.ts";
++import { parseDistillOutput } from "./runner.ts";
++import type { LLMResponse } from "../../alaya-core/src/llm/provider.ts";
++
++function fakeResponse(data: Record<string, unknown>, extra: Partial<LLMResponse> = {}): LLMResponse {
++  return {
++    schemaValid: extra.schemaValid ?? true,
++    retryCount: extra.retryCount ?? 0,
++    data,
++    degradedToHumanGate: extra.degradedToHumanGate ?? false,
++    errorMessage: extra.errorMessage,
++    log: extra.log ?? {
++      provider: "scripted",
++      agent: "distiller",
++      promptVersion: "alaya-m1-distill-v1",
++      inputSummary: "",
++      outputSummary: "",
++      schemaValid: extra.schemaValid ?? true,
++      retryCount: extra.retryCount ?? 0,
++      latencyMs: 0,
++      tokenCount: extra.log?.tokenCount ?? 1,
++      estimatedCost: 0,
++      ts: new Date().toISOString(),
++    },
++  };
++}
++
++test("complete items root parses; empty items remain a no-candidate", () => {
++  const complete = parseRootJsonObject('{"items":[{"id":"exp_a","condition":"c","judgment":"j","exception":"e","sourceTrainIds":["t1"]}]}');
++  assert.equal(complete.ok, true);
++  if (complete.ok) assert.equal(Array.isArray(complete.value.items), true);
++  const empty = parseRootJsonObject('{"items":[]}');
++  assert.equal(empty.ok, true);
++  if (empty.ok) assert.deepEqual(empty.value.items, []);
++  const parsedEmpty = parseDistillOutput({ response: fakeResponse({ items: [] }), allowedSourceIds: ["t1"], version: "K1" });
++  assert.equal(parsedEmpty.status, "empty_candidate");
++});
++
++test("truncated items root is not accepted as an inner knowledge object", () => {
++  const baseline = baselineTryParseJsonObject(TRUNCATED_ITEMS_FIXTURE);
++  assert.ok(baseline);
++  assert.equal(Object.prototype.hasOwnProperty.call(baseline, "items"), false);
++  assert.equal(baseline?.id, "exp_example");
++  const root = parseRootJsonObject(TRUNCATED_ITEMS_FIXTURE);
++  assert.equal(root.ok, false);
++  const classified = classifyRawDistill(TRUNCATED_ITEMS_FIXTURE);
++  assert.equal(classified.innerExtractedAsRoot, true);
++  assert.equal(classified.rootHasItems, false);
++});
++
++test("schema failure still records simulated usage when present", () => {
++  const response = fakeResponse({ summary: "no items" }, { schemaValid: false, errorMessage: "missing items" });
++  response.log.tokenCount = 99;
++  const parsed = parseDistillOutput({ response, allowedSourceIds: ["t1"], version: "K1" });
++  assert.equal(parsed.status, "provider_failure");
++  assert.equal(response.log.tokenCount, 99);
++});
++
++test("fail-path retryCount plus one overcounts actual fetches when maxRetries is 1", () => {
++  const counts = failPathFetchCount(1);
++  assert.equal(counts.fetches, 3);
++  assert.equal(counts.loggedRetryCount, 3);
++  assert.equal(counts.runnerPlusOne, 4);
++});
++
+diff --git a/experiments/m1/k1_diagnose.ts b/experiments/m1/k1_diagnose.ts
+new file mode 100644
+--- /dev/null
++++ b/experiments/m1/k1_diagnose.ts
+@@ -0,0 +1,84 @@
++import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
++import { join, resolve } from "node:path";
++import { fileURLToPath } from "node:url";
++import { OpenAIProvider, resolveOpenAIApiKey, type AgentContext, type ProviderDiagnosticEvent } from "../../alaya-core/src/llm/provider.ts";
++import { classifyRawDistill, parseRootJsonObject } from "./parse_json.ts";
++
++const PROTOCOL = JSON.parse(readFileSync(new URL("./protocol.json", import.meta.url), "utf8")) as {
++  model: { name: string; baseUrl: string; temperature: number; maxRetries: number; maxOutputTokens: number };
++};
++
++function loadLoggedRequest(): { request: AgentContext } {
++  const raw = JSON.parse(readFileSync(new URL("./k1_logged_request_diagnostic_only.json", import.meta.url), "utf8"));
++  const req = raw.request as AgentContext;
++  delete (req as { mockDataPresent?: boolean }).mockDataPresent;
++  if (req.knowledgeSummary === null) delete req.knowledgeSummary;
++  return { request: req };
++}
++
++async function main() {
++  const outDir = resolve(fileURLToPath(new URL("../../validation-logs/m1/k1-diagnose", import.meta.url)));
++  mkdirSync(outDir, { recursive: true });
++  const authorize = process.argv.includes("--authorize-live") && process.env.ALAYA_M1_AUTHORIZE_LIVE === "1";
++  const logged = loadLoggedRequest();
++  const config = {
++    model: PROTOCOL.model.name,
++    baseUrl: PROTOCOL.model.baseUrl,
++    temperature: PROTOCOL.model.temperature,
++    maxRetries: PROTOCOL.model.maxRetries,
++    maxOutputTokens: PROTOCOL.model.maxOutputTokens,
++    diagnosticSingleAttempt: true,
++    rebuiltNotByteReplay: true,
++  };
++  if (!authorize) {
++    writeFileSync(join(outDir, "manifest.json"), JSON.stringify({
++      status: "READY_FOR_AUTHORIZED_K1_DIAGNOSE",
++      reason: "Zero-call only. Live replay needs --authorize-live and ALAYA_M1_AUTHORIZE_LIVE=1. Budget: 2 HTTP / 30000 tokens. No Train/Dev/Test.",
++      config,
++      loggedRequestIsAgentContextNotHttp: true,
++    }, null, 2) + "\n");
++    process.stdout.write("READY_FOR_AUTHORIZED_K1_DIAGNOSE\n" + outDir + "\n");
++    return;
++  }
++  if (!resolveOpenAIApiKey()) {
++    process.stdout.write("BLOCKED OPENAI_API_KEY is not set\n");
++    process.exitCode = 2;
++    return;
++  }
++  const captures: ProviderDiagnosticEvent[] = [];
++  const provider = new OpenAIProvider({
++    model: config.model,
++    baseUrl: config.baseUrl,
++    temperature: config.temperature,
++    maxRetries: 0,
++    maxOutputTokens: config.maxOutputTokens,
++    diagnosticSingleAttempt: true,
++    onDiagnosticCapture: (event) => captures.push(event),
++  });
++  const response = await provider.call(logged.request);
++  const rawText = captures[0]?.rawText ?? "";
++  const classified = rawText ? classifyRawDistill(rawText) : null;
++  const root = rawText ? parseRootJsonObject(rawText) : null;
++  const pack = {
++    diagnosticOnly: true,
++    notOfficialRun: true,
++    httpFetchCount: provider.httpFetchCount,
++    captures: captures.map((event) => ({ ...event, rawTextBytes: event.rawText.length })),
++    classified,
++    rootOk: root?.ok ?? false,
++    rootKeys: root && root.ok ? Object.keys(root.value) : [],
++    schemaValid: response.schemaValid,
++    degraded: response.degradedToHumanGate,
++    errorMessage: response.errorMessage ?? null,
++    usageComplete: captures[0]?.usageComplete ?? false,
++  };
++  writeFileSync(join(outDir, "k1_raw_capture.json"), JSON.stringify({ ...pack, rawText }, null, 2) + "\n");
++  writeFileSync(join(outDir, "manifest.json"), JSON.stringify({ status: "K1_DIAGNOSE_CAPTURED", httpFetchCount: provider.httpFetchCount, usageComplete: pack.usageComplete, classified }, null, 2) + "\n");
++  process.stdout.write("K1_DIAGNOSE_CAPTURED fetches=" + String(provider.httpFetchCount) + "\n");
++  if (provider.httpFetchCount > 1) process.exitCode = 2;
++}
++
++main().catch((error) => {
++  process.stderr.write(String(error?.stack ?? error) + "\n");
++  process.exitCode = 1;
++});
+diff --git a/experiments/m1/k1_logged_request_diagnostic_only.json b/experiments/m1/k1_logged_request_diagnostic_only.json
+new file mode 100644
+--- /dev/null
++++ b/experiments/m1/k1_logged_request_diagnostic_only.json
+@@ -0,0 +1,805 @@
++{
++  "diagnosticOnly": true,
++  "notHttpBytes": true,
++  "sourceRun": "2026-09-19T10-00-23-273Z",
++  "kind": "k1_logged_request",
++  "retryCount": 3,
++  "providerRequestsField": 4,
++  "tokenCount": 4709,
++  "errorMessage": "response failed JSON schema validation: $.items is required. Include every required key; use [] for empty arrays.",
++  "output": {
++    "summary": "LLM call failed for distiller:Distill transferable decision rules from revealed training feedback. Do not grade JSON formatting; emit knowledge content. Return an object with items (array, required, may be empty). Do not omit items. Empty items means no candidate. Each item needs id, condition, judgment, exception, sourceTrainIds. id must start with exp_ and must not be a signal id. sourceTrainIds must be a subset of allowedSourceIds.",
++    "human_gate_candidate": {
++      "type": "meaning",
++      "blocking": false,
++      "reason": "response failed JSON schema validation: $.items is required. Include every required key; use [] for empty arrays."
++    }
++  },
++  "request": {
++    "role": "distiller",
++    "task": "Distill transferable decision rules from revealed training feedback. Do not grade JSON formatting; emit knowledge content. Return an object with items (array, required, may be empty). Do not omit items. Empty items means no candidate. Each item needs id, condition, judgment, exception, sourceTrainIds. id must start with exp_ and must not be a signal id. sourceTrainIds must be a subset of allowedSourceIds.",
++    "promptVersion": "alaya-m1-distill-v1",
++    "context": {
++      "existingKnowledge": "",
++      "allowedSourceIds": [
++        "m1_0554f43cf54dbbdb",
++        "m1_99e257bc98914e5c",
++        "m1_4fa56e293878fce0",
++        "m1_b6e1b9faa0d37f81",
++        "m1_23591a421ee91a34",
++        "m1_32d9fa7644960502",
++        "m1_160ef0d52a876ace",
++        "m1_59d992c03630221e",
++        "m1_2a1e76b3ab8c98f4",
++        "m1_0f47c1349a3ae8de",
++        "m1_cfdaa4c5410d292a",
++        "m1_b0c69e4d0ff9870a",
++        "m1_2752264df6abcec1",
++        "m1_bc1fec21e31258a0",
++        "m1_b384d8ac5fd938d5",
++        "m1_22fff9f4c03f73df",
++        "m1_fbbd90d39eecb9c3",
++        "m1_0565704761f22bc6",
++        "m1_e5c3c581c8ddbb79",
++        "m1_bb0857fe6bbc5581"
++      ],
++      "knowledgeIdPrefix": "exp_",
++      "forbiddenIds": [
++        "earnings_revision",
++        "margin_repair",
++        "cash_flow_quality",
++        "valuation_discount",
++        "upside_catalyst",
++        "short_crowding",
++        "guidance_cut",
++        "liquidity_risk",
++        "event_risk",
++        "drawdown_pressure",
++        "regulatory_risk",
++        "risk_budget_tight"
++      ],
++      "itemFields": [
++        "id",
++        "condition",
++        "judgment",
++        "exception",
++        "sourceTrainIds"
++      ],
++      "feedback": [
++        {
++          "id": "m1_0554f43cf54dbbdb",
++          "signals": [
++            {
++              "id": "liquidity_risk",
++              "label": "liquidity risk",
++              "text": "Liquidity runway tightened and refinancing optionality is lower."
++            },
++            {
++              "id": "event_risk",
++              "label": "event risk",
++              "text": "A binary event can dominate the near-term return distribution."
++            },
++            {
++              "id": "regulatory_risk",
++              "label": "regulatory risk",
++              "text": "A regulator opened a review that could delay monetization."
++            }
++          ],
++          "modelDecision": "avoid_trade",
++          "correctDecision": "short_bias",
++          "actionCorrect": 0,
++          "contractValid": true
++        },
++        {
++          "id": "m1_99e257bc98914e5c",
++          "signals": [
++            {
++              "id": "upside_catalyst",
++              "label": "upside catalyst",
++              "text": "A near-term catalyst can re-rate the thesis if execution remains intact."
++            },
++            {
++              "id": "short_crowding",
++              "label": "short crowding",
++              "text": "Short interest is crowded enough to amplify a positive revision."
++            },
++            {
++              "id": "drawdown_pressure",
++              "label": "drawdown pressure",
++              "text": "Price action is breaking support while realized volatility is rising."
++            }
++          ],
++          "modelDecision": "maintain_long",
++          "correctDecision": "avoid_trade",
++          "actionCorrect": 0,
++          "contractValid": true
++        },
++        {
++          "id": "m1_4fa56e293878fce0",
++          "signals": [
++            {
++              "id": "valuation_discount",
++              "label": "valuation discount",
++              "text": "The stock trades at a discount to peers after adjusting for growth and leverage."
++            },
++            {
++              "id": "short_crowding",
++              "label": "short crowding",
++              "text": "Short interest is crowded enough to amplify a positive revision."
++            },
++            {
++              "id": "drawdown_pressure",
++              "label": "drawdown pressure",
++              "text": "Price action is breaking support while realized volatility is rising."
++            },
++            {
++              "id": "regulatory_risk",
++              "label": "regulatory risk",
++              "text": "A regulator opened a review that could delay monetization."
++            }
++          ],
++          "modelDecision": "avoid_trade",
++          "correctDecision": "avoid_trade",
++          "actionCorrect": 1,
++          "contractValid": true
++        },
++        {
++          "id": "m1_b6e1b9faa0d37f81",
++          "signals": [
++            {
++              "id": "valuation_discount",
++              "label": "valuation discount",
++              "text": "The stock trades at a discount to peers after adjusting for growth and leverage."
++            },
++            {
++              "id": "short_crowding",
++              "label": "short crowding",
++              "text": "Short interest is crowded enough to amplify a positive revision."
++            },
++            {
++              "id": "guidance_cut",
++              "label": "guidance cut",
++              "text": "Management cut forward guidance and narrowed the delivery range."
++            },
++            {
++              "id": "liquidity_risk",
++              "label": "liquidity risk",
++              "text": "Liquidity runway tightened and refinancing optionality is lower."
++            },
++            {
++              "id": "regulatory_risk",
++              "label": "regulatory risk",
++              "text": "A regulator opened a review that could delay monetization."
++            },
++            {
++              "id": "risk_budget_tight",
++              "label": "risk budget tight",
++              "text": "Portfolio risk budget is tight and incremental exposure must clear a higher bar."
++            }
++          ],
++          "modelDecision": "avoid_trade",
++          "correctDecision": "short_bias",
++          "actionCorrect": 0,
++          "contractValid": true
++        },
++        {
++          "id": "m1_23591a421ee91a34",
++          "signals": [
++            {
++              "id": "cash_flow_quality",
++              "label": "cash flow quality",
++              "text": "Free cash flow conversion is improving without a working-capital pull-forward."
++            },
++            {
++              "id": "valuation_discount",
++              "label": "valuation discount",
++              "text": "The stock trades at a discount to peers after adjusting for growth and leverage."
++            },
++            {
++              "id": "event_risk",
++              "label": "event risk",
++              "text": "A binary event can dominate the near-term return distribution."
++            },
++            {
++              "id": "regulatory_risk",
++              "label": "regulatory risk",
++              "text": "A regulator opened a review that could delay monetization."
++            },
++            {
++              "id": "risk_budget_tight",
++              "label": "risk budget tight",
++              "text": "Portfolio risk budget is tight and incremental exposure must clear a higher bar."
++            }
++          ],
++          "modelDecision": "avoid_trade",
++          "correctDecision": "short_bias",
++          "actionCorrect": 0,
++          "contractValid": true
++        },
++        {
++          "id": "m1_32d9fa7644960502",
++          "signals": [
++            {
++              "id": "margin_repair",
++              "label": "margin repair",
++              "text": "Gross margin pressure is easing as mix and procurement normalize."
++            },
++            {
++              "id": "upside_catalyst",
++              "label": "upside catalyst",
++              "text": "A near-term catalyst can re-rate the thesis if execution remains intact."
++            },
++            {
++              "id": "short_crowding",
++              "label": "short crowding",
++              "text": "Short interest is crowded enough to amplify a positive revision."
++            },
++            {
++              "id": "guidance_cut",
++              "label": "guidance cut",
++              "text": "Management cut forward guidance and narrowed the delivery range."
++            }
++          ],
++          "modelDecision": "maintain_long",
++          "correctDecision": "avoid_trade",
++          "actionCorrect": 0,
++          "contractValid": true
++        },
++        {
++          "id": "m1_160ef0d52a876ace",
++          "signals": [
++            {
++              "id": "margin_repair",
++              "label": "margin repair",
++              "text": "Gross margin pressure is easing as mix and procurement normalize."
++            },
++            {
++              "id": "valuation_discount",
++              "label": "valuation discount",
++              "text": "The stock trades at a discount to peers after adjusting for growth and leverage."
++            },
++            {
++              "id": "guidance_cut",
++              "label": "guidance cut",
++              "text": "Management cut forward guidance and narrowed the delivery range."
++            },
++            {
++              "id": "liquidity_risk",
++              "label": "liquidity risk",
++              "text": "Liquidity runway tightened and refinancing optionality is lower."
++            }
++          ],
++          "modelDecision": "avoid_trade",
++          "correctDecision": "maintain_long",
++          "actionCorrect": 0,
++          "contractValid": true
++        },
++        {
++          "id": "m1_59d992c03630221e",
++          "signals": [
++            {
++              "id": "margin_repair",
++              "label": "margin repair",
++              "text": "Gross margin pressure is easing as mix and procurement normalize."
++            },
++            {
++              "id": "valuation_discount",
++              "label": "valuation discount",
++              "text": "The stock trades at a discount to peers after adjusting for growth and leverage."
++            },
++            {
++              "id": "guidance_cut",
++              "label": "guidance cut",
++              "text": "Management cut forward guidance and narrowed the delivery range."
++            },
++            {
++              "id": "liquidity_risk",
++              "label": "liquidity risk",
++              "text": "Liquidity runway tightened and refinancing optionality is lower."
++            },
++            {
++              "id": "risk_budget_tight",
++              "label": "risk budget tight",
++              "text": "Portfolio risk budget is tight and incremental exposure must clear a higher bar."
++            }
++          ],
++          "modelDecision": "reduce_exposure",
++          "correctDecision": "avoid_trade",
++          "actionCorrect": 0,
++          "contractValid": true
++        },
++        {
++          "id": "m1_2a1e76b3ab8c98f4",
++          "signals": [
++            {
++              "id": "margin_repair",
++              "label": "margin repair",
++              "text": "Gross margin pressure is easing as mix and procurement normalize."
++            },
++            {
++              "id": "valuation_discount",
++              "label": "valuation discount",
++              "text": "The stock trades at a discount to peers after adjusting for growth and leverage."
++            },
++            {
++              "id": "upside_catalyst",
++              "label": "upside catalyst",
++              "text": "A near-term catalyst can re-rate the thesis if execution remains intact."
++            },
++            {
++              "id": "guidance_cut",
++              "label": "guidance cut",
++              "text": "Management cut forward guidance and narrowed the delivery range."
++            },
++            {
++              "id": "drawdown_pressure",
++              "label": "drawdown pressure",
++              "text": "Price action is breaking support while realized volatility is rising."
++            }
++          ],
++          "modelDecision": "avoid_trade",
++          "correctDecision": "maintain_long",
++          "actionCorrect": 0,
++          "contractValid": false
++        },
++        {
++          "id": "m1_0f47c1349a3ae8de",
++          "signals": [
++            {
++              "id": "margin_repair",
++              "label": "margin repair",
++              "text": "Gross margin pressure is easing as mix and procurement normalize."
++            },
++            {
++              "id": "cash_flow_quality",
++              "label": "cash flow quality",
++              "text": "Free cash flow conversion is improving without a working-capital pull-forward."
++            },
++            {
++              "id": "drawdown_pressure",
++              "label": "drawdown pressure",
++              "text": "Price action is breaking support while realized volatility is rising."
++            },
++            {
++              "id": "risk_budget_tight",
++              "label": "risk budget tight",
++              "text": "Portfolio risk budget is tight and incremental exposure must clear a higher bar."
++            }
++          ],
++          "modelDecision": "reduce_exposure",
++          "correctDecision": "avoid_trade",
++          "actionCorrect": 0,
++          "contractValid": true
++        },
++        {
++          "id": "m1_cfdaa4c5410d292a",
++          "signals": [
++            {
++              "id": "margin_repair",
++              "label": "margin repair",
++              "text": "Gross margin pressure is easing as mix and procurement normalize."
++            },
++            {
++              "id": "cash_flow_quality",
++              "label": "cash flow quality",
++              "text": "Free cash flow conversion is improving without a working-capital pull-forward."
++            },
++            {
++              "id": "guidance_cut",
++              "label": "guidance cut",
++              "text": "Management cut forward guidance and narrowed the delivery range."
++            },
++            {
++              "id": "drawdown_pressure",
++              "label": "drawdown pressure",
++              "text": "Price action is breaking support while realized volatility is rising."
++            },
++            {
++              "id": "risk_budget_tight",
++              "label": "risk budget tight",
++              "text": "Portfolio risk budget is tight and incremental exposure must clear a higher bar."
++            }
++          ],
++          "modelDecision": "reduce_exposure",
++          "correctDecision": "avoid_trade",
++          "actionCorrect": 0,
++          "contractValid": true
++        },
++        {
++          "id": "m1_b0c69e4d0ff9870a",
++          "signals": [
++            {
++              "id": "margin_repair",
++              "label": "margin repair",
++              "text": "Gross margin pressure is easing as mix and procurement normalize."
++            },
++            {
++              "id": "cash_flow_quality",
++              "label": "cash flow quality",
++              "text": "Free cash flow conversion is improving without a working-capital pull-forward."
++            },
++            {
++              "id": "short_crowding",
++              "label": "short crowding",
++              "text": "Short interest is crowded enough to amplify a positive revision."
++            },
++            {
++              "id": "liquidity_risk",
++              "label": "liquidity risk",
++              "text": "Liquidity runway tightened and refinancing optionality is lower."
++            },
++            {
++              "id": "event_risk",
++              "label": "event risk",
++              "text": "A binary event can dominate the near-term return distribution."
++            },
++            {
++              "id": "drawdown_pressure",
++              "label": "drawdown pressure",
++              "text": "Price action is breaking support while realized volatility is rising."
++            },
++            {
++              "id": "risk_budget_tight",
++              "label": "risk budget tight",
++              "text": "Portfolio risk budget is tight and incremental exposure must clear a higher bar."
++            }
++          ],
++          "modelDecision": "maintain_long",
++          "correctDecision": "short_bias",
++          "actionCorrect": 0,
++          "contractValid": true
++        },
++        {
++          "id": "m1_2752264df6abcec1",
++          "signals": [
++            {
++              "id": "margin_repair",
++              "label": "margin repair",
++              "text": "Gross margin pressure is easing as mix and procurement normalize."
++            },
++            {
++              "id": "cash_flow_quality",
++              "label": "cash flow quality",
++              "text": "Free cash flow conversion is improving without a working-capital pull-forward."
++            },
++            {
++              "id": "upside_catalyst",
++              "label": "upside catalyst",
++              "text": "A near-term catalyst can re-rate the thesis if execution remains intact."
++            },
++            {
++              "id": "regulatory_risk",
++              "label": "regulatory risk",
++              "text": "A regulator opened a review that could delay monetization."
++            },
++            {
++              "id": "risk_budget_tight",
++              "label": "risk budget tight",
++              "text": "Portfolio risk budget is tight and incremental exposure must clear a higher bar."
++            }
++          ],
++          "modelDecision": "maintain_long",
++          "correctDecision": "avoid_trade",
++          "actionCorrect": 0,
++          "contractValid": false
++        },
++        {
++          "id": "m1_bc1fec21e31258a0",
++          "signals": [
++            {
++              "id": "margin_repair",
++              "label": "margin repair",
++              "text": "Gross margin pressure is easing as mix and procurement normalize."
++            },
++            {
++              "id": "cash_flow_quality",
++              "label": "cash flow quality",
++              "text": "Free cash flow conversion is improving without a working-capital pull-forward."
++            },
++            {
++              "id": "upside_catalyst",
++              "label": "upside catalyst",
++              "text": "A near-term catalyst can re-rate the thesis if execution remains intact."
++            },
++            {
++              "id": "guidance_cut",
++              "label": "guidance cut",
++              "text": "Management cut forward guidance and narrowed the delivery range."
++            },
++            {
++              "id": "liquidity_risk",
++              "label": "liquidity risk",
++              "text": "Liquidity runway tightened and refinancing optionality is lower."
++            },
++            {
++              "id": "drawdown_pressure",
++              "label": "drawdown pressure",
++              "text": "Price action is breaking support while realized volatility is rising."
++            },
++            {
++              "id": "regulatory_risk",
++              "label": "regulatory risk",
++              "text": "A regulator opened a review that could delay monetization."
++            },
++            {
++              "id": "risk_budget_tight",
++              "label": "risk budget tight",
++              "text": "Portfolio risk budget is tight and incremental exposure must clear a higher bar."
++            }
++          ],
++          "modelDecision": "reduce_exposure",
++          "correctDecision": "reduce_exposure",
++          "actionCorrect": 1,
++          "contractValid": true
++        },
++        {
++          "id": "m1_b384d8ac5fd938d5",
++          "signals": [
++            {
++              "id": "margin_repair",
++              "label": "margin repair",
++              "text": "Gross margin pressure is easing as mix and procurement normalize."
++            },
++            {
++              "id": "cash_flow_quality",
++              "label": "cash flow quality",
++              "text": "Free cash flow conversion is improving without a working-capital pull-forward."
++            },
++            {
++              "id": "upside_catalyst",
++              "label": "upside catalyst",
++              "text": "A near-term catalyst can re-rate the thesis if execution remains intact."
++            },
++            {
++              "id": "short_crowding",
++              "label": "short crowding",
++              "text": "Short interest is crowded enough to amplify a positive revision."
++            },
++            {
++              "id": "liquidity_risk",
++              "label": "liquidity risk",
++              "text": "Liquidity runway tightened and refinancing optionality is lower."
++            },
++            {
++              "id": "event_risk",
++              "label": "event risk",
++              "text": "A binary event can dominate the near-term return distribution."
++            },
++            {
++              "id": "drawdown_pressure",
++              "label": "drawdown pressure",
++              "text": "Price action is breaking support while realized volatility is rising."
++            },
++            {
++              "id": "risk_budget_tight",
++              "label": "risk budget tight",
++              "text": "Portfolio risk budget is tight and incremental exposure must clear a higher bar."
++            }
++          ],
++          "modelDecision": "avoid_trade",
++          "correctDecision": "avoid_trade",
++          "actionCorrect": 1,
++          "contractValid": true
++        },
++        {
++          "id": "m1_22fff9f4c03f73df",
++          "signals": [
++            {
++              "id": "margin_repair",
++              "label": "margin repair",
++              "text": "Gross margin pressure is easing as mix and procurement normalize."
++            },
++            {
++              "id": "cash_flow_quality",
++              "label": "cash flow quality",
++              "text": "Free cash flow conversion is improving without a working-capital pull-forward."
++            },
++            {
++              "id": "upside_catalyst",
++              "label": "upside catalyst",
++              "text": "A near-term catalyst can re-rate the thesis if execution remains intact."
++            },
++            {
++              "id": "short_crowding",
++              "label": "short crowding",
++              "text": "Short interest is crowded enough to amplify a positive revision."
++            },
++            {
++              "id": "guidance_cut",
++              "label": "guidance cut",
++              "text": "Management cut forward guidance and narrowed the delivery range."
++            },
++            {
++              "id": "liquidity_risk",
++              "label": "liquidity risk",
++              "text": "Liquidity runway tightened and refinancing optionality is lower."
++            },
++            {
++              "id": "event_risk",
++              "label": "event risk",
++              "text": "A binary event can dominate the near-term return distribution."
++            },
++            {
++              "id": "drawdown_pressure",
++              "label": "drawdown pressure",
++              "text": "Price action is breaking support while realized volatility is rising."
++            },
++            {
++              "id": "regulatory_risk",
++              "label": "regulatory risk",
++              "text": "A regulator opened a review that could delay monetization."
++            }
++          ],
++          "modelDecision": "maintain_long",
++          "correctDecision": "avoid_trade",
++          "actionCorrect": 0,
++          "contractValid": true
++        },
++        {
++          "id": "m1_fbbd90d39eecb9c3",
++          "signals": [
++            {
++              "id": "margin_repair",
++              "label": "margin repair",
++              "text": "Gross margin pressure is easing as mix and procurement normalize."
++            },
++            {
++              "id": "cash_flow_quality",
++              "label": "cash flow quality",
++              "text": "Free cash flow conversion is improving without a working-capital pull-forward."
++            },
++            {
++              "id": "valuation_discount",
++              "label": "valuation discount",
++              "text": "The stock trades at a discount to peers after adjusting for growth and leverage."
++            },
++            {
++              "id": "upside_catalyst",
++              "label": "upside catalyst",
++              "text": "A near-term catalyst can re-rate the thesis if execution remains intact."
++            },
++            {
++              "id": "guidance_cut",
++              "label": "guidance cut",
++              "text": "Management cut forward guidance and narrowed the delivery range."
++            },
++            {
++              "id": "liquidity_risk",
++              "label": "liquidity risk",
++              "text": "Liquidity runway tightened and refinancing optionality is lower."
++            },
++            {
++              "id": "event_risk",
++              "label": "event risk",
++              "text": "A binary event can dominate the near-term return distribution."
++            }
++          ],
++          "modelDecision": "maintain_long",
++          "correctDecision": "avoid_trade",
++          "actionCorrect": 0,
++          "contractValid": true
++        },
++        {
++          "id": "m1_0565704761f22bc6",
++          "signals": [
++            {
++              "id": "earnings_revision",
++              "label": "earnings revision",
++              "text": "Street estimates were revised upward after the latest operating update."
++            },
++            {
++              "id": "guidance_cut",
++              "label": "guidance cut",
++              "text": "Management cut forward guidance and narrowed the delivery range."
++            },
++            {
++              "id": "liquidity_risk",
++              "label": "liquidity risk",
++              "text": "Liquidity runway tightened and refinancing optionality is lower."
++            },
++            {
++              "id": "event_risk",
++              "label": "event risk",
++              "text": "A binary event can dominate the near-term return distribution."
++            },
++            {
++              "id": "drawdown_pressure",
++              "label": "drawdown pressure",
++              "text": "Price action is breaking support while realized volatility is rising."
++            },
++            {
++              "id": "risk_budget_tight",
++              "label": "risk budget tight",
++              "text": "Portfolio risk budget is tight and incremental exposure must clear a higher bar."
++            }
++          ],
++          "modelDecision": "reduce_exposure",
++          "correctDecision": "short_bias",
++          "actionCorrect": 0,
++          "contractValid": false
++        },
++        {
++          "id": "m1_e5c3c581c8ddbb79",
++          "signals": [
++            {
++              "id": "earnings_revision",
++              "label": "earnings revision",
++              "text": "Street estimates were revised upward after the latest operating update."
++            },
++            {
++              "id": "short_crowding",
++              "label": "short crowding",
++              "text": "Short interest is crowded enough to amplify a positive revision."
++            },
++            {
++              "id": "drawdown_pressure",
++              "label": "drawdown pressure",
++              "text": "Price action is breaking support while realized volatility is rising."
++            },
++            {
++              "id": "regulatory_risk",
++              "label": "regulatory risk",
++              "text": "A regulator opened a review that could delay monetization."
++            },
++            {
++              "id": "risk_budget_tight",
++              "label": "risk budget tight",
++              "text": "Portfolio risk budget is tight and incremental exposure must clear a higher bar."
++            }
++          ],
++          "modelDecision": "maintain_long",
++          "correctDecision": "avoid_trade",
++          "actionCorrect": 0,
++          "contractValid": true
++        },
++        {
++          "id": "m1_bb0857fe6bbc5581",
++          "signals": [
++            {
++              "id": "earnings_revision",
++              "label": "earnings revision",
++              "text": "Street estimates were revised upward after the latest operating update."
++            },
++            {
++              "id": "short_crowding",
++              "label": "short crowding",
++              "text": "Short interest is crowded enough to amplify a positive revision."
++            },
++            {
++              "id": "event_risk",
++              "label": "event risk",
++              "text": "A binary event can dominate the near-term return distribution."
++            }
++          ],
++          "modelDecision": "maintain_long",
++          "correctDecision": "avoid_trade",
++          "actionCorrect": 0,
++          "contractValid": true
++        }
++      ],
++      "limits": {
++        "maxItems": 5,
++        "maxChars": 2000
++      }
++    },
++    "knowledgeSummary": null,
++    "schema": {
++      "type": "object",
++      "required": [
++        "items"
++      ],
++      "additionalProperties": true,
++      "properties": {
++        "items": {
++          "type": "array"
++        }
++      }
++    },
++    "prohibited": [
++      "Do not use tools.",
++      "Do not cite ids that were not provided.",
++      "Do not copy signal ids as knowledge ids."
++    ],
++    "mockDataPresent": false
++  }
++}
+diff --git a/experiments/m1/parse_json.ts b/experiments/m1/parse_json.ts
+new file mode 100644
+--- /dev/null
++++ b/experiments/m1/parse_json.ts
+@@ -0,0 +1,65 @@
++export function stripThinkingBlocks(text: string): string {
++  return text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
++}
++
++export function baselineTryParseJsonObject(text: string): Record<string, unknown> | null {
++  try {
++    const parsed = JSON.parse(text) as unknown;
++    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
++  } catch {
++    // Same as alaya-core provider: search for a nested object after full parse fails.
++  }
++  const end = text.lastIndexOf("}");
++  if (end < 0) return null;
++  const starts: number[] = [];
++  for (let index = text.indexOf("{"); index >= 0; index = text.indexOf("{", index + 1)) starts.push(index);
++  for (let i = starts.length - 1; i >= 0; i--) {
++    try {
++      const parsed = JSON.parse(text.slice(starts[i], end + 1)) as unknown;
++      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
++    } catch {
++      // Continue searching for the root object.
++    }
++  }
++  return null;
++}
++
++export function parseRootJsonObject(text: string): { ok: true; value: Record<string, unknown> } | { ok: false; reason: string } {
++  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
++  const candidate = stripThinkingBlocks(trimmed);
++  try {
++    const parsed = JSON.parse(candidate) as unknown;
++    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) return { ok: true, value: parsed as Record<string, unknown> };
++    return { ok: false, reason: "not_object" };
++  } catch {
++    return { ok: false, reason: "unparseable_root" };
++  }
++}
++
++export const TRUNCATED_ITEMS_FIXTURE = [
++  '{"items":[{"id":"exp_example","condition":"feature_a","judgment":"action_a",',
++  '"exception":"feature_b","sourceTrainIds":["train_example_1"]},',
++  '{"id":"exp_other","condition":"尚未输出完',
++].join("\n");
++
++export function classifyRawDistill(text: string) {
++  const root = parseRootJsonObject(text);
++  const baseline = baselineTryParseJsonObject(stripThinkingBlocks(text.trim()));
++  return {
++    rootOk: root.ok,
++    rootKeys: root.ok ? Object.keys(root.value).sort() : [],
++    rootHasItems: root.ok && Object.prototype.hasOwnProperty.call(root.value, "items"),
++    baselineKeys: baseline ? Object.keys(baseline).sort() : [],
++    baselineHasItems: Boolean(baseline && Object.prototype.hasOwnProperty.call(baseline, "items")),
++    innerExtractedAsRoot: !root.ok && Boolean(baseline) && !Object.prototype.hasOwnProperty.call(baseline ?? {}, "items"),
++  };
++}
++
++export function failPathFetchCount(maxRetries: number): { fetches: number; loggedRetryCount: number; runnerPlusOne: number } {
++  const schemaAttempts = maxRetries + 1;
++  const simplified = 1;
++  const fetches = schemaAttempts + simplified;
++  const loggedRetryCount = maxRetries + 2;
++  return { fetches, loggedRetryCount, runnerPlusOne: loggedRetryCount + 1 };
++}
++
+diff --git a/experiments/m1/protocol.json b/experiments/m1/protocol.json
+new file mode 100644
+--- /dev/null
++++ b/experiments/m1/protocol.json
+@@ -0,0 +1,114 @@
++{
++  "id": "ALAYA-M1-KNOWLEDGE-TRANSFER",
++  "protocolVersion": 2,
++  "sampleSeed": "alaya-m1-20260919",
++  "worldSeed": "alaya-m1-20260919",
++  "baseCommit": "7802ae20c3df5d3afd23d439291798d7796fca1e",
++  "domainSource": {
++    "sha": "b7090b11b41f358f4d82906c86be835a68c06e64",
++    "path": "scripts/lib/learning-scenario-domain.json"
++  },
++  "rulesSource": {
++    "sha": "b7090b11b41f358f4d82906c86be835a68c06e64",
++    "path": "scripts/lib/learning-scenario-generator.mjs",
++    "symbol": "buildWorldRules"
++  },
++  "counts": {
++    "universe": 4096,
++    "train": 40,
++    "dev": 20,
++    "test": 20,
++    "testRepeats": 2,
++    "minActionClasses": 2
++  },
++  "knowledge": {
++    "maxItems": 5,
++    "maxChars": 2000,
++    "status": "experimental_only",
++    "maxDistillRounds": 2,
++    "idPrefix": "exp_"
++  },
++  "gates": {
++    "devNetMin": 2,
++    "testNetMinPerRepeat": 3,
++    "noCandidateSkipsDev": true
++  },
++  "budget": {
++    "logicalCalls": 162,
++    "maxProviderRequests": 180,
++    "maxTokens": 500000
++  },
++  "model": {
++    "name": "MiniMax-M3",
++    "baseUrl": "https://api.minimax.io/openai",
++    "promptVersionDecision": "alaya-m1-decision-v1",
++    "promptVersionDistill": "alaya-m1-distill-v1",
++    "temperature": 0.2,
++    "maxRetries": 1,
++    "maxOutputTokens": 512
++  },
++  "liveRequires": [
++    "--authorize-live",
++    "ALAYA_M1_AUTHORIZE_LIVE=1"
++  ],
++  "revision": "ALAYA-M1.1-OFFICIAL",
++  "historicalRun": "validation-logs/m1/2026-09-19T09-19-20-583Z",
++  "preflight": {
++    "maxProviderRequests": 12,
++    "maxTokens": 30000,
++    "logicalCalls": 10,
++    "diagnosticOnly": true
++  },
++  "officialRun": {
++    "id": "ALAYA-M1.1-OFFICIAL-20260919",
++    "preflightRun": "validation-logs/m1/preflight-2026-09-19T09-56-27-363Z",
++    "preflightStatus": "PREFLIGHT_PASS",
++    "historicalRun": "validation-logs/m1/2026-09-19T09-19-20-583Z",
++    "historicalStatus": "NO_SIGNAL_ON_DEV",
++    "devUsedForDiagnosis": true,
++    "oldTestHadScoredResults": false,
++    "inheritOldBudget": false,
++    "handwrittenPositiveControlExcluded": true,
++    "codeFreeze": [
++      {
++        "path": "experiments/m1/protocol.json",
++        "sha256": "b23b0707629d6d7ecd66b042efb7ff4dc27a98eba387db6124e6445eb5c15da8",
++        "bytes": 1580
++      },
++      {
++        "path": "experiments/m1/domain.json",
++        "sha256": "85503fa3b82777013aa10bbb68fad55d88cefca7e6cfb8d2adb5ee1a754ba97f",
++        "bytes": 4322
++      },
++      {
++        "path": "experiments/m1/dataset.ts",
++        "sha256": "0c8cefb31733709d99acd1276aab8b11e5dd925e7147502424c802462eeaa601",
++        "bytes": 18210
++      },
++      {
++        "path": "experiments/m1/runner.ts",
++        "sha256": "f984535791ea856ad76b28010be31c7f67e9bdca2884e9839a6414ab780bd693",
++        "bytes": 41073
++      },
++      {
++        "path": "experiments/m1/runner.test.ts",
++        "sha256": "9389aff1e5e4a2cb489e643258a1fcc3d3dcf0a296a9c49ea5def04edce2aa05",
++        "bytes": 10503
++      }
++    ],
++    "modelFreeze": {
++      "name": "MiniMax-M3",
++      "baseUrl": "https://api.minimax.io/openai",
++      "promptVersionDecision": "alaya-m1-decision-v1",
++      "promptVersionDistill": "alaya-m1-distill-v1",
++      "temperature": 0.2,
++      "maxRetries": 1,
++      "maxOutputTokens": 512
++    },
++    "budget": {
++      "logicalCalls": 162,
++      "maxProviderRequests": 180,
++      "maxTokens": 500000
++    }
++  }
++}
+diff --git a/experiments/m1/runner.test.ts b/experiments/m1/runner.test.ts
+new file mode 100644
+--- /dev/null
++++ b/experiments/m1/runner.test.ts
+@@ -0,0 +1,208 @@
++import assert from "node:assert/strict";
++import { mkdtempSync, readFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { test } from "node:test";
++import type { AgentContext, LLMProvider, LLMResponse } from "../../alaya-core/src/llm/provider.ts";
++import { buildFrozenDataset, datasetInvariants, enumerateLabeledUniverse, renderDecisionPrompt } from "./dataset.ts";
++import {
++  actualProviderRequests,
++  allowedIdsFromSnapshot,
++  assembleDecisionRequest,
++  assembleDistillRequest,
++  freezeParsedKnowledge,
++  parseDistillOutput,
++  runM1,
++  scoreDecision,
++} from "./runner.ts";
++
++function scriptedResponse(data: Record<string, unknown>, extra: Partial<LLMResponse> = {}): LLMResponse {
++  const retryCount = extra.retryCount ?? extra.log?.retryCount ?? 0;
++  return {
++    schemaValid: extra.schemaValid ?? true,
++    retryCount,
++    data,
++    degradedToHumanGate: extra.degradedToHumanGate ?? false,
++    errorMessage: extra.errorMessage,
++    log: extra.log ?? {
++      provider: "scripted",
++      agent: "scripted",
++      promptVersion: "alaya-m1-decision-v1",
++      inputSummary: "",
++      outputSummary: "",
++      schemaValid: extra.schemaValid ?? true,
++      retryCount,
++      latencyMs: 0,
++      tokenCount: 8,
++      estimatedCost: 0,
++      ts: new Date().toISOString(),
++    },
++  };
++}
++
++class ScriptedProvider implements LLMProvider {
++  name = "scripted";
++  requests: AgentContext[] = [];
++  constructor(private handler: (request: AgentContext, index: number) => LLMResponse) {}
++  async call(request: AgentContext): Promise<LLMResponse> {
++    this.requests.push(request);
++    return this.handler(request, this.requests.length - 1);
++  }
++}
++
++function tmpRunRoot(): string {
++  return mkdtempSync(join(tmpdir(), "alaya-m1-"));
++}
++
++const emptyK = freezeParsedKnowledge("K2", []);
++const realK = freezeParsedKnowledge("K2", [{
++  id: "exp_k1",
++  condition: "quality plus revision",
++  judgment: "increase_long",
++  exception: "risk budget tight",
++  sourceTrainIds: ["train-1"],
++  status: "experimental_only",
++}]);
++
++test("dataset labels are unique, splits do not overlap, and hashes are stable", () => {
++  const first = buildFrozenDataset();
++  const second = buildFrozenDataset();
++  assert.deepEqual(datasetInvariants(first), []);
++  assert.equal(first.items.length, 80);
++  assert.ok(new Set(first.items.map((item) => item.label)).size >= 2);
++  assert.equal(first.hashes.visible, second.hashes.visible);
++  assert.equal(enumerateLabeledUniverse().length, 4096);
++});
++
++test("changing a hidden label does not change the decision request", () => {
++  const item = buildFrozenDataset().items[0]!;
++  const original = assembleDecisionRequest(item, null);
++  const flipped = { ...item, label: item.label === "avoid_trade" ? "short_bias" as const : "avoid_trade" as const, ruleId: "TAMPER", split: item.split === "train" ? "test" as const : "train" as const };
++  assert.deepEqual(assembleDecisionRequest(flipped, null), original);
++  const blob = JSON.stringify(original);
++  assert.equal(blob.includes("expectedDecision"), false);
++  assert.equal(blob.includes("oracle"), false);
++});
++
++test("signal ids are rejected, legal knowledge ids are accepted, A and empty B match", () => {
++  const item = buildFrozenDataset().items[0]!;
++  const aReq = assembleDecisionRequest(item, null);
++  const emptyReq = assembleDecisionRequest(item, emptyK);
++  assert.deepEqual(aReq.context, emptyReq.context);
++  assert.equal(aReq.knowledgeSummary, emptyReq.knowledgeSummary);
++  assert.deepEqual((aReq.context as { allowedKnowledgeIds: string[] }).allowedKnowledgeIds, []);
++  const raw = { decision: "avoid_trade", confidence: 0.4, knowledgeRefs: [] };
++  const aScore = scoreDecision({ data: raw, label: "avoid_trade", allowedKnowledgeIds: [], providerFailed: false });
++  const bScore = scoreDecision({ data: raw, label: "avoid_trade", allowedKnowledgeIds: allowedIdsFromSnapshot(emptyK), providerFailed: false });
++  assert.equal(aScore.contractValid, bScore.contractValid);
++  assert.equal(aScore.correct, bScore.correct);
++  const signalRef = scoreDecision({ data: { decision: "avoid_trade", confidence: 0.4, knowledgeRefs: ["earnings_revision"] }, label: "avoid_trade", allowedKnowledgeIds: [], providerFailed: false });
++  assert.equal(signalRef.contractValid, false);
++  assert.equal(signalRef.errorType, "signal_id_as_knowledge_ref");
++  assert.equal(signalRef.actionCorrect, 1);
++  const legal = scoreDecision({ data: { decision: "increase_long", confidence: 0.5, knowledgeRefs: ["exp_k1"] }, label: "increase_long", allowedKnowledgeIds: ["exp_k1"], providerFailed: false });
++  assert.equal(legal.contractValid, true);
++  assert.equal(legal.correct, 1);
++});
++
++test("distill empty list, missing items, empty object item, and degrade are distinct", () => {
++  const allowed = ["t1"];
++  const empty = parseDistillOutput({ response: scriptedResponse({ items: [] }), allowedSourceIds: allowed, version: "K2" });
++  assert.equal(empty.status, "empty_candidate");
++  const missing = parseDistillOutput({ response: scriptedResponse({ summary: "nope" }), allowedSourceIds: allowed, version: "K2" });
++  assert.equal(missing.status, "contract_failure");
++  if (missing.status === "contract_failure") assert.equal(missing.reason, "missing_items");
++  const badItem = parseDistillOutput({ response: scriptedResponse({ items: [{}] }), allowedSourceIds: allowed, version: "K2" });
++  assert.equal(badItem.status, "contract_failure");
++  const degraded = parseDistillOutput({
++    response: scriptedResponse({ summary: "fail" }, { degradedToHumanGate: true, errorMessage: "upstream", schemaValid: false }),
++    allowedSourceIds: allowed,
++    version: "K2",
++  });
++  assert.equal(degraded.status, "provider_failure");
++  assert.notEqual(empty.status, missing.status);
++  assert.notEqual(missing.status, badItem.status === "contract_failure" ? "same-family" : badItem.status);
++  assert.notEqual(empty.status, degraded.status);
++  assert.notEqual(missing.status, degraded.status);
++});
++
++test("K2 empty candidate does not issue Dev provider calls", async () => {
++  const provider = new ScriptedProvider((request) => {
++    if (request.role === "distiller") return scriptedResponse({ items: [] });
++    return scriptedResponse({ decision: "avoid_trade", confidence: 0.2, knowledgeRefs: [] });
++  });
++  const result = await runM1({ engineering: true, provider, outRoot: tmpRunRoot(), runId: "empty-k2" });
++  assert.equal(result.status, "NO_CANDIDATE");
++  assert.equal(result.devCalls, 0);
++  assert.equal(result.requests.filter((request) => (request.context as { phase?: string }).phase === "dev").length, 0);
++  assert.equal(provider.requests.filter((request) => request.role === "orchestrator" && JSON.stringify(request).includes("\"dev\"")).length, 0);
++  const distill = result.requests.filter((request) => request.role === "distiller");
++  const trainIds = new Set(result.dataset.items.filter((item) => item.split === "train").map((item) => item.id));
++  for (const request of distill) {
++    const feedback = (request.context as { feedback: Array<{ id: string }> }).feedback;
++    for (const row of feedback) assert.equal(trainIds.has(row.id), true);
++  }
++});
++
++test("sent knowledge matches snapshot, swapped hash stops, and mockData/oracle are absent", async () => {
++  const provider = new ScriptedProvider((request) => {
++    if (request.role === "distiller") {
++      const allowed = (request.context as { allowedSourceIds: string[] }).allowedSourceIds;
++      return scriptedResponse({
++        items: [{ id: "exp_k1", condition: "revision without cut", judgment: "increase_long", exception: "guidance_cut", sourceTrainIds: [allowed[0]] }],
++      });
++    }
++    const allowed = (request.context as { allowedKnowledgeIds: string[] }).allowedKnowledgeIds;
++    return scriptedResponse({ decision: "avoid_trade", confidence: 0.3, knowledgeRefs: allowed });
++  });
++  const ok = await runM1({ engineering: true, provider, outRoot: tmpRunRoot(), runId: "bind-ok" });
++  if (ok.status === "NO_SIGNAL_ON_DEV" || ok.status === "PROMISING" || ok.status === "NO_CLEAR_GAIN") {
++    const bReqs = ok.requests.filter((request) => request.role === "orchestrator" && request.knowledgeSummary);
++    assert.ok(bReqs.length > 0);
++    assert.ok(bReqs.every((request) => request.knowledgeSummary === ok.k2?.rendered));
++  }
++  const swapped = await runM1({ engineering: true, provider, outRoot: tmpRunRoot(), runId: "bind-bad", snapshotHashOverride: "deadbeef" });
++  assert.equal(swapped.status, "INVALID");
++  assert.match(String(swapped.reason), /snapshot hash mismatch/);
++  assert.ok(ok.requests.every((request) => request.mockData === undefined));
++  assert.equal(JSON.stringify(ok.requests).includes("oracle"), false);
++});
++
++test("budget counts internal retries and keeps evidence", async () => {
++  const provider = new ScriptedProvider(() => scriptedResponse({ decision: "avoid_trade", confidence: 0.1, knowledgeRefs: [] }, { retryCount: 2 }));
++  assert.equal(actualProviderRequests(scriptedResponse({ ok: true }, { retryCount: 2 })), 3);
++  const result = await runM1({
++    engineering: true,
++    provider,
++    outRoot: tmpRunRoot(),
++    runId: "budget-stop",
++    budget: { maxProviderRequests: 3, maxTokens: 500000 },
++  });
++  assert.equal(result.status, "BLOCKED");
++  assert.equal(result.budget.requests >= 3, true);
++  assert.ok(readFileSync(join(result.runDir, "evidence.jsonl"), "utf8").trim().length > 0);
++  assert.equal(readFileSync(join(result.runDir, "evidence.jsonl"), "utf8").includes("Authorization"), false);
++});
++
++test("unauthorized run does not call a provider", async () => {
++  let called = 0;
++  const provider = new ScriptedProvider(() => {
++    called += 1;
++    return scriptedResponse({ decision: "avoid_trade", confidence: 0.1, knowledgeRefs: [] });
++  });
++  const result = await runM1({ provider, outRoot: tmpRunRoot(), runId: "ready" });
++  assert.equal(result.status, "READY_FOR_AUTHORIZED_RUN");
++  assert.equal(called, 0);
++});
++
++test("provider failure does not fill an oracle answer", async () => {
++  const oracle = buildFrozenDataset().items[0]!.label;
++  const provider = new ScriptedProvider(() => scriptedResponse(
++    { decision: oracle, confidence: 1, knowledgeRefs: [] },
++    { degradedToHumanGate: true, errorMessage: "upstream failed", schemaValid: false },
++  ));
++  const result = await runM1({ engineering: true, provider, outRoot: tmpRunRoot(), runId: "fail-no-fill" });
++  assert.ok(result.requests.every((request) => request.mockData === undefined));
++  assert.ok(result.k1Outcome?.status === "provider_failure" || result.status === "BLOCKED");
++});
++
+diff --git a/experiments/m1/runner.ts b/experiments/m1/runner.ts
+new file mode 100644
+--- /dev/null
++++ b/experiments/m1/runner.ts
+@@ -0,0 +1,891 @@
++import { mkdirSync, writeFileSync, readFileSync, appendFileSync, existsSync, readdirSync } from "node:fs";
++import { basename, join, resolve } from "node:path";
++import { fileURLToPath } from "node:url";
++import {
++  OpenAIProvider,
++  resolveOpenAIApiKey,
++  type AgentContext,
++  type JsonSchema,
++  type LLMProvider,
++  type LLMResponse,
++} from "../../alaya-core/src/llm/provider.ts";
++import {
++  DECISIONS,
++  SAMPLE_SEED,
++  WORLD_SEED,
++  PROTOCOL_ID,
++  SIGNAL_IDS,
++  type Decision,
++  type M1Item,
++  type SignalId,
++  buildFrozenDataset,
++  datasetInvariants,
++  renderDecisionPrompt,
++  sha256,
++  stableShuffle,
++  stableStringify,
++} from "./dataset.ts";
++
++const PROTOCOL = JSON.parse(readFileSync(new URL("./protocol.json", import.meta.url), "utf8")) as {
++  revision?: string;
++  budget: { maxProviderRequests: number; maxTokens: number };
++  gates: { devNetMin: number; testNetMinPerRepeat: number };
++  knowledge: { maxItems: number; maxChars: number; idPrefix?: string };
++  model: { name: string; baseUrl: string; promptVersionDecision: string; promptVersionDistill: string; temperature: number; maxRetries: number; maxOutputTokens: number };
++  counts: { train: number; testRepeats: number };
++  preflight: { maxProviderRequests: number; maxTokens: number };
++};
++
++const ID_PREFIX = PROTOCOL.knowledge.idPrefix ?? "exp_";
++const SIGNAL_ID_SET = new Set<string>(SIGNAL_IDS);
++
++export const DECISION_SCHEMA: JsonSchema = {
++  type: "object",
++  required: ["decision", "confidence", "knowledgeRefs"],
++  additionalProperties: true,
++  properties: {
++    decision: { type: "string" },
++    confidence: { type: "number" },
++    knowledgeRefs: { type: "array" },
++  },
++};
++
++export const DISTILL_SCHEMA: JsonSchema = {
++  type: "object",
++  required: ["items"],
++  additionalProperties: true,
++  properties: {
++    items: { type: "array" },
++  },
++};
++
++export type Arm = "A" | "B";
++export type KnowledgeItem = {
++  id: string;
++  condition: string;
++  judgment: string;
++  exception: string;
++  sourceTrainIds: string[];
++  status: "experimental_only";
++};
++
++export type FrozenKnowledge = {
++  version: "K1" | "K2" | "preflight";
++  items: KnowledgeItem[];
++  hash: string;
++  rendered: string;
++};
++
++export type ScoreResult = {
++  valid: boolean;
++  decision: Decision | null;
++  confidence: number | null;
++  knowledgeRefs: string[];
++  contractValid: boolean;
++  actionCorrect: 0 | 1;
++  correct: 0 | 1;
++  errorType: string | null;
++};
++
++export type DistillOutcome =
++  | { status: "empty_candidate"; knowledge: FrozenKnowledge }
++  | { status: "candidate"; knowledge: FrozenKnowledge }
++  | { status: "contract_failure"; reason: string }
++  | { status: "provider_failure"; reason: string };
++
++export type RunStatus =
++  | "READY_FOR_AUTHORIZED_RUN"
++  | "INVALID"
++  | "BLOCKED"
++  | "PARTIAL"
++  | "NO_CANDIDATE"
++  | "NO_SIGNAL_ON_DEV"
++  | "PROMISING"
++  | "NO_CLEAR_GAIN"
++  | "PREFLIGHT_PASS"
++  | "PREFLIGHT_FAIL";
++
++export type Trajectory = {
++  id: string;
++  signals: Array<{ id: string; label: string; text: string }>;
++  modelDecision: Decision | null;
++  correctDecision: Decision;
++  actionCorrect: 0 | 1;
++  contractValid: boolean;
++};
++
++function isDecision(value: unknown): value is Decision {
++  return typeof value === "string" && (DECISIONS as readonly string[]).includes(value);
++}
++
++export function allowedIdsFromSnapshot(snapshot: FrozenKnowledge | null | undefined): string[] {
++  return snapshot?.items.map((item) => item.id) ?? [];
++}
++
++export function scoreDecision(args: {
++  data: unknown;
++  label: Decision;
++  allowedKnowledgeIds: string[];
++  providerFailed: boolean;
++}): ScoreResult {
++  const allowed = new Set(args.allowedKnowledgeIds);
++  if (args.providerFailed) {
++    return { valid: false, decision: null, confidence: null, knowledgeRefs: [], contractValid: false, actionCorrect: 0, correct: 0, errorType: "provider_failure" };
++  }
++  if (!args.data || typeof args.data !== "object" || Array.isArray(args.data)) {
++    return { valid: false, decision: null, confidence: null, knowledgeRefs: [], contractValid: false, actionCorrect: 0, correct: 0, errorType: "invalid_output" };
++  }
++  const rec = args.data as Record<string, unknown>;
++  const actionOk = isDecision(rec.decision);
++  const actionCorrect: 0 | 1 = actionOk && rec.decision === args.label ? 1 : 0;
++  if (!actionOk) {
++    return { valid: false, decision: null, confidence: null, knowledgeRefs: [], contractValid: false, actionCorrect: 0, correct: 0, errorType: "invalid_action" };
++  }
++  if (typeof rec.confidence !== "number" || !Number.isFinite(rec.confidence) || rec.confidence < 0 || rec.confidence > 1) {
++    return { valid: false, decision: rec.decision, confidence: null, knowledgeRefs: [], contractValid: false, actionCorrect, correct: 0, errorType: "invalid_confidence" };
++  }
++  if (!Array.isArray(rec.knowledgeRefs) || rec.knowledgeRefs.some((ref) => typeof ref !== "string")) {
++    return { valid: false, decision: rec.decision, confidence: rec.confidence, knowledgeRefs: [], contractValid: false, actionCorrect, correct: 0, errorType: "invalid_knowledge_refs" };
++  }
++  const knowledgeRefs = rec.knowledgeRefs as string[];
++  if (knowledgeRefs.some((ref) => SIGNAL_ID_SET.has(ref))) {
++    return { valid: false, decision: rec.decision, confidence: rec.confidence, knowledgeRefs, contractValid: false, actionCorrect, correct: 0, errorType: "signal_id_as_knowledge_ref" };
++  }
++  if (knowledgeRefs.some((ref) => !allowed.has(ref))) {
++    return { valid: false, decision: rec.decision, confidence: rec.confidence, knowledgeRefs, contractValid: false, actionCorrect, correct: 0, errorType: "unknown_knowledge_ref" };
++  }
++  const correct: 0 | 1 = actionCorrect;
++  return { valid: true, decision: rec.decision, confidence: rec.confidence, knowledgeRefs, contractValid: true, actionCorrect, correct, errorType: actionCorrect ? null : "wrong_action" };
++}
++
++export function knowledgeBodyLength(items: KnowledgeItem[]): number {
++  return items.reduce((sum, item) => sum + item.condition.length + item.judgment.length + item.exception.length, 0);
++}
++
++export function renderKnowledge(items: KnowledgeItem[]): string {
++  if (items.length === 0) return "";
++  return items.map((item) => [
++    "[" + item.id + "] status=experimental_only",
++    "WHEN " + item.condition,
++    "THEN " + item.judgment,
++    "EXCEPT " + item.exception,
++    "SOURCES " + item.sourceTrainIds.join(","),
++  ].join("\n")).join("\n\n");
++}
++
++export function freezeParsedKnowledge(version: FrozenKnowledge["version"], items: KnowledgeItem[]): FrozenKnowledge {
++  const rendered = renderKnowledge(items);
++  return { version, items, rendered, hash: sha256({ version, items, rendered }) };
++}
++
++function parseOneItem(raw: unknown, allowedSourceIds: string[], index: number): { ok: true; value: KnowledgeItem } | { ok: false; reason: string } {
++  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ok: false, reason: "item_not_object_" + String(index) };
++  const rec = raw as Record<string, unknown>;
++  const required = ["id", "condition", "judgment", "exception", "sourceTrainIds"];
++  for (const key of required) {
++    if (!(key in rec)) return { ok: false, reason: "missing_field_" + key };
++  }
++  if (typeof rec.id !== "string" || !rec.id.trim()) return { ok: false, reason: "bad_id" };
++  const id = rec.id.trim();
++  if (SIGNAL_ID_SET.has(id) || !id.startsWith(ID_PREFIX)) return { ok: false, reason: "id_namespace" };
++  if (typeof rec.condition !== "string" || !rec.condition.trim()) return { ok: false, reason: "bad_condition" };
++  if (typeof rec.judgment !== "string" || !rec.judgment.trim()) return { ok: false, reason: "bad_judgment" };
++  if (typeof rec.exception !== "string") return { ok: false, reason: "bad_exception" };
++  if (!Array.isArray(rec.sourceTrainIds) || rec.sourceTrainIds.some((value) => typeof value !== "string")) {
++    return { ok: false, reason: "bad_sources" };
++  }
++  const sourceTrainIds = rec.sourceTrainIds as string[];
++  if (sourceTrainIds.length === 0 || sourceTrainIds.some((value) => !allowedSourceIds.includes(value))) {
++    return { ok: false, reason: "source_not_train" };
++  }
++  return {
++    ok: true,
++    value: {
++      id,
++      condition: rec.condition.trim(),
++      judgment: rec.judgment.trim(),
++      exception: rec.exception.trim(),
++      sourceTrainIds,
++      status: "experimental_only",
++    },
++  };
++}
++
++export function parseDistillOutput(args: {
++  response: LLMResponse | null;
++  allowedSourceIds: string[];
++  version: FrozenKnowledge["version"];
++}): DistillOutcome {
++  if (!args.response) return { status: "provider_failure", reason: "no_response" };
++  if (args.response.degradedToHumanGate || args.response.errorMessage) {
++    return { status: "provider_failure", reason: args.response.errorMessage ?? "degraded" };
++  }
++  const data = args.response.data;
++  if (!data || typeof data !== "object" || Array.isArray(data)) {
++    return { status: "contract_failure", reason: "distill_output_not_object" };
++  }
++  if (!Object.prototype.hasOwnProperty.call(data, "items")) {
++    return { status: "contract_failure", reason: "missing_items" };
++  }
++  const items = (data as { items: unknown }).items;
++  if (!Array.isArray(items)) return { status: "contract_failure", reason: "items_not_array" };
++  if (items.length === 0) return { status: "empty_candidate", knowledge: freezeParsedKnowledge(args.version, []) };
++  if (items.length > PROTOCOL.knowledge.maxItems) return { status: "contract_failure", reason: "too_many_items" };
++  const parsed: KnowledgeItem[] = [];
++  const seen = new Set<string>();
++  for (let index = 0; index < items.length; index += 1) {
++    const one = parseOneItem(items[index], args.allowedSourceIds, index);
++    if (!one.ok) return { status: "contract_failure", reason: one.reason };
++    if (seen.has(one.value.id)) return { status: "contract_failure", reason: "duplicate_id" };
++    seen.add(one.value.id);
++    parsed.push(one.value);
++  }
++  if (knowledgeBodyLength(parsed) > PROTOCOL.knowledge.maxChars) return { status: "contract_failure", reason: "knowledge_too_long" };
++  return { status: "candidate", knowledge: freezeParsedKnowledge(args.version, parsed) };
++}
++
++export function assembleDecisionRequest(
++  item: Pick<M1Item, "signalsPresent">,
++  snapshot: FrozenKnowledge | null,
++): AgentContext {
++  const prompt = renderDecisionPrompt(item);
++  const allowedKnowledgeIds = allowedIdsFromSnapshot(snapshot);
++  const hasKnowledge = allowedKnowledgeIds.length > 0 && Boolean(snapshot?.rendered);
++  return {
++    role: "orchestrator",
++    task: [
++      prompt.task,
++      "Return decision, confidence, and knowledgeRefs.",
++      "knowledgeRefs must be a string array.",
++      "Each knowledgeRefs value must be in allowedKnowledgeIds.",
++      "If allowedKnowledgeIds is empty, knowledgeRefs must be [].",
++      "Visible signals are input features, not knowledge ids.",
++    ].join(" "),
++    promptVersion: PROTOCOL.model.promptVersionDecision,
++    context: {
++      actions: prompt.context.actions,
++      signals: prompt.context.signals,
++      allowedKnowledgeIds,
++    },
++    schema: DECISION_SCHEMA,
++    knowledgeSummary: hasKnowledge ? snapshot!.rendered : undefined,
++    prohibited: ["Do not use tools, files, network, or git.", "Do not invent actions outside the provided set.", "Do not use signal ids as knowledgeRefs."],
++  };
++}
++
++export function assembleDistillRequest(
++  existing: FrozenKnowledge | null,
++  trajectories: Trajectory[],
++  allowedSourceIds: string[],
++): AgentContext {
++  return {
++    role: "distiller",
++    task: [
++      "Distill transferable decision rules from revealed training feedback.",
++      "Do not grade JSON formatting; emit knowledge content.",
++      "Return an object with items (array, required, may be empty).",
++      "Do not omit items. Empty items means no candidate.",
++      "Each item needs id, condition, judgment, exception, sourceTrainIds.",
++      "id must start with " + ID_PREFIX + " and must not be a signal id.",
++      "sourceTrainIds must be a subset of allowedSourceIds.",
++    ].join(" "),
++    promptVersion: PROTOCOL.model.promptVersionDistill,
++    context: {
++      existingKnowledge: existing?.rendered ?? "",
++      allowedSourceIds,
++      knowledgeIdPrefix: ID_PREFIX,
++      forbiddenIds: [...SIGNAL_IDS],
++      itemFields: ["id", "condition", "judgment", "exception", "sourceTrainIds"],
++      feedback: trajectories.map((row) => ({
++        id: row.id,
++        signals: row.signals,
++        modelDecision: row.modelDecision,
++        correctDecision: row.correctDecision,
++        actionCorrect: row.actionCorrect,
++        contractValid: row.contractValid,
++      })),
++      limits: { maxItems: PROTOCOL.knowledge.maxItems, maxChars: PROTOCOL.knowledge.maxChars },
++    },
++    schema: DISTILL_SCHEMA,
++    prohibited: ["Do not use tools.", "Do not cite ids that were not provided.", "Do not copy signal ids as knowledge ids."],
++  };
++}
++
++export function actualProviderRequests(response: LLMResponse): number {
++  return (response.log.retryCount ?? 0) + 1;
++}
++
++export function requestHasHiddenFields(request: AgentContext, item: M1Item): boolean {
++  const context = request.context as Record<string, unknown>;
++  if (["split", "label", "ruleId", "signalKey", "expectedDecision", "groundTruth", "oracle"].some((key) => key in context)) {
++    return true;
++  }
++  const blob = stableStringify({ task: request.task, context: request.context, knowledgeSummary: request.knowledgeSummary ?? "" });
++  const banned = [SAMPLE_SEED, WORLD_SEED, "expectedDecision", "groundTruthDecision", "oracle"];
++  if (item.ruleId && blob.includes("\"ruleId\":")) return true;
++  return banned.some((value) => blob.includes(value));
++}
++
++export function sanitizeRequest(request: AgentContext) {
++  return {
++    role: request.role,
++    task: request.task,
++    promptVersion: request.promptVersion,
++    context: request.context,
++    knowledgeSummary: request.knowledgeSummary ?? null,
++    schema: request.schema,
++    prohibited: request.prohibited ?? [],
++    mockDataPresent: request.mockData !== undefined,
++  };
++}
++
++export function testSchedule(items: M1Item[], seed: string): Array<{ item: M1Item; arm: Arm; repeat: number }> {
++  const schedule: Array<{ item: M1Item; arm: Arm; repeat: number }> = [];
++  for (let repeat = 0; repeat < PROTOCOL.counts.testRepeats; repeat += 1) {
++    const ordered = stableShuffle(items, seed + ":repeat:" + String(repeat));
++    for (const item of ordered) {
++      const arms = stableShuffle(["A", "B"] as Arm[], seed + ":pair:" + item.id + ":" + String(repeat));
++      for (const arm of arms) schedule.push({ item, arm, repeat });
++    }
++  }
++  return schedule;
++}
++
++export function netGain(rows: Array<{ aCorrect: number; bCorrect: number }>): number {
++  const bOnly = rows.filter((row) => row.bCorrect === 1 && row.aCorrect === 0).length;
++  const aOnly = rows.filter((row) => row.aCorrect === 1 && row.bCorrect === 0).length;
++  return bOnly - aOnly;
++}
++
++class Budget {
++  requests = 0;
++  tokens = 0;
++  constructor(
++    readonly maxRequests: number,
++    readonly maxTokens: number,
++  ) {}
++  remaining(): boolean {
++    return this.requests < this.maxRequests && this.tokens < this.maxTokens;
++  }
++  add(response: LLMResponse) {
++    this.requests += actualProviderRequests(response);
++    this.tokens += response.log.tokenCount ?? 0;
++  }
++}
++
++export type RunM1Options = {
++  engineering?: boolean;
++  authorizeLive?: boolean;
++  provider?: LLMProvider;
++  outRoot?: string;
++  budget?: { maxProviderRequests: number; maxTokens: number };
++  snapshotHashOverride?: string;
++  runId?: string;
++};
++
++function defaultOutRoot(): string {
++  return resolve(fileURLToPath(new URL("../../validation-logs/m1", import.meta.url)));
++}
++
++function writeJson(path: string, value: unknown) {
++  writeFileSync(path, JSON.stringify(value, null, 2) + "\n");
++}
++
++function appendEvidence(path: string, value: unknown) {
++  appendFileSync(path, JSON.stringify(value) + "\n");
++}
++
++function evidenceSafe(value: unknown): boolean {
++  const blob = stableStringify(value);
++  return !blob.includes("Authorization") && !/sk-[A-Za-z0-9_-]{12,}/.test(blob) && !blob.includes("OPENAI_API_KEY");
++}
++
++export async function runM1(options: RunM1Options = {}) {
++  const dataset = buildFrozenDataset();
++  const invariantErrors = datasetInvariants(dataset);
++  const outRoot = options.outRoot ?? defaultOutRoot();
++  const runId = options.runId ?? new Date().toISOString().replace(/[:.]/g, "-");
++  const runDir = join(outRoot, runId);
++  mkdirSync(runDir, { recursive: true });
++  const evidencePath = join(runDir, "evidence.jsonl");
++  writeFileSync(evidencePath, "");
++
++  const components = {
++    orchestrator_decision: "not_exercised",
++    distiller: "not_exercised",
++    sensor: "not_exercised",
++    builder: "not_exercised",
++    librarian: "not_exercised",
++    knowledgeInjection: "not_exercised",
++    product_db: "not_exercised",
++  };
++
++  const manifestBase = {
++    protocolId: PROTOCOL_ID,
++    revision: PROTOCOL.revision ?? null,
++    runId,
++    baseCommit: "7802ae20c3df5d3afd23d439291798d7796fca1e",
++    datasetHashes: dataset.hashes,
++    components,
++    live: Boolean(options.authorizeLive) && !options.engineering,
++    engineering: Boolean(options.engineering),
++    model: { name: PROTOCOL.model.name, baseUrl: PROTOCOL.model.baseUrl, promptVersionDecision: PROTOCOL.model.promptVersionDecision, promptVersionDistill: PROTOCOL.model.promptVersionDistill },
++  };
++
++  if (invariantErrors.length > 0) {
++    const result = { status: "INVALID" as RunStatus, reason: invariantErrors.join("; "), runDir, dataset };
++    writeJson(join(runDir, "manifest.json"), { ...manifestBase, ...result });
++    return result;
++  }
++
++  if (!options.engineering && !options.authorizeLive) {
++    const result = {
++      status: "READY_FOR_AUTHORIZED_RUN" as RunStatus,
++      reason: "Live provider calls are blocked until --authorize-live and ALAYA_M1_AUTHORIZE_LIVE=1.",
++      runDir,
++      dataset,
++      nextCommand: "ALAYA_M1_AUTHORIZE_LIVE=1 npm run m1:run -- --authorize-live",
++    };
++    writeJson(join(runDir, "manifest.json"), { ...manifestBase, ...result, components });
++    writeJson(join(runDir, "knowledge.json"), { K1: null, K2: null });
++    writeFileSync(join(runDir, "comparison.csv"), "repeat,item_id,split,label,arm,decision,correct,actionCorrect,contractValid,error,knowledge_hash\n");
++    writeFileSync(join(runDir, "report.md"), readyReport(result));
++    return result;
++  }
++
++  if (options.authorizeLive && process.env.ALAYA_M1_AUTHORIZE_LIVE !== "1") {
++    const result = { status: "BLOCKED" as RunStatus, reason: "authorize-live was set without ALAYA_M1_AUTHORIZE_LIVE=1.", runDir, dataset };
++    writeJson(join(runDir, "manifest.json"), { ...manifestBase, ...result });
++    return result;
++  }
++
++  let provider = options.provider;
++  if (!provider && options.authorizeLive) {
++    if (!resolveOpenAIApiKey()) {
++      const result = { status: "BLOCKED" as RunStatus, reason: "OPENAI_API_KEY is not set.", runDir, dataset };
++      writeJson(join(runDir, "manifest.json"), { ...manifestBase, ...result });
++      return result;
++    }
++    provider = new OpenAIProvider({
++      model: PROTOCOL.model.name,
++      baseUrl: PROTOCOL.model.baseUrl,
++      temperature: PROTOCOL.model.temperature,
++      maxRetries: PROTOCOL.model.maxRetries,
++      maxOutputTokens: PROTOCOL.model.maxOutputTokens,
++    });
++  }
++  if (!provider) {
++    const result = { status: "BLOCKED" as RunStatus, reason: "No provider available.", runDir, dataset };
++    writeJson(join(runDir, "manifest.json"), { ...manifestBase, ...result });
++    return result;
++  }
++
++  const budget = new Budget(
++    options.budget?.maxProviderRequests ?? PROTOCOL.budget.maxProviderRequests,
++    options.budget?.maxTokens ?? PROTOCOL.budget.maxTokens,
++  );
++  const requests: AgentContext[] = [];
++  let status: RunStatus = "PARTIAL";
++  let reason = "";
++  let k1Outcome: DistillOutcome | null = null;
++  let k2Outcome: DistillOutcome | null = null;
++  const devPairs: Array<{ item: M1Item; aCorrect: number; bCorrect: number; a: ScoreResult; b: ScoreResult }> = [];
++  const testRows: Array<{ item: M1Item; repeat: number; arm: Arm; score: ScoreResult }> = [];
++  let devCalls = 0;
++
++  const call = async (request: AgentContext, kind: string, extra: Record<string, unknown>) => {
++    if (!budget.remaining()) {
++      status = "BLOCKED";
++      reason = "budget exhausted";
++      return null;
++    }
++    if (request.mockData !== undefined) {
++      status = "INVALID";
++      reason = "runner must not pass mockData";
++      return null;
++    }
++    requests.push(request);
++    const response = await provider!.call(request);
++    budget.add(response);
++    const row = {
++      kind,
++      ...extra,
++      provider: provider!.name,
++      promptVersion: request.promptVersion,
++      request: sanitizeRequest(request),
++      knowledgeHash: extra.knowledgeHash ?? null,
++      schemaValid: response.schemaValid,
++      retryCount: response.log.retryCount,
++      providerRequests: actualProviderRequests(response),
++      tokenCount: response.log.tokenCount,
++      estimatedCost: response.log.estimatedCost,
++      degraded: response.degradedToHumanGate,
++      errorMessage: response.errorMessage ?? null,
++      output: response.data,
++    };
++    if (!evidenceSafe(row)) {
++      status = "INVALID";
++      reason = "evidence would contain a secret";
++      return null;
++    }
++    appendEvidence(evidencePath, row);
++    return response;
++  };
++
++  const decide = async (item: M1Item, arm: Arm, snapshot: FrozenKnowledge | null, extra: Record<string, unknown>) => {
++    components.orchestrator_decision = "exercised";
++    const request = assembleDecisionRequest(item, snapshot);
++    if (requestHasHiddenFields(request, item)) {
++      status = "INVALID";
++      reason = "hidden fields leaked into prompt";
++      return { score: scoreDecision({ data: null, label: item.label, allowedKnowledgeIds: [], providerFailed: true }), response: null, request };
++    }
++    const allowedKnowledgeIds = allowedIdsFromSnapshot(snapshot);
++    if (arm === "A" && allowedKnowledgeIds.length > 0) {
++      status = "INVALID";
++      reason = "A arm received knowledge ids";
++      return { score: scoreDecision({ data: null, label: item.label, allowedKnowledgeIds: [], providerFailed: true }), response: null, request };
++    }
++    if (arm === "B") {
++      const expectedHash = options.snapshotHashOverride ?? snapshot?.hash;
++      if (!snapshot || snapshot.hash !== expectedHash) {
++        status = "INVALID";
++        reason = "B arm snapshot hash mismatch";
++        return { score: scoreDecision({ data: null, label: item.label, allowedKnowledgeIds, providerFailed: true }), response: null, request };
++      }
++      if (allowedKnowledgeIds.length > 0 && request.knowledgeSummary !== snapshot.rendered) {
++        status = "INVALID";
++        reason = "B request knowledge does not match snapshot";
++        return { score: scoreDecision({ data: null, label: item.label, allowedKnowledgeIds, providerFailed: true }), response: null, request };
++      }
++    }
++    const response = await call(request, "decision", {
++      itemId: item.id,
++      arm,
++      split: item.split,
++      label: item.label,
++      allowedKnowledgeIds,
++      knowledgeHash: snapshot?.hash ?? null,
++      ...extra,
++    });
++    if (!response) {
++      return { score: scoreDecision({ data: null, label: item.label, allowedKnowledgeIds, providerFailed: true }), response: null, request };
++    }
++    const providerFailed = Boolean(response.degradedToHumanGate || response.errorMessage);
++    const score = scoreDecision({ data: response.data, label: item.label, allowedKnowledgeIds, providerFailed });
++    return { score, response, request };
++  };
++
++  const train = dataset.items.filter((item) => item.split === "train");
++  const dev = dataset.items.filter((item) => item.split === "dev");
++  const test = dataset.items.filter((item) => item.split === "test");
++  const trainA = train.slice(0, 20);
++  const trainB = train.slice(20);
++  const trainIds = train.map((item) => item.id);
++
++  const collectTrain = async (batch: M1Item[], snapshot: FrozenKnowledge | null) => {
++    const rows: Trajectory[] = [];
++    for (const item of batch) {
++      const arm: Arm = snapshot && snapshot.items.length > 0 ? "B" : snapshot ? "B" : "A";
++      const result = await decide(item, arm, snapshot, { phase: "train" });
++      if (status === "INVALID" || status === "BLOCKED") return rows;
++      rows.push({
++        id: item.id,
++        signals: renderDecisionPrompt(item).context.signals,
++        modelDecision: result.score.decision,
++        correctDecision: item.label,
++        actionCorrect: result.score.actionCorrect,
++        contractValid: result.score.contractValid,
++      });
++    }
++    return rows;
++  };
++
++  const distill = async (version: "K1" | "K2", existing: FrozenKnowledge | null, trajectories: Trajectory[], allowedSourceIds: string[]) => {
++    components.distiller = "exercised";
++    const request = assembleDistillRequest(existing, trajectories, allowedSourceIds);
++    const response = await call(request, "distill", { version, allowedIds: allowedSourceIds });
++    return parseDistillOutput({ response, allowedSourceIds, version });
++  };
++
++  const batch1 = await collectTrain(trainA, null);
++  if (status !== "INVALID" && status !== "BLOCKED") {
++    k1Outcome = await distill("K1", null, batch1, trainA.map((item) => item.id));
++    const k1 = k1Outcome.status === "candidate" || k1Outcome.status === "empty_candidate" ? k1Outcome.knowledge : freezeParsedKnowledge("K1", []);
++    if (k1Outcome.status === "provider_failure") {
++      status = "BLOCKED";
++      reason = "K1 provider failure: " + k1Outcome.reason;
++    } else if (k1Outcome.status === "contract_failure") {
++      status = "NO_CANDIDATE";
++      reason = "K1 contract failure: " + k1Outcome.reason;
++    } else {
++      const batch2 = await collectTrain(trainB, k1Outcome.status === "empty_candidate" || k1Outcome.status === "candidate" ? k1 : null);
++      if (status !== "INVALID" && status !== "BLOCKED") {
++        k2Outcome = await distill("K2", k1Outcome.status === "candidate" || k1Outcome.status === "empty_candidate" ? k1 : null, batch2, trainIds);
++        if (k2Outcome.status !== "candidate") {
++          status = k2Outcome.status === "provider_failure" ? "BLOCKED" : "NO_CANDIDATE";
++          reason = "K2 " + k2Outcome.status + ": " + ("reason" in k2Outcome ? k2Outcome.reason : "empty_candidate");
++        } else {
++          const k2 = k2Outcome.knowledge;
++          const sourcesOk = k2.items.every((item) => item.sourceTrainIds.every((id) => trainIds.includes(id)));
++          if (!sourcesOk || k2.items.length === 0) {
++            status = "NO_CANDIDATE";
++            reason = "K2 not a usable candidate before Dev";
++          } else {
++            const probe = assembleDecisionRequest(dev[0]!, k2);
++            if (probe.knowledgeSummary !== k2.rendered) {
++              status = "INVALID";
++              reason = "K2 would not be sent to B";
++            } else {
++              for (const item of dev) {
++                const a = await decide(item, "A", null, { phase: "dev", repeat: 0 });
++                devCalls += 1;
++                if (status === "INVALID" || status === "BLOCKED") break;
++                const b = await decide(item, "B", k2, { phase: "dev", repeat: 0 });
++                devCalls += 1;
++                if (status === "INVALID" || status === "BLOCKED") break;
++                devPairs.push({ item, aCorrect: a.score.correct, bCorrect: b.score.correct, a: a.score, b: b.score });
++              }
++              if (status !== "INVALID" && status !== "BLOCKED") {
++                const devNet = netGain(devPairs);
++                if (devNet < PROTOCOL.gates.devNetMin) {
++                  status = "NO_SIGNAL_ON_DEV";
++                  reason = "B net gain on Dev was " + String(devNet) + " < " + String(PROTOCOL.gates.devNetMin);
++                } else {
++                  for (const step of testSchedule(test, SAMPLE_SEED + ":test")) {
++                    const snapshot = step.arm === "B" ? k2 : null;
++                    const result = await decide(step.item, step.arm, snapshot, { phase: "test", repeat: step.repeat });
++                    if (status === "INVALID" || status === "BLOCKED") break;
++                    testRows.push({ item: step.item, repeat: step.repeat, arm: step.arm, score: result.score });
++                  }
++                  if (status !== "INVALID" && status !== "BLOCKED") {
++                    const repeatNets: number[] = [];
++                    for (let repeat = 0; repeat < PROTOCOL.counts.testRepeats; repeat += 1) {
++                      const pairs = test.map((item) => {
++                        const a = testRows.find((row) => row.item.id === item.id && row.repeat === repeat && row.arm === "A");
++                        const b = testRows.find((row) => row.item.id === item.id && row.repeat === repeat && row.arm === "B");
++                        return { aCorrect: a?.score.correct ?? 0, bCorrect: b?.score.correct ?? 0 };
++                      });
++                      repeatNets.push(netGain(pairs));
++                    }
++                    status = repeatNets.every((value) => value >= PROTOCOL.gates.testNetMinPerRepeat) ? "PROMISING" : "NO_CLEAR_GAIN";
++                    reason = "test repeat nets " + JSON.stringify(repeatNets);
++                  }
++                }
++              }
++            }
++          }
++        }
++      }
++    }
++  }
++
++  const k1 = k1Outcome && (k1Outcome.status === "candidate" || k1Outcome.status === "empty_candidate") ? k1Outcome.knowledge : null;
++  const k2 = k2Outcome && k2Outcome.status === "candidate" ? k2Outcome.knowledge : null;
++  const comparison = ["repeat,item_id,split,label,arm,decision,correct,actionCorrect,contractValid,error,knowledge_hash"];
++  for (const row of devPairs) {
++    comparison.push(["0", row.item.id, "dev", row.item.label, "A", String(row.a.decision), String(row.a.correct), String(row.a.actionCorrect), String(row.a.contractValid), String(row.a.errorType), ""].join(","));
++    comparison.push(["0", row.item.id, "dev", row.item.label, "B", String(row.b.decision), String(row.b.correct), String(row.b.actionCorrect), String(row.b.contractValid), String(row.b.errorType), k2?.hash ?? ""].join(","));
++  }
++  for (const row of testRows) {
++    comparison.push([String(row.repeat), row.item.id, "test", row.item.label, row.arm, String(row.score.decision), String(row.score.correct), String(row.score.actionCorrect), String(row.score.contractValid), String(row.score.errorType), row.arm === "B" ? k2?.hash ?? "" : ""].join(","));
++  }
++  writeFileSync(join(runDir, "comparison.csv"), comparison.join("\n") + "\n");
++  writeJson(join(runDir, "knowledge.json"), { K1: k1, K2: k2, k1Outcome, k2Outcome });
++  const result = {
++    status,
++    reason,
++    runDir,
++    dataset,
++    k1,
++    k2,
++    k1Outcome,
++    k2Outcome,
++    budget: { requests: budget.requests, tokens: budget.tokens, maxRequests: budget.maxRequests, maxTokens: budget.maxTokens },
++    requestCount: requests.length,
++    requests,
++    devPairs,
++    testRows,
++    devCalls,
++  };
++  writeJson(join(runDir, "manifest.json"), { ...manifestBase, status, reason, budget: result.budget, components, k2Hash: k2?.hash ?? null, k2Outcome: k2Outcome?.status ?? null, devCalls });
++  writeFileSync(join(runDir, "report.md"), resultReport(result));
++  return result;
++}
++
++function fixtureItem(id: string, signalsPresent: SignalId[], label: Decision): M1Item {
++  return { id, signalKey: signalsPresent.join(","), signalsPresent, label, ruleId: null, split: "train" };
++}
++
++export async function runPreflight(options: RunM1Options = {}) {
++  const outRoot = options.outRoot ?? defaultOutRoot();
++  const runId = options.runId ?? "preflight-" + new Date().toISOString().replace(/[:.]/g, "-");
++  const runDir = join(outRoot, runId);
++  mkdirSync(runDir, { recursive: true });
++  const evidencePath = join(runDir, "evidence.jsonl");
++  writeFileSync(evidencePath, "");
++  if (!options.engineering && !options.authorizeLive) {
++    const result = { status: "READY_FOR_AUTHORIZED_RUN" as RunStatus, reason: "Preflight live calls need --authorize-live and ALAYA_M1_AUTHORIZE_LIVE=1.", runDir };
++    writeJson(join(runDir, "manifest.json"), { revision: PROTOCOL.revision, ...result, diagnosticOnly: true });
++    return result;
++  }
++  if (options.authorizeLive && process.env.ALAYA_M1_AUTHORIZE_LIVE !== "1") {
++    const result = { status: "BLOCKED" as RunStatus, reason: "preflight authorize-live missing env", runDir };
++    writeJson(join(runDir, "manifest.json"), result);
++    return result;
++  }
++  let provider = options.provider;
++  if (!provider && options.authorizeLive) {
++    if (!resolveOpenAIApiKey()) {
++      const result = { status: "BLOCKED" as RunStatus, reason: "OPENAI_API_KEY is not set.", runDir };
++      writeJson(join(runDir, "manifest.json"), result);
++      return result;
++    }
++    provider = new OpenAIProvider({ model: PROTOCOL.model.name, baseUrl: PROTOCOL.model.baseUrl, temperature: PROTOCOL.model.temperature, maxRetries: PROTOCOL.model.maxRetries, maxOutputTokens: PROTOCOL.model.maxOutputTokens });
++  }
++  if (!provider) {
++    const result = { status: "BLOCKED" as RunStatus, reason: "No provider available.", runDir };
++    writeJson(join(runDir, "manifest.json"), result);
++    return result;
++  }
++  const budget = new Budget(options.budget?.maxProviderRequests ?? PROTOCOL.preflight.maxProviderRequests, options.budget?.maxTokens ?? PROTOCOL.preflight.maxTokens);
++  const stageFails: string[] = [];
++  const call = async (request: AgentContext, kind: string, extra: Record<string, unknown>) => {
++    if (!budget.remaining()) return null;
++    if (request.mockData !== undefined) return null;
++    const response = await provider!.call(request);
++    budget.add(response);
++    appendEvidence(evidencePath, { kind, diagnosticOnly: true, ...extra, request: sanitizeRequest(request), schemaValid: response.schemaValid, retryCount: response.log.retryCount, providerRequests: actualProviderRequests(response), tokenCount: response.log.tokenCount, degraded: response.degradedToHumanGate, errorMessage: response.errorMessage ?? null, output: response.data });
++    return response;
++  };
++  const casesA = [
++    fixtureItem("fix_a1", ["earnings_revision"], "increase_long"),
++    fixtureItem("fix_a2", ["guidance_cut"], "avoid_trade"),
++    fixtureItem("fix_a3", ["earnings_revision", "short_crowding"], "increase_long"),
++  ];
++  const handwritten: FrozenKnowledge = freezeParsedKnowledge("preflight", [{
++    id: "exp_k_revision",
++    condition: "earnings_revision is present and guidance_cut is absent",
++    judgment: "increase_long",
++    exception: "if guidance_cut is present, do not increase_long",
++    sourceTrainIds: ["fix_a1"],
++    status: "experimental_only",
++  }]);
++  let distilled: DistillOutcome | null = null;
++  const scoreCase = async (item: M1Item, snapshot: FrozenKnowledge | null, stage: string) => {
++    const request = assembleDecisionRequest(item, snapshot);
++    const response = await call(request, "preflight_decision", { stage, itemId: item.id });
++    const score = scoreDecision({ data: response?.data, label: item.label, allowedKnowledgeIds: allowedIdsFromSnapshot(snapshot), providerFailed: !response || Boolean(response.degradedToHumanGate || response.errorMessage) });
++    return { request, score, response };
++  };
++  const aScores = [];
++  for (const item of casesA) {
++    const row = await scoreCase(item, null, "A_contract");
++    aScores.push(row);
++    if (!row.score.contractValid) {
++      stageFails.push("A_contract");
++      break;
++    }
++  }
++  if (stageFails.length) return finish("PREFLIGHT_FAIL", "A_contract");
++  const posScores = [];
++  for (const item of casesA) {
++    const row = await scoreCase(item, handwritten, "positive_control");
++    posScores.push(row);
++    if (!row.score.contractValid || row.request.knowledgeSummary !== handwritten.rendered || row.score.actionCorrect !== 1) {
++      stageFails.push("positive_control");
++      break;
++    }
++  }
++  if (stageFails.length) return finish("PREFLIGHT_FAIL", "positive_control");
++  const trainFix = [
++    fixtureItem("fix_t1", ["earnings_revision"], "increase_long"),
++    fixtureItem("fix_t2", ["earnings_revision", "short_crowding"], "increase_long"),
++    fixtureItem("fix_t3", ["guidance_cut"], "avoid_trade"),
++    fixtureItem("fix_t4", ["guidance_cut", "short_crowding"], "avoid_trade"),
++  ];
++  const trajectories: Trajectory[] = trainFix.map((item) => ({
++    id: item.id,
++    signals: renderDecisionPrompt(item).context.signals,
++    modelDecision: null,
++    correctDecision: item.label,
++    actionCorrect: 1,
++    contractValid: true,
++  }));
++  const distillReq = assembleDistillRequest(null, trajectories, trainFix.map((item) => item.id));
++  const distillRes = await call(distillReq, "preflight_distill", { stage: "distill" });
++  distilled = parseDistillOutput({ response: distillRes, allowedSourceIds: trainFix.map((item) => item.id), version: "preflight" });
++  if (distilled.status !== "candidate") return finish("PREFLIGHT_FAIL", "distill:" + distilled.status);
++  const learned = distilled.knowledge;
++  const newCases = [
++    fixtureItem("fix_n1", ["earnings_revision", "valuation_discount"], "increase_long"),
++    fixtureItem("fix_n2", ["guidance_cut", "liquidity_risk"], "avoid_trade"),
++    fixtureItem("fix_n3", ["earnings_revision", "margin_repair"], "increase_long"),
++  ];
++  const transferScores = [];
++  for (const item of newCases) {
++    const row = await scoreCase(item, learned, "transfer");
++    transferScores.push(row);
++    if (!row.score.contractValid || row.request.knowledgeSummary !== learned.rendered || row.score.actionCorrect !== 1) {
++      stageFails.push("transfer");
++      break;
++    }
++  }
++  if (stageFails.length) return finish("PREFLIGHT_FAIL", "transfer");
++  const allDecisions = [...aScores, ...posScores, ...transferScores];
++  if (allDecisions.length !== 9 || allDecisions.some((row) => !row.score.contractValid)) return finish("PREFLIGHT_FAIL", "contract_count");
++  return finish("PREFLIGHT_PASS", "9/9 contract; positive 3/3; distill candidate; transfer 3/3");
++
++  function finish(status: RunStatus, reason: string) {
++    const result = { status, reason, runDir, budget: { requests: budget.requests, tokens: budget.tokens, maxRequests: budget.maxRequests, maxTokens: budget.maxTokens }, diagnosticOnly: true, handwrittenNeverOfficial: true };
++    writeJson(join(runDir, "manifest.json"), result);
++    writeJson(join(runDir, "knowledge.json"), { diagnosticOnly: true, handwritten, distilled: distilled && distilled.status === "candidate" ? distilled.knowledge : distilled });
++    writeFileSync(join(runDir, "report.md"), ["# Alaya M1.1 preflight", "", "status: " + status, reason, "provider_requests: " + String(budget.requests) + " / " + String(budget.maxRequests), "tokens: " + String(budget.tokens), "diagnostic_only: true", ""].join("\n"));
++    return result;
++  }
++}
++
++function readyReport(result: { status: RunStatus; reason: string; runDir: string; nextCommand: string }): string {
++  return ["# Alaya M1", "", "status: " + result.status, result.reason, "", "This is not an experiment pass. No live model was called.", "Run live only with: " + result.nextCommand, "Artifacts: " + result.runDir, ""].join("\n");
++}
++
++function resultReport(result: { status: RunStatus; reason: string; runDir: string; budget: { requests: number; tokens: number; maxRequests: number; maxTokens: number }; k2: FrozenKnowledge | null; devCalls?: number }): string {
++  return ["# Alaya M1", "", "status: " + result.status, result.reason, "", "provider_requests: " + String(result.budget.requests) + " / " + String(result.budget.maxRequests), "tokens: " + String(result.budget.tokens) + " / " + String(result.budget.maxTokens), "k2_items: " + String(result.k2?.items.length ?? 0), "dev_calls: " + String(result.devCalls ?? 0), "", "Sensor, Builder, and Librarian were not exercised.", "Artifacts: " + result.runDir, ""].join("\n");
++}
++
++export function latestRunDir(outRoot = defaultOutRoot()): string | null {
++  if (!existsSync(outRoot)) return null;
++  const dirs = readdirSync(outRoot).sort();
++  return dirs.length ? join(outRoot, dirs[dirs.length - 1]!) : null;
++}
++
++export function readReport(runDir: string): string {
++  return readFileSync(join(runDir, "report.md"), "utf8");
++}
++
++async function main() {
++  const argv = process.argv.slice(2);
++  const command = argv[0] === "report" || argv[0] === "run" || argv[0] === "preflight" ? argv[0] : "run";
++  const rest = argv[0] === command ? argv.slice(1) : argv;
++  if (command === "report") {
++    const dir = rest[0] ? resolve(rest[0]) : latestRunDir();
++    if (!dir) {
++      process.stderr.write("no M1 run artifacts found\n");
++      process.exitCode = 1;
++      return;
++    }
++    process.stdout.write(readReport(dir));
++    return;
++  }
++  const authorizeLive = rest.includes("--authorize-live");
++  const result = command === "preflight" ? await runPreflight({ authorizeLive }) : await runM1({ authorizeLive });
++  process.stdout.write(result.status + "\n" + (result.reason ?? "") + "\n" + result.runDir + "\n");
++  if (result.status === "INVALID" || result.status === "BLOCKED" || result.status === "PREFLIGHT_FAIL") process.exitCode = 2;
++}
++
++if (basename(process.argv[1] ?? "") === "runner.ts" || basename(process.argv[1] ?? "") === "runner.js") {
++  main().catch((error) => {
++    process.stderr.write(String(error?.stack ?? error) + "\n");
++    process.exitCode = 1;
++  });
++}

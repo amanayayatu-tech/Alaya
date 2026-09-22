@@ -1,0 +1,168 @@
+{
+  "evidenceMode": "DEVELOPMENT",
+  "runValid": true,
+  "conclusion": "INCONCLUSIVE_OR_NO_INCREMENT",
+  "independentDomainCount": 1,
+  "taskFamilyCount": 3,
+  "heldoutCombinations": 24,
+  "databaseVariantsPerTask": 4,
+  "uncertaintyBoundary": "Intervals describe variation across these task combinations. The three families share templates; they are not 24 independently sampled domains or a confirmatory population study.",
+  "scores": {
+    "none": {
+      "n": 24,
+      "correct": 18,
+      "schemaFailures": 3
+    },
+    "raw": {
+      "n": 24,
+      "correct": 24,
+      "schemaFailures": 0
+    },
+    "alaya": {
+      "n": 24,
+      "correct": 22,
+      "schemaFailures": 0
+    }
+  },
+  "comparisons": {
+    "alayaVsRaw": {
+      "nTaskPairs": 24,
+      "wins": 0,
+      "losses": 2,
+      "ties": 22,
+      "difference": -0.08333333333333333,
+      "descriptivePairedBootstrap95": [
+        -0.20833333333333334,
+        0
+      ],
+      "exactMcNemarTwoSidedP": 0.5
+    },
+    "alayaVsNone": {
+      "nTaskPairs": 24,
+      "wins": 5,
+      "losses": 1,
+      "ties": 18,
+      "difference": 0.16666666666666666,
+      "descriptivePairedBootstrap95": [
+        0,
+        0.375
+      ],
+      "exactMcNemarTwoSidedP": 0.21875
+    }
+  },
+  "byFamily": {
+    "aggregation": {
+      "none": {
+        "n": 8,
+        "correct": 5
+      },
+      "raw": {
+        "n": 8,
+        "correct": 8
+      },
+      "alaya": {
+        "n": 8,
+        "correct": 6
+      }
+    },
+    "latest_status": {
+      "none": {
+        "n": 8,
+        "correct": 7
+      },
+      "raw": {
+        "n": 8,
+        "correct": 8
+      },
+      "alaya": {
+        "n": 8,
+        "correct": 8
+      }
+    },
+    "funnel": {
+      "none": {
+        "n": 8,
+        "correct": 6
+      },
+      "raw": {
+        "n": 8,
+        "correct": 8
+      },
+      "alaya": {
+        "n": 8,
+        "correct": 8
+      }
+    }
+  },
+  "costs": {
+    "train/alaya": {
+      "calls": 48,
+      "builderCalls": 24,
+      "distillerCalls": 24,
+      "inputTokens": 70760,
+      "outputTokens": 18608,
+      "cachedInputTokens": 6589,
+      "missingUsage": 0,
+      "medianMs": 3921,
+      "p95Ms": 8830
+    },
+    "test/none": {
+      "calls": 24,
+      "builderCalls": 24,
+      "distillerCalls": 0,
+      "inputTokens": 21872,
+      "outputTokens": 7851,
+      "cachedInputTokens": 4285,
+      "missingUsage": 0,
+      "medianMs": 3199,
+      "p95Ms": 4928
+    },
+    "test/raw": {
+      "calls": 24,
+      "builderCalls": 24,
+      "distillerCalls": 0,
+      "inputTokens": 84847,
+      "outputTokens": 8338,
+      "cachedInputTokens": 3072,
+      "missingUsage": 0,
+      "medianMs": 2566,
+      "p95Ms": 3994
+    },
+    "test/alaya": {
+      "calls": 24,
+      "builderCalls": 24,
+      "distillerCalls": 0,
+      "inputTokens": 38792,
+      "outputTokens": 7749,
+      "cachedInputTokens": 6386,
+      "missingUsage": 0,
+      "medianMs": 4101,
+      "p95Ms": 8651
+    }
+  },
+  "infrastructureFailures": 0,
+  "sourceModelConsistent": true,
+  "knowledgeFrozen": true,
+  "memoryChars": {
+    "none": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    "raw": {
+      "min": 5638,
+      "max": 11175,
+      "mean": 8566.958333333334
+    },
+    "alaya": {
+      "min": 2915,
+      "max": 3148,
+      "mean": 3069.3333333333335
+    }
+  },
+  "training": {
+    "decisions": 24,
+    "correct": 20,
+    "acceptedSourceRecipes": 23
+  }
+}

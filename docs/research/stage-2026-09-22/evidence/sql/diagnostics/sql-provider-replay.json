@@ -1,0 +1,1690 @@
+{
+  "kind": "postrun_recorded_response_regression",
+  "networkCalls": 0,
+  "recordedResponses": 120,
+  "mockedFetchCalls": 120,
+  "requestBodiesUnchanged": true,
+  "previouslyValidAnswersUnchanged": true,
+  "usageMatchesWireForParsedResponses": true,
+  "recoveredFormatFailures": 7,
+  "unchangedInvalidResponses": 1,
+  "rows": [
+    {
+      "call": 1,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-aggregation-00",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 2,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-aggregation-00",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 3,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-latest-status-00",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 4,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-latest-status-00",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 5,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-funnel-00",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 6,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-funnel-00",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 7,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-aggregation-01",
+      "role": "builder",
+      "recoveredFormat": true,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 8,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-aggregation-01",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 9,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-latest-status-01",
+      "role": "builder",
+      "recoveredFormat": true,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 10,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-latest-status-01",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 11,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-funnel-01",
+      "role": "builder",
+      "recoveredFormat": true,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 12,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-funnel-01",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 13,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-aggregation-02",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 14,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-aggregation-02",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 15,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-latest-status-02",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 16,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-latest-status-02",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 17,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-funnel-02",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 18,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-funnel-02",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 19,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-aggregation-03",
+      "role": "builder",
+      "recoveredFormat": true,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 20,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-aggregation-03",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 21,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-latest-status-03",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 22,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-latest-status-03",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 23,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-funnel-03",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 24,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-funnel-03",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 25,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-aggregation-04",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 26,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-aggregation-04",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 27,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-latest-status-04",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 28,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-latest-status-04",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 29,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-funnel-04",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 30,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-funnel-04",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": false,
+      "outcome": null
+    },
+    {
+      "call": 31,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-aggregation-05",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 32,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-aggregation-05",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 33,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-latest-status-05",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 34,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-latest-status-05",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 35,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-funnel-05",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 36,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-funnel-05",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 37,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-aggregation-06",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 38,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-aggregation-06",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 39,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-latest-status-06",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 40,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-latest-status-06",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 41,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-funnel-06",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 42,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-funnel-06",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 43,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-aggregation-07",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 44,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-aggregation-07",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 45,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-latest-status-07",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 46,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-latest-status-07",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 47,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-funnel-07",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 48,
+      "phase": "train",
+      "arm": "alaya",
+      "taskId": "train-funnel-07",
+      "role": "distiller",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": null
+    },
+    {
+      "call": 49,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-aggregation-05",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 50,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-aggregation-05",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 51,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-aggregation-05",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 52,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-aggregation-02",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 54,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-aggregation-02",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 53,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-aggregation-02",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 57,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-latest-status-07",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 56,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-latest-status-07",
+      "role": "builder",
+      "recoveredFormat": true,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 55,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-latest-status-07",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 60,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-funnel-04",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 59,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-funnel-04",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 58,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-funnel-04",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 61,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-latest-status-00",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 62,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-latest-status-00",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 63,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-latest-status-00",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 66,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-funnel-07",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 65,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-funnel-07",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 64,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-funnel-07",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 68,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-funnel-02",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 67,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-funnel-02",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 69,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-funnel-02",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 70,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-funnel-00",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 71,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-funnel-00",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 72,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-funnel-00",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 75,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-funnel-03",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 73,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-funnel-03",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 74,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-funnel-03",
+      "role": "builder",
+      "recoveredFormat": true,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 77,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-latest-status-01",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 76,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-latest-status-01",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 78,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-latest-status-01",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 80,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-aggregation-04",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "counterexample": {
+          "actualColumns": [
+            "account_id",
+            "paid_order_count",
+            "gross_cents",
+            "refund_cents",
+            "net_cents",
+            "refund_rate_pct"
+          ],
+          "actualRowCount": 4,
+          "expectedColumns": [
+            "account_id",
+            "paid_order_count",
+            "gross_cents",
+            "refund_cents",
+            "net_cents",
+            "refund_rate_pct"
+          ],
+          "expectedRowCount": 3,
+          "fixture": "fixture-0",
+          "reason": "result_mismatch"
+        },
+        "passed": false,
+        "passedChecks": 0
+      }
+    },
+    {
+      "call": 79,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-aggregation-04",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 81,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-aggregation-04",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "counterexample": {
+          "actualColumns": [
+            "account_id",
+            "paid_order_count",
+            "gross_cents",
+            "refund_cents",
+            "net_cents",
+            "refund_rate_pct"
+          ],
+          "actualRowCount": 4,
+          "expectedColumns": [
+            "account_id",
+            "paid_order_count",
+            "gross_cents",
+            "refund_cents",
+            "net_cents",
+            "refund_rate_pct"
+          ],
+          "expectedRowCount": 3,
+          "fixture": "fixture-3",
+          "reason": "result_mismatch"
+        },
+        "passed": false,
+        "passedChecks": 3
+      }
+    },
+    {
+      "call": 83,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-latest-status-06",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 82,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-latest-status-06",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 84,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-latest-status-06",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 86,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-aggregation-03",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 85,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-aggregation-03",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 87,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-aggregation-03",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "counterexample": {
+          "actualColumns": [
+            "account_id",
+            "paid_order_count",
+            "gross_cents",
+            "refund_cents",
+            "net_cents",
+            "refund_rate_pct"
+          ],
+          "actualRowCount": 3,
+          "expectedColumns": [
+            "account_id",
+            "paid_order_count",
+            "gross_cents",
+            "refund_cents",
+            "net_cents",
+            "refund_rate_pct"
+          ],
+          "expectedRowCount": 2,
+          "fixture": "fixture-0",
+          "reason": "result_mismatch"
+        },
+        "passed": false,
+        "passedChecks": 0
+      }
+    },
+    {
+      "call": 89,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-latest-status-03",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 90,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-latest-status-03",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 88,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-latest-status-03",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 93,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-aggregation-00",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 92,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-aggregation-00",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "counterexample": {
+          "actualColumns": [
+            "account_id",
+            "paid_order_count",
+            "gross_cents",
+            "refund_cents",
+            "net_cents",
+            "refund_rate_pct"
+          ],
+          "actualRowCount": 4,
+          "expectedColumns": [
+            "account_id",
+            "paid_order_count",
+            "gross_cents",
+            "refund_cents",
+            "net_cents",
+            "refund_rate_pct"
+          ],
+          "expectedRowCount": 2,
+          "fixture": "fixture-0",
+          "reason": "result_mismatch"
+        },
+        "passed": false,
+        "passedChecks": 0
+      }
+    },
+    {
+      "call": 91,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-aggregation-00",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 94,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-latest-status-05",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 95,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-latest-status-05",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 96,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-latest-status-05",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 99,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-funnel-01",
+      "role": "builder",
+      "recoveredFormat": true,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 97,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-funnel-01",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 98,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-funnel-01",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 101,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-funnel-05",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 102,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-funnel-05",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 100,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-funnel-05",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 103,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-aggregation-06",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 104,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-aggregation-06",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 105,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-aggregation-06",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 108,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-funnel-06",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 106,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-funnel-06",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 107,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-funnel-06",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 111,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-aggregation-07",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 109,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-aggregation-07",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 110,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-aggregation-07",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "counterexample": {
+          "fixture": "fixture-0",
+          "reason": "execution_error"
+        },
+        "error": "no such column: pr.refund_cents",
+        "passed": false,
+        "passedChecks": 0
+      }
+    },
+    {
+      "call": 113,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-latest-status-02",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 114,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-latest-status-02",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 112,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-latest-status-02",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 117,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-aggregation-01",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 116,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-aggregation-01",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 115,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-aggregation-01",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 120,
+      "phase": "test",
+      "arm": "raw",
+      "taskId": "test-latest-status-04",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 119,
+      "phase": "test",
+      "arm": "none",
+      "taskId": "test-latest-status-04",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    },
+    {
+      "call": 118,
+      "phase": "test",
+      "arm": "alaya",
+      "taskId": "test-latest-status-04",
+      "role": "builder",
+      "recoveredFormat": false,
+      "schemaValid": true,
+      "outcome": {
+        "checks": 4,
+        "passed": true,
+        "passedChecks": 4
+      }
+    }
+  ]
+}

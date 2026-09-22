@@ -1,0 +1,103 @@
+{
+  "projectId": "proj_mqfeb6u8",
+  "projectName": "equity-thesis-position-decision",
+  "baseUrl": "http://127.0.0.1:5310",
+  "dbPath": "/tmp/alaya-equity-thesis-a264-smoke-run-20260615_235619.db",
+  "logDir": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-24h_20260615_155619",
+  "startedAt": "2026-06-15T15:56:40.470Z",
+  "endedAt": "2026-06-15T16:03:05.844Z",
+  "validationStartedAt": "2026-06-15T15:56:40.470Z",
+  "sampleCount": 2,
+  "processDurationMs": 385374,
+  "validationDurationMs": 385375,
+  "timing": {
+    "durationMs": 360000,
+    "sampleMs": 300000,
+    "maxSamples": 3,
+    "progressTicksPerSample": 6
+  },
+  "scenario": {
+    "name": "conflict-flood",
+    "seed": null,
+    "runId": null,
+    "evidenceOrder": [
+      "long_support",
+      "short_support",
+      "long_risk",
+      "short_risk",
+      "tiered_support",
+      "tiered_reject"
+    ],
+    "qualityCanaryOffsetSamples": 0,
+    "conflictFloodHoldSamples": 1,
+    "conflictFloodMaxResolutionsPerSample": 3,
+    "qualityCanaryEverySamples": 5
+  },
+  "llmProvider": "openai",
+  "model": "MiniMax-M3",
+  "decisionVia": "local_api_human_proxy",
+  "finalDrain": {
+    "status": "complete",
+    "attempts": 0,
+    "lastAction": ""
+  },
+  "assessment": {
+    "criteria": {
+      "deltaReached8": false,
+      "activeNeverZero": true,
+      "tokenSourceProviderAtLeast95pct": true,
+      "semanticContradictionBypassZero": true,
+      "conflictAtLeast5": false,
+      "conflictResolvedAtLeast3": false,
+      "humanGateDropAtLeast30pct": null,
+      "stallGuardUnder5pct": true,
+      "sampleFailedZero": true
+    },
+    "observed": {
+      "firstDelta": "1",
+      "lastDelta": "3",
+      "firstCurrentDelta": "1",
+      "lastCurrentDelta": "3",
+      "minActiveKnowledgeCount": 4,
+      "finalActiveKnowledgeCount": "4",
+      "finalLlmTokenSource": "provider",
+      "lastLlmTokenSourceStats": {
+        "total": 23,
+        "provider": 23,
+        "estimated": 0,
+        "providerRatio": 1,
+        "label": "provider"
+      },
+      "semanticContradictionBypassCount": 0,
+      "sampleFailedCount": 0,
+      "maxConflictCount": 1,
+      "maxSnapshotConflictCount": 0,
+      "maxResolvedConflictReviews": 1,
+      "cumulativeConflictEvidence": {
+        "maxOpenReviews": 0,
+        "maxResolvedReviews": 1,
+        "resolvedUniqueReviewCount": 1,
+        "maxScanReviewRequired": 1,
+        "maxScanConflictCandidates": 0,
+        "cumulativeConflictCount": 1
+      },
+      "maxStallGuardCount": 0,
+      "cyclesClosed": 4,
+      "earlyPendingGateAverage": 0,
+      "latePendingGateAverage": 0,
+      "humanGateDropEligible": false,
+      "humanGateDropEligibilityThreshold": "earlyPendingGateAverage >= 1",
+      "humanGatePendingDropRatio": null
+    }
+  },
+  "files": {
+    "monitorCsv": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-24h_20260615_155619/monitor_log.csv",
+    "eventsJsonl": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-24h_20260615_155619/events.jsonl",
+    "issuesMd": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-24h_20260615_155619/issues.md",
+    "appLogPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-24h_20260615_155619/app.log",
+    "runnerLogPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-24h_20260615_155619/runner.log",
+    "metricsDir": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-24h_20260615_155619/metrics",
+    "opsTrendWarningsPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-24h_20260615_155619/ops_trend_warnings.log",
+    "watchdogPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-24h_20260615_155619/watchdog.jsonl"
+  }
+}

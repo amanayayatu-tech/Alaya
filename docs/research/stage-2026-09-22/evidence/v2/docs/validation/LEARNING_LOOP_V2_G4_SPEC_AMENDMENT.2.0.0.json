@@ -1,0 +1,34 @@
+{
+  "status": "REVIEW_READY",
+  "version": "2.0.0",
+  "gate": "G4",
+  "kind": "specification_invariants",
+  "claim_ceiling": "local checks",
+  "seed_manifest_pass_thresholds": null,
+  "unblinded_implementation_already_existed": true,
+  "not": [
+    "confirmatory statistical prereg",
+    "post-hoc ESS/coverage/bias cutoffs",
+    "cognitive enhancement",
+    "G5 OPE PASS"
+  ],
+  "authorization": {
+    "source": "user",
+    "date": "2026-09-18",
+    "scope": "complete remaining offline gates; do not stop at a single next action"
+  },
+  "derivation": "B0 action set is {no-op, item_a, item_b}. Known unconstrained optimum is item_pair in synergy and item_c in no-support, so eligible recovery there is 0. In additive, antagonism, redundancy, order, and nonstationarity the unconstrained optimum is inside the B0 set, so eligible recovery is 1. Equal-credit fans a good item_a reward onto item_b and must be wrong on all 8 antagonism and 8 order seeds.",
+  "equal_credit_rejected_count": 16,
+  "eligible_recovery": {
+    "additive": 1,
+    "synergy": 0,
+    "antagonism": 1,
+    "redundancy": 1,
+    "order": 1,
+    "no-support": 0,
+    "nonstationarity": 1
+  },
+  "stationary_recovery": {
+    "nonstationarity_must_be_strictly_less_than": 1
+  }
+}

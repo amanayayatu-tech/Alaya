@@ -1,0 +1,39 @@
+{
+  "evidenceMode": "DEVELOPMENT",
+  "startedAt": "2026-09-08T16:55:32.429Z",
+  "baseCommit": "b7090b11b41f358f4d82906c86be835a68c06e64",
+  "modelRequested": "MiniMax-M3",
+  "baseUrl": "https://api.minimax.io/openai",
+  "temperature": 0,
+  "maxOutputTokens": 2048,
+  "retries": 0,
+  "simplifiedFallback": false,
+  "maxCalls": 120,
+  "testConcurrency": 3,
+  "memoryCharCeiling": 12000,
+  "rawMemoryK": 2,
+  "ranking": "static",
+  "epsilon": 0,
+  "sourceHashes": {
+    "scripts/lib/sql-repair-cases.py": "43a49cbe8551869dcfb7cc817c4bcaaec465e4bc8cd9c557023f121d99910866",
+    "scripts/sql-repair-experiment.mjs": "4924208c84c311c205ad84dfbfad8adf8bdf963ce7b68caa1251323b3b607021",
+    "alaya-app/server/sqlRepair.ts": "0fcab7254faba2567c9f723aef3c4b54738020e2b69479f136b6d80f1d5ce97b",
+    "alaya-app/server/knowledgeInjection.ts": "54c087374456981eb0fb14843e69a6982b47bc19ecc34fb563a47c0f704708bf",
+    "alaya-app/server/knowledgeCredit.ts": "faf99374addb218d56a881c788ece2921b76b5f9775606b700efdb039ad03cf8",
+    "alaya-core/src/llm/provider.ts": "35e327174f159f883d9f0ead90dc9f759440f05ecd289adad12a0528d4d54878",
+    "docs/validation/SQL_REPAIR_DEVELOPMENT_PLAN.md": "65d1637b6c574df637d0fb9d94b55c4ead32fb236d118829dc01b1e26fec626c",
+    "scripts/analyze-sql-repair.mjs": "2fb20a59de7fc3f749343193ca24f5c6148b853cffc42913012112157ee239c0"
+  },
+  "casesSha256": "87cafc3a3d317235f1c5c0431925d49850b95edda8d4d54888abeb2df0af06d3",
+  "initialKnowledgeSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "evaluator": {
+    "cases": 54,
+    "ok": true,
+    "splits": {
+      "dev": 6,
+      "test": 24,
+      "train": 24
+    }
+  },
+  "devOnly": false
+}
