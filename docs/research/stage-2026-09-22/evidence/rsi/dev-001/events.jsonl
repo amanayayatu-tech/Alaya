@@ -1,0 +1,2 @@
+{"actor":"rsi-runner","ts":"2026-09-22T09:01:53.521Z","event":"prepared","protocolHash":"b7a45cd2479f4491bac7a13db27d63e81fc599a4cc6c7f15adc1c98e0f9cfe32"}
+{"actor":"rsi-runner","ts":"2026-09-22T09:02:12.170Z","event":"phase_started","phase":1,"mockExerciseAll":false}

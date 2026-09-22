@@ -1,0 +1,1357 @@
+{
+  "protocolId": "ALAYA-M1-KNOWLEDGE-TRANSFER",
+  "runId": "2026-09-19T09-07-24-357Z",
+  "baseCommit": "7802ae20c3df5d3afd23d439291798d7796fca1e",
+  "datasetHashes": {
+    "rules": "f00c90f16b687c47b4a43e4e40ca0f76d9bc4af6622e3e7e131a39eaa1989cff",
+    "visible": "5da8ccc5c7f43bad3928bed43b31e54cbfe9a7b198ffa3f779998537a4d1072f",
+    "labels": "459786868ed646bc3b6c1dc97e01d72b2ffef28a0fe338a0de86a8953c3f5f1b",
+    "partitions": "819882b6147afe7f64268c4e2cbf072a99af14134acfb69581a63b3008cd36b4"
+  },
+  "components": {
+    "orchestrator_decision": "not_exercised",
+    "distiller": "not_exercised",
+    "sensor": "not_exercised",
+    "builder": "not_exercised",
+    "librarian": "not_exercised",
+    "knowledgeInjection": "not_exercised",
+    "product_db": "not_exercised"
+  },
+  "live": false,
+  "engineering": false,
+  "status": "READY_FOR_AUTHORIZED_RUN",
+  "reason": "Live provider calls are blocked until --authorize-live and ALAYA_M1_AUTHORIZE_LIVE=1.",
+  "runDir": "/Users/LOCAL_USER/.codex/worktrees/alaya-m1/alaya/validation-logs/m1/2026-09-19T09-07-24-357Z",
+  "dataset": {
+    "protocolId": "ALAYA-M1-KNOWLEDGE-TRANSFER",
+    "sampleSeed": "alaya-m1-20260919",
+    "worldSeed": "alaya-m1-20260919",
+    "rules": [
+      {
+        "id": "R1",
+        "ruleRef": "alaya-m1-20260919:R1",
+        "priority": 1,
+        "decision": "increase_long",
+        "requiredSignals": [
+          "earnings_revision",
+          "margin_repair",
+          "cash_flow_quality"
+        ],
+        "avoidSignals": [
+          "risk_budget_tight"
+        ],
+        "confidenceBase": 0.82,
+        "rationaleTemplateIndex": 2
+      },
+      {
+        "id": "R2",
+        "ruleRef": "alaya-m1-20260919:R2",
+        "priority": 2,
+        "decision": "maintain_long",
+        "requiredSignals": [
+          "earnings_revision",
+          "upside_catalyst"
+        ],
+        "avoidSignals": [
+          "risk_budget_tight",
+          "drawdown_pressure"
+        ],
+        "confidenceBase": 0.69,
+        "rationaleTemplateIndex": 1
+      },
+      {
+        "id": "R3",
+        "ruleRef": "alaya-m1-20260919:R3",
+        "priority": 3,
+        "decision": "short_bias",
+        "requiredSignals": [
+          "regulatory_risk",
+          "liquidity_risk"
+        ],
+        "avoidSignals": [
+          "cash_flow_quality"
+        ],
+        "confidenceBase": 0.75,
+        "rationaleTemplateIndex": 4
+      },
+      {
+        "id": "R4",
+        "ruleRef": "alaya-m1-20260919:R4",
+        "priority": 4,
+        "decision": "avoid_trade",
+        "requiredSignals": [
+          "upside_catalyst",
+          "event_risk",
+          "cash_flow_quality"
+        ],
+        "avoidSignals": [],
+        "confidenceBase": 0.61,
+        "rationaleTemplateIndex": 3
+      },
+      {
+        "id": "R5",
+        "ruleRef": "alaya-m1-20260919:R5",
+        "priority": 5,
+        "decision": "reduce_exposure",
+        "requiredSignals": [
+          "guidance_cut",
+          "risk_budget_tight",
+          "regulatory_risk"
+        ],
+        "avoidSignals": [
+          "short_crowding"
+        ],
+        "confidenceBase": 0.84,
+        "rationaleTemplateIndex": 3
+      },
+      {
+        "id": "R6",
+        "ruleRef": "alaya-m1-20260919:R6",
+        "priority": 6,
+        "decision": "maintain_long",
+        "requiredSignals": [
+          "valuation_discount",
+          "margin_repair"
+        ],
+        "avoidSignals": [
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "confidenceBase": 0.78,
+        "rationaleTemplateIndex": 0
+      },
+      {
+        "id": "R7",
+        "ruleRef": "alaya-m1-20260919:R7",
+        "priority": 7,
+        "decision": "short_bias",
+        "requiredSignals": [
+          "event_risk",
+          "risk_budget_tight"
+        ],
+        "avoidSignals": [],
+        "confidenceBase": 0.72,
+        "rationaleTemplateIndex": 3
+      },
+      {
+        "id": "R8",
+        "ruleRef": "alaya-m1-20260919:R8",
+        "priority": 8,
+        "decision": "avoid_trade",
+        "requiredSignals": [
+          "valuation_discount",
+          "liquidity_risk",
+          "upside_catalyst",
+          "guidance_cut"
+        ],
+        "avoidSignals": [],
+        "confidenceBase": 0.58,
+        "rationaleTemplateIndex": 4
+      }
+    ],
+    "items": [
+      {
+        "id": "m1_0554f43cf54dbbdb",
+        "signalKey": "000000011010",
+        "signalsPresent": [
+          "liquidity_risk",
+          "event_risk",
+          "regulatory_risk"
+        ],
+        "label": "short_bias",
+        "ruleId": "R3",
+        "split": "train"
+      },
+      {
+        "id": "m1_99e257bc98914e5c",
+        "signalKey": "000011000100",
+        "signalsPresent": [
+          "upside_catalyst",
+          "short_crowding",
+          "drawdown_pressure"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "train"
+      },
+      {
+        "id": "m1_4fa56e293878fce0",
+        "signalKey": "000101000110",
+        "signalsPresent": [
+          "valuation_discount",
+          "short_crowding",
+          "drawdown_pressure",
+          "regulatory_risk"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "train"
+      },
+      {
+        "id": "m1_b6e1b9faa0d37f81",
+        "signalKey": "000101110011",
+        "signalsPresent": [
+          "valuation_discount",
+          "short_crowding",
+          "guidance_cut",
+          "liquidity_risk",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "short_bias",
+        "ruleId": "R3",
+        "split": "train"
+      },
+      {
+        "id": "m1_23591a421ee91a34",
+        "signalKey": "001100001011",
+        "signalsPresent": [
+          "cash_flow_quality",
+          "valuation_discount",
+          "event_risk",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "short_bias",
+        "ruleId": "R7",
+        "split": "train"
+      },
+      {
+        "id": "m1_32d9fa7644960502",
+        "signalKey": "010011100000",
+        "signalsPresent": [
+          "margin_repair",
+          "upside_catalyst",
+          "short_crowding",
+          "guidance_cut"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "train"
+      },
+      {
+        "id": "m1_160ef0d52a876ace",
+        "signalKey": "010100110000",
+        "signalsPresent": [
+          "margin_repair",
+          "valuation_discount",
+          "guidance_cut",
+          "liquidity_risk"
+        ],
+        "label": "maintain_long",
+        "ruleId": "R6",
+        "split": "train"
+      },
+      {
+        "id": "m1_59d992c03630221e",
+        "signalKey": "010100110001",
+        "signalsPresent": [
+          "margin_repair",
+          "valuation_discount",
+          "guidance_cut",
+          "liquidity_risk",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "train"
+      },
+      {
+        "id": "m1_2a1e76b3ab8c98f4",
+        "signalKey": "010110100100",
+        "signalsPresent": [
+          "margin_repair",
+          "valuation_discount",
+          "upside_catalyst",
+          "guidance_cut",
+          "drawdown_pressure"
+        ],
+        "label": "maintain_long",
+        "ruleId": "R6",
+        "split": "train"
+      },
+      {
+        "id": "m1_0f47c1349a3ae8de",
+        "signalKey": "011000000101",
+        "signalsPresent": [
+          "margin_repair",
+          "cash_flow_quality",
+          "drawdown_pressure",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "train"
+      },
+      {
+        "id": "m1_cfdaa4c5410d292a",
+        "signalKey": "011000100101",
+        "signalsPresent": [
+          "margin_repair",
+          "cash_flow_quality",
+          "guidance_cut",
+          "drawdown_pressure",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "train"
+      },
+      {
+        "id": "m1_b0c69e4d0ff9870a",
+        "signalKey": "011001011101",
+        "signalsPresent": [
+          "margin_repair",
+          "cash_flow_quality",
+          "short_crowding",
+          "liquidity_risk",
+          "event_risk",
+          "drawdown_pressure",
+          "risk_budget_tight"
+        ],
+        "label": "short_bias",
+        "ruleId": "R7",
+        "split": "train"
+      },
+      {
+        "id": "m1_2752264df6abcec1",
+        "signalKey": "011010000011",
+        "signalsPresent": [
+          "margin_repair",
+          "cash_flow_quality",
+          "upside_catalyst",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "train"
+      },
+      {
+        "id": "m1_bc1fec21e31258a0",
+        "signalKey": "011010110111",
+        "signalsPresent": [
+          "margin_repair",
+          "cash_flow_quality",
+          "upside_catalyst",
+          "guidance_cut",
+          "liquidity_risk",
+          "drawdown_pressure",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "reduce_exposure",
+        "ruleId": "R5",
+        "split": "train"
+      },
+      {
+        "id": "m1_b384d8ac5fd938d5",
+        "signalKey": "011011011101",
+        "signalsPresent": [
+          "margin_repair",
+          "cash_flow_quality",
+          "upside_catalyst",
+          "short_crowding",
+          "liquidity_risk",
+          "event_risk",
+          "drawdown_pressure",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": "R4",
+        "split": "train"
+      },
+      {
+        "id": "m1_22fff9f4c03f73df",
+        "signalKey": "011011111110",
+        "signalsPresent": [
+          "margin_repair",
+          "cash_flow_quality",
+          "upside_catalyst",
+          "short_crowding",
+          "guidance_cut",
+          "liquidity_risk",
+          "event_risk",
+          "drawdown_pressure",
+          "regulatory_risk"
+        ],
+        "label": "avoid_trade",
+        "ruleId": "R4",
+        "split": "train"
+      },
+      {
+        "id": "m1_fbbd90d39eecb9c3",
+        "signalKey": "011110111000",
+        "signalsPresent": [
+          "margin_repair",
+          "cash_flow_quality",
+          "valuation_discount",
+          "upside_catalyst",
+          "guidance_cut",
+          "liquidity_risk",
+          "event_risk"
+        ],
+        "label": "avoid_trade",
+        "ruleId": "R4",
+        "split": "train"
+      },
+      {
+        "id": "m1_0565704761f22bc6",
+        "signalKey": "100000111101",
+        "signalsPresent": [
+          "earnings_revision",
+          "guidance_cut",
+          "liquidity_risk",
+          "event_risk",
+          "drawdown_pressure",
+          "risk_budget_tight"
+        ],
+        "label": "short_bias",
+        "ruleId": "R7",
+        "split": "train"
+      },
+      {
+        "id": "m1_e5c3c581c8ddbb79",
+        "signalKey": "100001000111",
+        "signalsPresent": [
+          "earnings_revision",
+          "short_crowding",
+          "drawdown_pressure",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "train"
+      },
+      {
+        "id": "m1_bb0857fe6bbc5581",
+        "signalKey": "100001001000",
+        "signalsPresent": [
+          "earnings_revision",
+          "short_crowding",
+          "event_risk"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "train"
+      },
+      {
+        "id": "m1_ac871d71c9adfbdf",
+        "signalKey": "100001100110",
+        "signalsPresent": [
+          "earnings_revision",
+          "short_crowding",
+          "guidance_cut",
+          "drawdown_pressure",
+          "regulatory_risk"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "train"
+      },
+      {
+        "id": "m1_8c8928bfe8659902",
+        "signalKey": "100011011110",
+        "signalsPresent": [
+          "earnings_revision",
+          "upside_catalyst",
+          "short_crowding",
+          "liquidity_risk",
+          "event_risk",
+          "drawdown_pressure",
+          "regulatory_risk"
+        ],
+        "label": "short_bias",
+        "ruleId": "R3",
+        "split": "train"
+      },
+      {
+        "id": "m1_9795eda72943af11",
+        "signalKey": "100100011011",
+        "signalsPresent": [
+          "earnings_revision",
+          "valuation_discount",
+          "liquidity_risk",
+          "event_risk",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "short_bias",
+        "ruleId": "R3",
+        "split": "train"
+      },
+      {
+        "id": "m1_8b5e5388123d260a",
+        "signalKey": "100100101001",
+        "signalsPresent": [
+          "earnings_revision",
+          "valuation_discount",
+          "guidance_cut",
+          "event_risk",
+          "risk_budget_tight"
+        ],
+        "label": "short_bias",
+        "ruleId": "R7",
+        "split": "train"
+      },
+      {
+        "id": "m1_02e9e3006bcc86fe",
+        "signalKey": "100101101100",
+        "signalsPresent": [
+          "earnings_revision",
+          "valuation_discount",
+          "short_crowding",
+          "guidance_cut",
+          "event_risk",
+          "drawdown_pressure"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "train"
+      },
+      {
+        "id": "m1_193bd0e290d1fb39",
+        "signalKey": "100110100111",
+        "signalsPresent": [
+          "earnings_revision",
+          "valuation_discount",
+          "upside_catalyst",
+          "guidance_cut",
+          "drawdown_pressure",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "reduce_exposure",
+        "ruleId": "R5",
+        "split": "train"
+      },
+      {
+        "id": "m1_f99c7cfe83d41455",
+        "signalKey": "101000100110",
+        "signalsPresent": [
+          "earnings_revision",
+          "cash_flow_quality",
+          "guidance_cut",
+          "drawdown_pressure",
+          "regulatory_risk"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "train"
+      },
+      {
+        "id": "m1_66cc0c9ffe56f418",
+        "signalKey": "101001111110",
+        "signalsPresent": [
+          "earnings_revision",
+          "cash_flow_quality",
+          "short_crowding",
+          "guidance_cut",
+          "liquidity_risk",
+          "event_risk",
+          "drawdown_pressure",
+          "regulatory_risk"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "train"
+      },
+      {
+        "id": "m1_09b5fd4d3ef636f9",
+        "signalKey": "101010001000",
+        "signalsPresent": [
+          "earnings_revision",
+          "cash_flow_quality",
+          "upside_catalyst",
+          "event_risk"
+        ],
+        "label": "maintain_long",
+        "ruleId": "R2",
+        "split": "train"
+      },
+      {
+        "id": "m1_520f84d1d0b68259",
+        "signalKey": "101011010010",
+        "signalsPresent": [
+          "earnings_revision",
+          "cash_flow_quality",
+          "upside_catalyst",
+          "short_crowding",
+          "liquidity_risk",
+          "regulatory_risk"
+        ],
+        "label": "maintain_long",
+        "ruleId": "R2",
+        "split": "train"
+      },
+      {
+        "id": "m1_fdf0e22aae0caa72",
+        "signalKey": "101101100001",
+        "signalsPresent": [
+          "earnings_revision",
+          "cash_flow_quality",
+          "valuation_discount",
+          "short_crowding",
+          "guidance_cut",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "train"
+      },
+      {
+        "id": "m1_fb3269e72beb05c6",
+        "signalKey": "110011011101",
+        "signalsPresent": [
+          "earnings_revision",
+          "margin_repair",
+          "upside_catalyst",
+          "short_crowding",
+          "liquidity_risk",
+          "event_risk",
+          "drawdown_pressure",
+          "risk_budget_tight"
+        ],
+        "label": "short_bias",
+        "ruleId": "R7",
+        "split": "train"
+      },
+      {
+        "id": "m1_1a6388d7dc1139a0",
+        "signalKey": "110011101011",
+        "signalsPresent": [
+          "earnings_revision",
+          "margin_repair",
+          "upside_catalyst",
+          "short_crowding",
+          "guidance_cut",
+          "event_risk",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "short_bias",
+        "ruleId": "R7",
+        "split": "train"
+      },
+      {
+        "id": "m1_1c8d0e8fe801f667",
+        "signalKey": "110101000011",
+        "signalsPresent": [
+          "earnings_revision",
+          "margin_repair",
+          "valuation_discount",
+          "short_crowding",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "train"
+      },
+      {
+        "id": "m1_45b1de79adbaa058",
+        "signalKey": "110110001111",
+        "signalsPresent": [
+          "earnings_revision",
+          "margin_repair",
+          "valuation_discount",
+          "upside_catalyst",
+          "event_risk",
+          "drawdown_pressure",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "short_bias",
+        "ruleId": "R7",
+        "split": "train"
+      },
+      {
+        "id": "m1_87536e983fcdb80d",
+        "signalKey": "111000011010",
+        "signalsPresent": [
+          "earnings_revision",
+          "margin_repair",
+          "cash_flow_quality",
+          "liquidity_risk",
+          "event_risk",
+          "regulatory_risk"
+        ],
+        "label": "increase_long",
+        "ruleId": "R1",
+        "split": "train"
+      },
+      {
+        "id": "m1_fed9aa147e36ec07",
+        "signalKey": "111010110010",
+        "signalsPresent": [
+          "earnings_revision",
+          "margin_repair",
+          "cash_flow_quality",
+          "upside_catalyst",
+          "guidance_cut",
+          "liquidity_risk",
+          "regulatory_risk"
+        ],
+        "label": "increase_long",
+        "ruleId": "R1",
+        "split": "train"
+      },
+      {
+        "id": "m1_b74bc66dfeccedcb",
+        "signalKey": "111011011101",
+        "signalsPresent": [
+          "earnings_revision",
+          "margin_repair",
+          "cash_flow_quality",
+          "upside_catalyst",
+          "short_crowding",
+          "liquidity_risk",
+          "event_risk",
+          "drawdown_pressure",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": "R4",
+        "split": "train"
+      },
+      {
+        "id": "m1_a4b4398f9ce56b8a",
+        "signalKey": "111101010001",
+        "signalsPresent": [
+          "earnings_revision",
+          "margin_repair",
+          "cash_flow_quality",
+          "valuation_discount",
+          "short_crowding",
+          "liquidity_risk",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "train"
+      },
+      {
+        "id": "m1_1ec11c328a1f5a05",
+        "signalKey": "111111001100",
+        "signalsPresent": [
+          "earnings_revision",
+          "margin_repair",
+          "cash_flow_quality",
+          "valuation_discount",
+          "upside_catalyst",
+          "short_crowding",
+          "event_risk",
+          "drawdown_pressure"
+        ],
+        "label": "increase_long",
+        "ruleId": "R1",
+        "split": "train"
+      },
+      {
+        "id": "m1_73c4e289b8a4c69b",
+        "signalKey": "000111011101",
+        "signalsPresent": [
+          "valuation_discount",
+          "upside_catalyst",
+          "short_crowding",
+          "liquidity_risk",
+          "event_risk",
+          "drawdown_pressure",
+          "risk_budget_tight"
+        ],
+        "label": "short_bias",
+        "ruleId": "R7",
+        "split": "dev"
+      },
+      {
+        "id": "m1_dc5a165500205c0d",
+        "signalKey": "001000000110",
+        "signalsPresent": [
+          "cash_flow_quality",
+          "drawdown_pressure",
+          "regulatory_risk"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "dev"
+      },
+      {
+        "id": "m1_573a144a44d7c569",
+        "signalKey": "001110011001",
+        "signalsPresent": [
+          "cash_flow_quality",
+          "valuation_discount",
+          "upside_catalyst",
+          "liquidity_risk",
+          "event_risk",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": "R4",
+        "split": "dev"
+      },
+      {
+        "id": "m1_dab85658814a50cb",
+        "signalKey": "001110111100",
+        "signalsPresent": [
+          "cash_flow_quality",
+          "valuation_discount",
+          "upside_catalyst",
+          "guidance_cut",
+          "liquidity_risk",
+          "event_risk",
+          "drawdown_pressure"
+        ],
+        "label": "avoid_trade",
+        "ruleId": "R4",
+        "split": "dev"
+      },
+      {
+        "id": "m1_1e42a35d6c5a92d7",
+        "signalKey": "001111111000",
+        "signalsPresent": [
+          "cash_flow_quality",
+          "valuation_discount",
+          "upside_catalyst",
+          "short_crowding",
+          "guidance_cut",
+          "liquidity_risk",
+          "event_risk"
+        ],
+        "label": "avoid_trade",
+        "ruleId": "R4",
+        "split": "dev"
+      },
+      {
+        "id": "m1_c0782c9540b16e75",
+        "signalKey": "010000010010",
+        "signalsPresent": [
+          "margin_repair",
+          "liquidity_risk",
+          "regulatory_risk"
+        ],
+        "label": "short_bias",
+        "ruleId": "R3",
+        "split": "dev"
+      },
+      {
+        "id": "m1_a2378cca9846e2a1",
+        "signalKey": "010100010100",
+        "signalsPresent": [
+          "margin_repair",
+          "valuation_discount",
+          "liquidity_risk",
+          "drawdown_pressure"
+        ],
+        "label": "maintain_long",
+        "ruleId": "R6",
+        "split": "dev"
+      },
+      {
+        "id": "m1_bfb17c68b3c7507c",
+        "signalKey": "010101001110",
+        "signalsPresent": [
+          "margin_repair",
+          "valuation_discount",
+          "short_crowding",
+          "event_risk",
+          "drawdown_pressure",
+          "regulatory_risk"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "dev"
+      },
+      {
+        "id": "m1_59742ffb02ccb055",
+        "signalKey": "011010100011",
+        "signalsPresent": [
+          "margin_repair",
+          "cash_flow_quality",
+          "upside_catalyst",
+          "guidance_cut",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "reduce_exposure",
+        "ruleId": "R5",
+        "split": "dev"
+      },
+      {
+        "id": "m1_a87242a122766499",
+        "signalKey": "011011100101",
+        "signalsPresent": [
+          "margin_repair",
+          "cash_flow_quality",
+          "upside_catalyst",
+          "short_crowding",
+          "guidance_cut",
+          "drawdown_pressure",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "dev"
+      },
+      {
+        "id": "m1_4f1dedd311d191d0",
+        "signalKey": "011111000110",
+        "signalsPresent": [
+          "margin_repair",
+          "cash_flow_quality",
+          "valuation_discount",
+          "upside_catalyst",
+          "short_crowding",
+          "drawdown_pressure",
+          "regulatory_risk"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "dev"
+      },
+      {
+        "id": "m1_e7909fac2014a737",
+        "signalKey": "011111110001",
+        "signalsPresent": [
+          "margin_repair",
+          "cash_flow_quality",
+          "valuation_discount",
+          "upside_catalyst",
+          "short_crowding",
+          "guidance_cut",
+          "liquidity_risk",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": "R8",
+        "split": "dev"
+      },
+      {
+        "id": "m1_816fce95e184377b",
+        "signalKey": "100000011110",
+        "signalsPresent": [
+          "earnings_revision",
+          "liquidity_risk",
+          "event_risk",
+          "drawdown_pressure",
+          "regulatory_risk"
+        ],
+        "label": "short_bias",
+        "ruleId": "R3",
+        "split": "dev"
+      },
+      {
+        "id": "m1_e23dad5dc28d8309",
+        "signalKey": "100000111010",
+        "signalsPresent": [
+          "earnings_revision",
+          "guidance_cut",
+          "liquidity_risk",
+          "event_risk",
+          "regulatory_risk"
+        ],
+        "label": "short_bias",
+        "ruleId": "R3",
+        "split": "dev"
+      },
+      {
+        "id": "m1_2701897141d2902c",
+        "signalKey": "100111001101",
+        "signalsPresent": [
+          "earnings_revision",
+          "valuation_discount",
+          "upside_catalyst",
+          "short_crowding",
+          "event_risk",
+          "drawdown_pressure",
+          "risk_budget_tight"
+        ],
+        "label": "short_bias",
+        "ruleId": "R7",
+        "split": "dev"
+      },
+      {
+        "id": "m1_8f2d4433742c347a",
+        "signalKey": "101000000001",
+        "signalsPresent": [
+          "earnings_revision",
+          "cash_flow_quality",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "dev"
+      },
+      {
+        "id": "m1_be4dca564e6cce48",
+        "signalKey": "101001100111",
+        "signalsPresent": [
+          "earnings_revision",
+          "cash_flow_quality",
+          "short_crowding",
+          "guidance_cut",
+          "drawdown_pressure",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "dev"
+      },
+      {
+        "id": "m1_24e7a6b59ee3ba42",
+        "signalKey": "101111101110",
+        "signalsPresent": [
+          "earnings_revision",
+          "cash_flow_quality",
+          "valuation_discount",
+          "upside_catalyst",
+          "short_crowding",
+          "guidance_cut",
+          "event_risk",
+          "drawdown_pressure",
+          "regulatory_risk"
+        ],
+        "label": "avoid_trade",
+        "ruleId": "R4",
+        "split": "dev"
+      },
+      {
+        "id": "m1_1b80d6116c181be8",
+        "signalKey": "110000110000",
+        "signalsPresent": [
+          "earnings_revision",
+          "margin_repair",
+          "guidance_cut",
+          "liquidity_risk"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "dev"
+      },
+      {
+        "id": "m1_5485c8a80fbb9c48",
+        "signalKey": "111000111000",
+        "signalsPresent": [
+          "earnings_revision",
+          "margin_repair",
+          "cash_flow_quality",
+          "guidance_cut",
+          "liquidity_risk",
+          "event_risk"
+        ],
+        "label": "increase_long",
+        "ruleId": "R1",
+        "split": "dev"
+      },
+      {
+        "id": "m1_9f509d6f1df98360",
+        "signalKey": "000001110111",
+        "signalsPresent": [
+          "short_crowding",
+          "guidance_cut",
+          "liquidity_risk",
+          "drawdown_pressure",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "short_bias",
+        "ruleId": "R3",
+        "split": "test"
+      },
+      {
+        "id": "m1_f5ec5843e72901a7",
+        "signalKey": "000101011101",
+        "signalsPresent": [
+          "valuation_discount",
+          "short_crowding",
+          "liquidity_risk",
+          "event_risk",
+          "drawdown_pressure",
+          "risk_budget_tight"
+        ],
+        "label": "short_bias",
+        "ruleId": "R7",
+        "split": "test"
+      },
+      {
+        "id": "m1_380e3e5844c2f6f9",
+        "signalKey": "000111010111",
+        "signalsPresent": [
+          "valuation_discount",
+          "upside_catalyst",
+          "short_crowding",
+          "liquidity_risk",
+          "drawdown_pressure",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "short_bias",
+        "ruleId": "R3",
+        "split": "test"
+      },
+      {
+        "id": "m1_802f9dba6cdc18b4",
+        "signalKey": "001001100001",
+        "signalsPresent": [
+          "cash_flow_quality",
+          "short_crowding",
+          "guidance_cut",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "test"
+      },
+      {
+        "id": "m1_e849d23cad7ebbe9",
+        "signalKey": "001010001000",
+        "signalsPresent": [
+          "cash_flow_quality",
+          "upside_catalyst",
+          "event_risk"
+        ],
+        "label": "avoid_trade",
+        "ruleId": "R4",
+        "split": "test"
+      },
+      {
+        "id": "m1_31696e3f0e0c8f31",
+        "signalKey": "001011100000",
+        "signalsPresent": [
+          "cash_flow_quality",
+          "upside_catalyst",
+          "short_crowding",
+          "guidance_cut"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "test"
+      },
+      {
+        "id": "m1_c752d82d26a70239",
+        "signalKey": "001101011110",
+        "signalsPresent": [
+          "cash_flow_quality",
+          "valuation_discount",
+          "short_crowding",
+          "liquidity_risk",
+          "event_risk",
+          "drawdown_pressure",
+          "regulatory_risk"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "test"
+      },
+      {
+        "id": "m1_c98bb1ebeb3e2444",
+        "signalKey": "010110000011",
+        "signalsPresent": [
+          "margin_repair",
+          "valuation_discount",
+          "upside_catalyst",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "test"
+      },
+      {
+        "id": "m1_7cbe626a717dde44",
+        "signalKey": "010111011100",
+        "signalsPresent": [
+          "margin_repair",
+          "valuation_discount",
+          "upside_catalyst",
+          "short_crowding",
+          "liquidity_risk",
+          "event_risk",
+          "drawdown_pressure"
+        ],
+        "label": "maintain_long",
+        "ruleId": "R6",
+        "split": "test"
+      },
+      {
+        "id": "m1_70abf100de0072f7",
+        "signalKey": "010111110011",
+        "signalsPresent": [
+          "margin_repair",
+          "valuation_discount",
+          "upside_catalyst",
+          "short_crowding",
+          "guidance_cut",
+          "liquidity_risk",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "short_bias",
+        "ruleId": "R3",
+        "split": "test"
+      },
+      {
+        "id": "m1_6429cf977843e157",
+        "signalKey": "011000010010",
+        "signalsPresent": [
+          "margin_repair",
+          "cash_flow_quality",
+          "liquidity_risk",
+          "regulatory_risk"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "test"
+      },
+      {
+        "id": "m1_99a4b6526d30fc3c",
+        "signalKey": "011010001001",
+        "signalsPresent": [
+          "margin_repair",
+          "cash_flow_quality",
+          "upside_catalyst",
+          "event_risk",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": "R4",
+        "split": "test"
+      },
+      {
+        "id": "m1_400d2426e69be5fb",
+        "signalKey": "100000010001",
+        "signalsPresent": [
+          "earnings_revision",
+          "liquidity_risk",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "test"
+      },
+      {
+        "id": "m1_3208e7c973f421db",
+        "signalKey": "100111001100",
+        "signalsPresent": [
+          "earnings_revision",
+          "valuation_discount",
+          "upside_catalyst",
+          "short_crowding",
+          "event_risk",
+          "drawdown_pressure"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "test"
+      },
+      {
+        "id": "m1_ee91166bce2252fb",
+        "signalKey": "101001110010",
+        "signalsPresent": [
+          "earnings_revision",
+          "cash_flow_quality",
+          "short_crowding",
+          "guidance_cut",
+          "liquidity_risk",
+          "regulatory_risk"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "test"
+      },
+      {
+        "id": "m1_6ca39f0634dce449",
+        "signalKey": "101111011001",
+        "signalsPresent": [
+          "earnings_revision",
+          "cash_flow_quality",
+          "valuation_discount",
+          "upside_catalyst",
+          "short_crowding",
+          "liquidity_risk",
+          "event_risk",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": "R4",
+        "split": "test"
+      },
+      {
+        "id": "m1_561fa607c0f5cf48",
+        "signalKey": "110001011011",
+        "signalsPresent": [
+          "earnings_revision",
+          "margin_repair",
+          "short_crowding",
+          "liquidity_risk",
+          "event_risk",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "short_bias",
+        "ruleId": "R3",
+        "split": "test"
+      },
+      {
+        "id": "m1_bc4acab1c13613bd",
+        "signalKey": "111000000111",
+        "signalsPresent": [
+          "earnings_revision",
+          "margin_repair",
+          "cash_flow_quality",
+          "drawdown_pressure",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": null,
+        "split": "test"
+      },
+      {
+        "id": "m1_0a88a71b7338b4f7",
+        "signalKey": "111110110000",
+        "signalsPresent": [
+          "earnings_revision",
+          "margin_repair",
+          "cash_flow_quality",
+          "valuation_discount",
+          "upside_catalyst",
+          "guidance_cut",
+          "liquidity_risk"
+        ],
+        "label": "increase_long",
+        "ruleId": "R1",
+        "split": "test"
+      },
+      {
+        "id": "m1_9ee1cdec59ce3c69",
+        "signalKey": "111111110111",
+        "signalsPresent": [
+          "earnings_revision",
+          "margin_repair",
+          "cash_flow_quality",
+          "valuation_discount",
+          "upside_catalyst",
+          "short_crowding",
+          "guidance_cut",
+          "liquidity_risk",
+          "drawdown_pressure",
+          "regulatory_risk",
+          "risk_budget_tight"
+        ],
+        "label": "avoid_trade",
+        "ruleId": "R8",
+        "split": "test"
+      }
+    ],
+    "hashes": {
+      "rules": "f00c90f16b687c47b4a43e4e40ca0f76d9bc4af6622e3e7e131a39eaa1989cff",
+      "visible": "5da8ccc5c7f43bad3928bed43b31e54cbfe9a7b198ffa3f779998537a4d1072f",
+      "labels": "459786868ed646bc3b6c1dc97e01d72b2ffef28a0fe338a0de86a8953c3f5f1b",
+      "partitions": "819882b6147afe7f64268c4e2cbf072a99af14134acfb69581a63b3008cd36b4"
+    }
+  },
+  "nextCommand": "ALAYA_M1_AUTHORIZE_LIVE=1 npm run m1:run -- --authorize-live"
+}

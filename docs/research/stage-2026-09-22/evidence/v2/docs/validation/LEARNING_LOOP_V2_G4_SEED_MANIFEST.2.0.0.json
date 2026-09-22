@@ -1,0 +1,249 @@
+{
+  "status": "REVIEW_READY",
+  "version": "2.0.0",
+  "gate": "G4",
+  "claim": "seed freeze candidate only; thresholds unsigned; not G4 PASS",
+  "source": "alaya-v2-g4-pre-implementation-20260918",
+  "generated_before_implementation": true,
+  "pass_thresholds": null,
+  "worlds": {
+    "additive": [
+      {
+        "seedId": "additive_00",
+        "digest": "sha256:afd0d78fb2a0b65651862b48c96fe3528f1e8dc1d739d65e8b3c8815b51a52ed"
+      },
+      {
+        "seedId": "additive_01",
+        "digest": "sha256:12ae9ea7bb283047cbaeddd2b26e7ab6798f6fff4046fb89640b8e54b0264fa1"
+      },
+      {
+        "seedId": "additive_02",
+        "digest": "sha256:b9dfb154509e2bd8ea2db340a4ecfff80f10f845a3315638671bf3c8a08517d0"
+      },
+      {
+        "seedId": "additive_03",
+        "digest": "sha256:6a83a43d698912c805f86312a0eb1494cca90261711bcb0c9e4b1f44f895209b"
+      },
+      {
+        "seedId": "additive_04",
+        "digest": "sha256:5fdbfb3d9e753e465f3b06e392e826187f6717346d41a58daea54dfe43f9b5e3"
+      },
+      {
+        "seedId": "additive_05",
+        "digest": "sha256:fcbe451c4ecc98a61f36af27fbdab9a948a68bf16f07d8f4c5fb38e6a8f76eda"
+      },
+      {
+        "seedId": "additive_06",
+        "digest": "sha256:201fbc2937936c87df6284a8e7b995a78569b003287b7bcff1b440bce5e765ad"
+      },
+      {
+        "seedId": "additive_07",
+        "digest": "sha256:52a693036a4f2ce7b7194aac64c17a74da4502b39a2bb2c505d8655f0fb1c467"
+      }
+    ],
+    "synergy": [
+      {
+        "seedId": "synergy_00",
+        "digest": "sha256:ab6df74635ee48ea516c602879e86640e8f755014cfdeb6d89e57c34eca36793"
+      },
+      {
+        "seedId": "synergy_01",
+        "digest": "sha256:053531113268767066375e14d81185168edaa495a52f918a300f0f87a3296ad9"
+      },
+      {
+        "seedId": "synergy_02",
+        "digest": "sha256:e87659083860116c5685d10055605e4515e263958948f60de6fb38cb947e0457"
+      },
+      {
+        "seedId": "synergy_03",
+        "digest": "sha256:57a6a278428c60e68725d66181043d16da152ce0969896f3470fd5efe2db90d2"
+      },
+      {
+        "seedId": "synergy_04",
+        "digest": "sha256:4195453d88c198b95fcc6c9590a5ae5469f8a01239f52b6589be423bfa0aec52"
+      },
+      {
+        "seedId": "synergy_05",
+        "digest": "sha256:eab82b1182c56c6840639b2acea394d0e5e640873a47f90759a9b330e6551bd4"
+      },
+      {
+        "seedId": "synergy_06",
+        "digest": "sha256:d9d6d91e33539fae1a73e32589cf602247f63c0ad7a5d275a71b60d318b56fab"
+      },
+      {
+        "seedId": "synergy_07",
+        "digest": "sha256:5b99afc7b9cb19a1f87fbc5e33993c7ba8b39b78cde3f1db86adbd3c31083123"
+      }
+    ],
+    "antagonism": [
+      {
+        "seedId": "antagonism_00",
+        "digest": "sha256:9b1dd877e5191c419bacf8fe49434949d68ff8f452ef3d0d87ce311da95682d8"
+      },
+      {
+        "seedId": "antagonism_01",
+        "digest": "sha256:8e8c7a0a4d12aadf501b83c5114c14bd76ad3f1613b9596e3eac6d28e0ca37e4"
+      },
+      {
+        "seedId": "antagonism_02",
+        "digest": "sha256:1235fece5ce6446d03f9a8574ead5dc0305ce74987531928ad3dd773c6ca9e3e"
+      },
+      {
+        "seedId": "antagonism_03",
+        "digest": "sha256:67740668f86266c89eca51a34ade8f06062e868012cf563ae96cafaf4f6fe167"
+      },
+      {
+        "seedId": "antagonism_04",
+        "digest": "sha256:1dc9604e87eec06169e14553772557e76c770b53fd943f7369677bd2ef442dda"
+      },
+      {
+        "seedId": "antagonism_05",
+        "digest": "sha256:55e4567220dd20b73dfb3653579eba62bcb9f14ec2db2e6f8932c0a5df7154d9"
+      },
+      {
+        "seedId": "antagonism_06",
+        "digest": "sha256:c1be62f178f450741c5cdfd322da6c5f2cde416595f1b84b8994502e86ac6445"
+      },
+      {
+        "seedId": "antagonism_07",
+        "digest": "sha256:6b3f816eb5ed3ef294c57ed714f6fe73ce5d020696d3f87f73dbf06c93958e5d"
+      }
+    ],
+    "redundancy": [
+      {
+        "seedId": "redundancy_00",
+        "digest": "sha256:47f7e61a9827bb152042899d9cbde48ef639da44f5ec1da8150242de07b4bfcb"
+      },
+      {
+        "seedId": "redundancy_01",
+        "digest": "sha256:121f3eb219712cdc7178d8e584e68ad7ddbe1114f2ace699a498f87fe7f8a40e"
+      },
+      {
+        "seedId": "redundancy_02",
+        "digest": "sha256:c5295e738bc5c971cf1ea62ea368ad3e2f502fe2e2dc7496b4cc6a9ba99a1b56"
+      },
+      {
+        "seedId": "redundancy_03",
+        "digest": "sha256:46069a9da6baf24d4d296e44b640a0316c60f0d16785c1381b0e8a127b724b31"
+      },
+      {
+        "seedId": "redundancy_04",
+        "digest": "sha256:d7d31789e2c77f47e99dc230777ac6120bc3ee70520e83ee7362a9b8c282e5cd"
+      },
+      {
+        "seedId": "redundancy_05",
+        "digest": "sha256:ec0509911af5b123e5ace56ec6c39fd3489abc6f2b70bb0d7c7cf6c0925e8a2d"
+      },
+      {
+        "seedId": "redundancy_06",
+        "digest": "sha256:7a582b2133e1352021d1b133f976fc304630f8b5f99a7da6828e8434abcd377b"
+      },
+      {
+        "seedId": "redundancy_07",
+        "digest": "sha256:5b8d7f9f1e9de8e0180510c3f9829bba5db3349eb0bfed029197abff25f7faa8"
+      }
+    ],
+    "order": [
+      {
+        "seedId": "order_00",
+        "digest": "sha256:04dfed5c08417228883d734ba77bfb3048b7f942bb6fdceb6e13e959dfd86e9f"
+      },
+      {
+        "seedId": "order_01",
+        "digest": "sha256:23f73582c84ab27da703278055eddc2323a98e9796084efa7c5d34937a753030"
+      },
+      {
+        "seedId": "order_02",
+        "digest": "sha256:d36a633130786cd6ef7e74d2ec2783643c6ffdbd8f790d8b5f60cb8f48b4675b"
+      },
+      {
+        "seedId": "order_03",
+        "digest": "sha256:3d32f92fafaef4a6aed4697a432dd9cce77779ba15d009b1d468c2b7a4e11a7d"
+      },
+      {
+        "seedId": "order_04",
+        "digest": "sha256:e92ae75e4dd938cd2759f442dddc6f5cf56fc96fb429253f252efdcc8804ea85"
+      },
+      {
+        "seedId": "order_05",
+        "digest": "sha256:02e5f7bd7954f1c643a81624516e581e739c356879a2d98a62ac02b3e2d2d12d"
+      },
+      {
+        "seedId": "order_06",
+        "digest": "sha256:6157eca82665314cae06d5821986a4a2473998e90f11d80b82410f6b6715f567"
+      },
+      {
+        "seedId": "order_07",
+        "digest": "sha256:9f6db2ec65e46977738d532c7fca7e80f3651b64a887c908d5ea686d4d962805"
+      }
+    ],
+    "no-support": [
+      {
+        "seedId": "no-support_00",
+        "digest": "sha256:91159e85f8f2de231d40c0aabe940a3504184054f8cb967d88b47ce8e15c2a41"
+      },
+      {
+        "seedId": "no-support_01",
+        "digest": "sha256:68dbe36d3d98f8e8efd0d53162ebaddf92964623502d5fff6a062362a8e126f2"
+      },
+      {
+        "seedId": "no-support_02",
+        "digest": "sha256:1d33c88622f91369fdf7fb0e20c812307f52781c2309eab0ae9e18dd1db3a615"
+      },
+      {
+        "seedId": "no-support_03",
+        "digest": "sha256:1eb5e2b60bbed58cba3c48fc54fea99c184d3920dcf2eca37c57be9a3a43219a"
+      },
+      {
+        "seedId": "no-support_04",
+        "digest": "sha256:3af1c9778f5bdd8ec02ec77a8dd7365c2a6dc709fa923b3e4cfa16aed0dda640"
+      },
+      {
+        "seedId": "no-support_05",
+        "digest": "sha256:6000cee0b9f62d45b9d121457e7d94e0da6447f422646d23ae874233cba712f3"
+      },
+      {
+        "seedId": "no-support_06",
+        "digest": "sha256:1c4aaa081e35fed0ad7f92512b2c93d4f65e23be58aae873eb576ce625ecf921"
+      },
+      {
+        "seedId": "no-support_07",
+        "digest": "sha256:43a2ae494979fe83ae2bace13bf0b5055e86b105721f1c57cf5b9d5206482917"
+      }
+    ],
+    "nonstationarity": [
+      {
+        "seedId": "nonstationarity_00",
+        "digest": "sha256:4b805535d018ab75646e7b486a80ad0938f74e2726bd9710774c4f103df8c50a"
+      },
+      {
+        "seedId": "nonstationarity_01",
+        "digest": "sha256:2eb6746084a8e199bcf560198233c2a8e484b94af965de3f4c469ac8351799af"
+      },
+      {
+        "seedId": "nonstationarity_02",
+        "digest": "sha256:c60b27e836b777356798ff0b95e552b7b30e5b6b3b58631cdfcaa0f7ce64fdae"
+      },
+      {
+        "seedId": "nonstationarity_03",
+        "digest": "sha256:943442c1d4d595fd6efbfd7b35b73ba23766bc4c670a7dc6b5d09b2e1219e2b3"
+      },
+      {
+        "seedId": "nonstationarity_04",
+        "digest": "sha256:eb70e05c7765994614ae6d04197dfa88ce5fe7c27d051e37e8bca49831cb7622"
+      },
+      {
+        "seedId": "nonstationarity_05",
+        "digest": "sha256:06a58678adcde9ba35bf3189b3a1b55868d2507e76cf0166b152f597c85e9614"
+      },
+      {
+        "seedId": "nonstationarity_06",
+        "digest": "sha256:028d8235ee761b714fc62165dfcdb0c53877bc88eb76c201d7109da4c099681d"
+      },
+      {
+        "seedId": "nonstationarity_07",
+        "digest": "sha256:ef08b16727b3d8e2dc24b7fffe8498cb4f6bf9be25209433e03e974b24ce94f1"
+      }
+    ]
+  }
+}

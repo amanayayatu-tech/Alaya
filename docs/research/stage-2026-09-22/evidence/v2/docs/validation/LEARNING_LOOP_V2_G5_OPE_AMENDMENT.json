@@ -1,0 +1,60 @@
+{
+  "status": "REVIEW_READY",
+  "version": "2.1.0",
+  "gate": "G5",
+  "kind": "replay_and_statistical_ope",
+  "claim_ceiling": "local checks",
+  "supersedes": "2.0.0",
+  "reason": "2.0.0 saw ESS=18, IPS world-coverage=6/7, DR bias=0. Those numbers are unblinded and cannot be 2.1.0 cutoffs.",
+  "generated_before_seeds": true,
+  "unblinded_implementation_already_existed": true,
+  "not": [
+    "post-hoc ESS/coverage/bias cutoffs chosen after seeing 18/6/7/0",
+    "cognitive enhancement",
+    "independent Reviewer PASS",
+    "G7 / E0 / provider"
+  ],
+  "authorization": {
+    "source": "user",
+    "date": "2026-09-18",
+    "scope": "open experiment version 2.1.0; freeze statistical OPE thresholds before new seeds"
+  },
+  "replay": {
+    "production_reference_byte_equal": true,
+    "timestamp_shuffle_must_fail": true
+  },
+  "logging_policy": {
+    "kind": "b0-uniform",
+    "n_actions": 3,
+    "probability": 0.3333333333333333
+  },
+  "confirmatory_target": {
+    "kind": "inject-one-item",
+    "itemId": "item_a"
+  },
+  "statistical_ope_thresholds": {
+    "derivation": "Uniform logging over 3 B0 actions gives IPS weights in {0, 3}. Kish ESS equals the number of logged target matches, so E[ESS]=n/3. essMin is half of that expectation. maxWeight must equal 1/p=3. DR is exact because Q is the simulator. Coverage is one overall Wald 95% interval against online truth, not 7-world hit rate. SWITCH tau=10 is a conventional weight cap; with maxWeight=3 SWITCH equals IPS.",
+    "n_expected": 224,
+    "essMin": 37,
+    "maxWeight": 3,
+    "clipping": "none",
+    "drAbsBiasMax": 1e-09,
+    "overallWaldMustCoverOnlineTruth": [
+      "IPS",
+      "SNIPS",
+      "DR"
+    ],
+    "switchTau": 10,
+    "unsupportedMassMaxForInSupportTarget": 0,
+    "missingMax": 0,
+    "invalidMax": 0,
+    "world_coverage_is_diagnostic_only": true
+  },
+  "ope": {
+    "no_support": "OPE_NOT_IDENTIFIED",
+    "missing_or_invalid": "FAIL",
+    "in_support_below_threshold": "FAIL",
+    "in_support_meets_threshold": "REVIEW_READY",
+    "independent_reviewer_pass": false
+  }
+}

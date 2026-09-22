@@ -1,0 +1,59 @@
+{
+  "diagnosticOnly": true,
+  "handwritten": {
+    "version": "preflight",
+    "items": [
+      {
+        "id": "exp_k_revision",
+        "condition": "earnings_revision is present and guidance_cut is absent",
+        "judgment": "increase_long",
+        "exception": "if guidance_cut is present, do not increase_long",
+        "sourceTrainIds": [
+          "fix_a1"
+        ],
+        "status": "experimental_only"
+      }
+    ],
+    "rendered": "[exp_k_revision] status=experimental_only\nWHEN earnings_revision is present and guidance_cut is absent\nTHEN increase_long\nEXCEPT if guidance_cut is present, do not increase_long\nSOURCES fix_a1",
+    "hash": "605909d89eca1966ba044898b427a475855510f564535f6c0af9af58076a5ca5"
+  },
+  "distilled": {
+    "version": "preflight",
+    "items": [
+      {
+        "id": "exp_earnings_revision_up_long",
+        "condition": "Street earnings estimates are revised upward following a new operating update.",
+        "judgment": "Increase long exposure on the revision, treating upward estimate revisions as a constructive catalyst.",
+        "exception": "If a concurrent negative signal such as a guidance cut is also present, the guidance signal takes precedence and the long thesis is not initiated.",
+        "sourceTrainIds": [
+          "fix_t1",
+          "fix_t2"
+        ],
+        "status": "experimental_only"
+      },
+      {
+        "id": "exp_short_crowding_amplifies_revision",
+        "condition": "A positive earnings revision coincides with crowded short interest.",
+        "judgment": "The crowded short positioning amplifies the constructive impact of the upward revision, reinforcing the decision to increase long exposure.",
+        "exception": "The amplification only applies when the underlying revision is positive; crowding does not rescue a negative fundamental signal.",
+        "sourceTrainIds": [
+          "fix_t2"
+        ],
+        "status": "experimental_only"
+      },
+      {
+        "id": "exp_guidance_cut_avoids_trade",
+        "condition": "Management cuts forward guidance and narrows the delivery range.",
+        "judgment": "Avoid initiating a trade; the guidance cut is treated as a dominant negative fundamental that overrides other signals.",
+        "exception": "Even when short interest is crowded, the guidance cut still forces avoidance because crowding cannot offset a deteriorated fundamental outlook.",
+        "sourceTrainIds": [
+          "fix_t3",
+          "fix_t4"
+        ],
+        "status": "experimental_only"
+      }
+    ],
+    "rendered": "[exp_earnings_revision_up_long] status=experimental_only\nWHEN Street earnings estimates are revised upward following a new operating update.\nTHEN Increase long exposure on the revision, treating upward estimate revisions as a constructive catalyst.\nEXCEPT If a concurrent negative signal such as a guidance cut is also present, the guidance signal takes precedence and the long thesis is not initiated.\nSOURCES fix_t1,fix_t2\n\n[exp_short_crowding_amplifies_revision] status=experimental_only\nWHEN A positive earnings revision coincides with crowded short interest.\nTHEN The crowded short positioning amplifies the constructive impact of the upward revision, reinforcing the decision to increase long exposure.\nEXCEPT The amplification only applies when the underlying revision is positive; crowding does not rescue a negative fundamental signal.\nSOURCES fix_t2\n\n[exp_guidance_cut_avoids_trade] status=experimental_only\nWHEN Management cuts forward guidance and narrows the delivery range.\nTHEN Avoid initiating a trade; the guidance cut is treated as a dominant negative fundamental that overrides other signals.\nEXCEPT Even when short interest is crowded, the guidance cut still forces avoidance because crowding cannot offset a deteriorated fundamental outlook.\nSOURCES fix_t3,fix_t4",
+    "hash": "7dc8ed96da1439533b232aece23b1c4f5aa30a4548d74b2394d93478e7873132"
+  }
+}

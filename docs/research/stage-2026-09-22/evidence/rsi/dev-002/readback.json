@@ -1,0 +1,115 @@
+{
+  "evidence": "DEVELOPMENT",
+  "checkedAt": "2026-09-22T09:19:05.991Z",
+  "checks": "source/data hashes; HTTP count/allocation and no mock fixture; training-only prompt content; dev-only selection; six container replays; identical summary recomputation",
+  "replay": [
+    {
+      "trial": "p1-D-combined-r2-independent",
+      "valid": true,
+      "mean": 126.2109375,
+      "instances": 384,
+      "binsHash": "0197d4c2c890f610ec7491abb40711a4a80dcbb5780e23acec33bbc43bf29c95"
+    },
+    {
+      "trial": "p1-D-combined-r1-independent",
+      "valid": true,
+      "mean": 126.08854166666667,
+      "instances": 384,
+      "binsHash": "fcaa9b19d640c43984d6ca08e2adc52312a90238bf87457d2e4e214f195f594c"
+    },
+    {
+      "trial": "p1-D-combined-r2-v0",
+      "valid": true,
+      "mean": 126.2109375,
+      "instances": 384,
+      "binsHash": "0197d4c2c890f610ec7491abb40711a4a80dcbb5780e23acec33bbc43bf29c95"
+    },
+    {
+      "trial": "p1-D-combined-r0-independent",
+      "valid": true,
+      "mean": 125.95833333333333,
+      "instances": 384,
+      "binsHash": "3c17ab12b4e21e86b5deafe8ee8dee584109a7a0066404f6656bcf92be8b5204"
+    },
+    {
+      "trial": "p1-D-combined-r0-v0",
+      "valid": true,
+      "mean": 125.95833333333333,
+      "instances": 384,
+      "binsHash": "3c17ab12b4e21e86b5deafe8ee8dee584109a7a0066404f6656bcf92be8b5204"
+    },
+    {
+      "trial": "p1-D-combined-r1-v0",
+      "valid": true,
+      "mean": 126.078125,
+      "instances": 384,
+      "binsHash": "52c6388f69c2227b5071d057cb2979df67395b8b16c4cefbf2f8990e093ecb16"
+    }
+  ],
+  "details": [
+    {
+      "arm": "independent",
+      "attempts": 60,
+      "legalCandidates": 48,
+      "transportErrors": 3,
+      "algorithmInvalid": 9,
+      "trainingBetterThanBestFit": 0,
+      "schemaValidResponses": 57,
+      "inputTokens": 42715,
+      "outputTokens": 13778
+    },
+    {
+      "arm": "v0",
+      "attempts": 60,
+      "legalCandidates": 60,
+      "transportErrors": 0,
+      "algorithmInvalid": 0,
+      "trainingBetterThanBestFit": 2,
+      "schemaValidResponses": 60,
+      "inputTokens": 107159,
+      "outputTokens": 28034
+    }
+  ],
+  "costRows": [
+    {
+      "name": "preflight-20260922",
+      "requests": 2,
+      "responses": 2,
+      "knownPaygEquivalentUsd": 0.0007815599999999999,
+      "unknownUsageRequests": 0
+    },
+    {
+      "name": "dev-001/preflight",
+      "requests": 2,
+      "responses": 2,
+      "knownPaygEquivalentUsd": 0.00102066,
+      "unknownUsageRequests": 0
+    },
+    {
+      "name": "dev-001",
+      "requests": 108,
+      "responses": 107,
+      "knownPaygEquivalentUsd": 0.0655638,
+      "unknownUsageRequests": 1
+    },
+    {
+      "name": "dev-002/preflight",
+      "requests": 2,
+      "responses": 2,
+      "knownPaygEquivalentUsd": 0.00095334,
+      "unknownUsageRequests": 0
+    },
+    {
+      "name": "dev-002",
+      "requests": 120,
+      "responses": 117,
+      "knownPaygEquivalentUsd": 0.08179092000000003,
+      "unknownUsageRequests": 3
+    }
+  ],
+  "totalRequests": 234,
+  "knownPaygEquivalentUsd": 0.15011028000000004,
+  "unknownUsageRequests": 4,
+  "conservativeAllocationForUnknownUsd": 0.024,
+  "summaryHash": "ec71920135da389abd11c4979a1f4486c3ab3ff30c386c6d1ed93df00803531d"
+}

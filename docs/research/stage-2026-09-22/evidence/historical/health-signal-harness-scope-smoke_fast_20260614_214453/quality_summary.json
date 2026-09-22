@@ -1,0 +1,2068 @@
+{
+  "generatedAt": "2026-06-14T14:08:22.506Z",
+  "expectedDecision": "hybrid_layered",
+  "decisionTsr": {
+    "status": "pass",
+    "passed": true,
+    "interpretation": "single-scenario pass@1 check: verifies that the final active/strong card state matches the preset Health Signal oracle; it is not an independent reasoning benchmark",
+    "passK": {
+      "implemented": false,
+      "plannedVersion": "v2"
+    },
+    "expectedDecision": "hybrid_layered",
+    "eligibleKnowledgeCount": 8,
+    "hybridLayeredCount": 2,
+    "disallowedFinalCount": 0,
+    "decisions": {
+      "hybrid_layered": 2,
+      "unknown": 6
+    },
+    "disallowedFinalKnowledge": [],
+    "hybridLayeredKnowledge": [
+      {
+        "knowledgeId": "kb_seed_world_6bfd",
+        "title": "初始世界模型",
+        "oracleSide": "hybrid_support",
+        "decision": "hybrid_layered",
+        "status": "strong"
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_du6bfd_health_signal_contradiction_runner_sample_0004_ecg_risk",
+        "title": "外部反馈: ECG 反证：功耗/交互/成本压力",
+        "oracleSide": "ecg_risk",
+        "decision": "hybrid_layered",
+        "status": "strong"
+      }
+    ]
+  },
+  "resolutionAccuracy": {
+    "status": "pass",
+    "passed": true,
+    "threshold": 0.9,
+    "accuracy": 1,
+    "correct": 5,
+    "scored": 5,
+    "unscored": 2,
+    "totalReviewed": 7,
+    "scoreableCoverage": 0.714286,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": true,
+    "dedupeMode": "exact",
+    "pairTypeCounts": {
+      "ecg_risk|ecg_risk": 1,
+      "ecg_risk|ecg_support": 1,
+      "ecg_risk|hybrid_reject": 1,
+      "ecg_risk|ppg_risk": 1,
+      "ecg_risk|ppg_support": 1,
+      "ecg_support|ppg_risk": 1,
+      "ecg_support|ppg_support": 1
+    },
+    "scoredPairTypeCounts": {
+      "ecg_risk|ecg_risk": 1,
+      "ecg_risk|ecg_support": 1,
+      "ecg_risk|hybrid_reject": 1,
+      "ecg_risk|ppg_support": 1,
+      "ecg_support|ppg_risk": 1
+    },
+    "unscoredPairTypeCounts": {
+      "ecg_risk|ppg_risk": 1,
+      "ecg_support|ppg_support": 1
+    },
+    "unscoredReasonCounts": {
+      "ambiguous_same_layer_t2_risk_pair": 1,
+      "ambiguous_same_layer_t3_support_pair": 1
+    },
+    "duplicatePairTypeCounts": {
+      "ecg_risk|ecg_risk": 1
+    },
+    "scoredEvents": [
+      {
+        "reviewId": "kr_b62ce3dc",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_du6bfd_health_signal_contradiction_runner_sample_0002_ecg_support",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_du6bfd_health_signal_contradiction_runner_sample_0003_ppg_risk",
+        "action": "quarantine",
+        "oracleSide": "ecg_support",
+        "relatedOracleSide": "ppg_risk",
+        "primaryOracleSide": "ecg_support",
+        "resolutionPairType": "ecg_support|ppg_risk",
+        "resolutionUnorderedPairType": "ecg_support|ppg_risk",
+        "primaryResolutionTier": "T3_single_sensor_support",
+        "relatedResolutionTier": "T2_single_sensor_risk",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "superseded_or_quarantined_when_conflicted",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": "ppg_risk_beats_ecg_support",
+        "scoreableResolutionRationale": "T2 风险证据证伪单传感器优先主张，并推动系统走向 hybrid_layered，因此应胜过 T3 单传感器 support。",
+        "resolutionUnscoredReason": null,
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": true,
+        "resolutionExpectedWinnerSide": "ppg_risk",
+        "resolutionActualWinnerSide": "ppg_risk",
+        "resolutionCorrect": true
+      },
+      {
+        "reviewId": "kr_54ad3b1e",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_du6bfd_health_signal_contradiction_runner_sample_0006_hybrid_reject",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_du6bfd_health_signal_contradiction_runner_sample_0004_ecg_risk",
+        "action": "quarantine",
+        "oracleSide": "hybrid_reject",
+        "relatedOracleSide": "ecg_risk",
+        "primaryOracleSide": "hybrid_reject",
+        "resolutionPairType": "hybrid_reject|ecg_risk",
+        "resolutionUnorderedPairType": "ecg_risk|hybrid_reject",
+        "primaryResolutionTier": "T4_hybrid_reject",
+        "relatedResolutionTier": "T2_single_sensor_risk",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "quarantined_or_deprecated",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": "ecg_risk_beats_hybrid_reject",
+        "scoreableResolutionRationale": "T2 风险证据仍支持分层必要性，而 T4 hybrid_reject 反对分层；按 hybrid_layered 正解，T2 应胜过 T4。",
+        "resolutionUnscoredReason": null,
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": true,
+        "resolutionExpectedWinnerSide": "ecg_risk",
+        "resolutionActualWinnerSide": "ecg_risk",
+        "resolutionCorrect": true
+      },
+      {
+        "reviewId": "kr_e37bd3c4",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_du6bfd_health_signal_contradiction_runner_sample_0007_ppg_support",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_du6bfd_health_signal_contradiction_runner_sample_0004_ecg_risk",
+        "action": "quarantine",
+        "oracleSide": "ppg_support",
+        "relatedOracleSide": "ecg_risk",
+        "primaryOracleSide": "ppg_support",
+        "resolutionPairType": "ppg_support|ecg_risk",
+        "resolutionUnorderedPairType": "ecg_risk|ppg_support",
+        "primaryResolutionTier": "T3_single_sensor_support",
+        "relatedResolutionTier": "T2_single_sensor_risk",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "superseded_or_quarantined_when_conflicted",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": "ecg_risk_beats_ppg_support",
+        "scoreableResolutionRationale": "T2 风险证据证伪单传感器优先主张，并推动系统走向 hybrid_layered，因此应胜过 T3 单传感器 support。",
+        "resolutionUnscoredReason": null,
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": true,
+        "resolutionExpectedWinnerSide": "ecg_risk",
+        "resolutionActualWinnerSide": "ecg_risk",
+        "resolutionCorrect": true
+      },
+      {
+        "reviewId": "kr_baad208b",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_du6bfd_health_signal_contradiction_runner_sample_0008_ecg_support",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_du6bfd_health_signal_contradiction_runner_sample_0004_ecg_risk",
+        "action": "quarantine",
+        "oracleSide": "ecg_support",
+        "relatedOracleSide": "ecg_risk",
+        "primaryOracleSide": "ecg_support",
+        "resolutionPairType": "ecg_support|ecg_risk",
+        "resolutionUnorderedPairType": "ecg_risk|ecg_support",
+        "primaryResolutionTier": "T3_single_sensor_support",
+        "relatedResolutionTier": "T2_single_sensor_risk",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "superseded_or_quarantined_when_conflicted",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": "ecg_risk_beats_ecg_support",
+        "scoreableResolutionRationale": "T2 风险证据证伪单传感器优先主张，并推动系统走向 hybrid_layered，因此应胜过 T3 单传感器 support。",
+        "resolutionUnscoredReason": null,
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": true,
+        "resolutionExpectedWinnerSide": "ecg_risk",
+        "resolutionActualWinnerSide": "ecg_risk",
+        "resolutionCorrect": true
+      },
+      {
+        "reviewId": "kr_c66cc2e6",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_du6bfd_health_signal_contradiction_runner_sample_0010_ecg_risk",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_du6bfd_health_signal_contradiction_runner_sample_0004_ecg_risk",
+        "action": "merge_supersede",
+        "oracleSide": "ecg_risk",
+        "relatedOracleSide": "ecg_risk",
+        "primaryOracleSide": "ecg_risk",
+        "resolutionPairType": "ecg_risk|ecg_risk",
+        "resolutionUnorderedPairType": "ecg_risk|ecg_risk",
+        "primaryResolutionTier": "T2_single_sensor_risk",
+        "relatedResolutionTier": "T2_single_sensor_risk",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "retained_over_ecg_support",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": "duplicate_ecg_risk_merge_supersede",
+        "scoreableResolutionRationale": "同侧 pair 是重复项而非真实业务冲突；期望通过 merge_supersede 去重，quarantine 同侧项会丢失有效证据。",
+        "resolutionUnscoredReason": null,
+        "resolutionDuplicatePair": true,
+        "resolutionExpectedAction": "merge_supersede",
+        "resolutionScoreable": true,
+        "resolutionExpectedWinnerSide": "ecg_risk",
+        "resolutionActualWinnerSide": "ecg_risk",
+        "resolutionCorrect": true
+      }
+    ],
+    "unscoredExamples": [
+      {
+        "reviewId": "kr_97e5705a",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_du6bfd_health_signal_contradiction_runner_sample_0001_ppg_support",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_du6bfd_health_signal_contradiction_runner_sample_0002_ecg_support",
+        "action": "quarantine",
+        "oracleSide": "ppg_support",
+        "relatedOracleSide": "ecg_support",
+        "primaryOracleSide": "ppg_support",
+        "resolutionPairType": "ppg_support|ecg_support",
+        "resolutionUnorderedPairType": "ecg_support|ppg_support",
+        "primaryResolutionTier": "T3_single_sensor_support",
+        "relatedResolutionTier": "T3_single_sensor_support",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "superseded_or_quarantined_when_conflicted",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": null,
+        "scoreableResolutionRationale": null,
+        "resolutionUnscoredReason": "ambiguous_same_layer_t3_support_pair",
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": false,
+        "resolutionExpectedWinnerSide": null,
+        "resolutionActualWinnerSide": "ecg_support",
+        "resolutionCorrect": null
+      },
+      {
+        "reviewId": "kr_b9b82468",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_du6bfd_health_signal_contradiction_runner_sample_0009_ppg_risk",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_du6bfd_health_signal_contradiction_runner_sample_0004_ecg_risk",
+        "action": "quarantine",
+        "oracleSide": "ppg_risk",
+        "relatedOracleSide": "ecg_risk",
+        "primaryOracleSide": "ppg_risk",
+        "resolutionPairType": "ppg_risk|ecg_risk",
+        "resolutionUnorderedPairType": "ecg_risk|ppg_risk",
+        "primaryResolutionTier": "T2_single_sensor_risk",
+        "relatedResolutionTier": "T2_single_sensor_risk",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "retained_over_ppg_support",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": null,
+        "scoreableResolutionRationale": null,
+        "resolutionUnscoredReason": "ambiguous_same_layer_t2_risk_pair",
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": false,
+        "resolutionExpectedWinnerSide": null,
+        "resolutionActualWinnerSide": "ecg_risk",
+        "resolutionCorrect": null
+      }
+    ]
+  },
+  "confidenceCalibration": {
+    "status": "low_coverage",
+    "ece": 0.662876,
+    "threshold": 0.05,
+    "warnThreshold": 0.1,
+    "bucketCount": 10,
+    "sampleSize": 9,
+    "scored": 9,
+    "unscored": 0,
+    "totalCandidates": 21,
+    "eligible": 9,
+    "denominator": 9,
+    "eligibleConflictKnowledgeTotal": 9,
+    "minEligible": 10,
+    "totalEligible": 9,
+    "scoreableDenominator": 9,
+    "outOfScopeNoOracle": 10,
+    "excludedAsNonConflict": {
+      "count": 12,
+      "reasonCounts": {
+        "no_oracle_side": 10,
+        "seed_identity_or_world": 2
+      },
+      "exampleIds": [
+        "kb_seed_identity_6bfd",
+        "kb_seed_world_6bfd",
+        "kb_gate_gate_meaning_1_e_1_6bfd_f1",
+        "kb_proj_mqdu6bfd_004",
+        "kb_proj_mqdu6bfd_006",
+        "kb_proj_mqdu6bfd_009",
+        "kb_proj_mqdu6bfd_016",
+        "kb_proj_mqdu6bfd_018",
+        "kb_proj_mqdu6bfd_024",
+        "kb_proj_mqdu6bfd_027",
+        "kb_proj_mqdu6bfd_028",
+        "kb_proj_mqdu6bfd_029"
+      ]
+    },
+    "scoreableCoverage": 1,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": false,
+    "reliabilityTable": [
+      {
+        "bucket": 6,
+        "lowerBound": 0.6,
+        "upperBound": 0.7,
+        "confMean": 0.666667,
+        "accuracy": 0,
+        "n": 3
+      },
+      {
+        "bucket": 7,
+        "lowerBound": 0.7,
+        "upperBound": 0.8,
+        "confMean": 0.777778,
+        "accuracy": 0,
+        "n": 5
+      },
+      {
+        "bucket": 9,
+        "lowerBound": 0.9,
+        "upperBound": 1,
+        "confMean": 0.923008,
+        "accuracy": 1,
+        "n": 1
+      }
+    ],
+    "unscoredReasonCounts": {},
+    "scoredKnowledge": [
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_du6bfd_health_signal_contradiction_runner_sample_0004_ecg_risk",
+        "oracleSide": "ecg_risk",
+        "status": "strong",
+        "supersededBy": null,
+        "confidence": 0.923008336522548,
+        "expectedDisposition": "retained_over_ecg_support",
+        "correct": true
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_011",
+        "oracleSide": "hybrid_support",
+        "status": "active",
+        "supersededBy": "kb_seed_identity_6bfd",
+        "confidence": 0.7777777777777778,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_012",
+        "oracleSide": "hybrid_support",
+        "status": "active",
+        "supersededBy": "kb_seed_identity_6bfd",
+        "confidence": 0.7777777777777778,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_013",
+        "oracleSide": "hybrid_support",
+        "status": "active",
+        "supersededBy": "kb_seed_identity_6bfd",
+        "confidence": 0.7777777777777778,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_014",
+        "oracleSide": "hybrid_support",
+        "status": "active",
+        "supersededBy": "kb_seed_identity_6bfd",
+        "confidence": 0.6666666666666666,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_017",
+        "oracleSide": "hybrid_support",
+        "status": "active",
+        "supersededBy": "kb_seed_identity_6bfd",
+        "confidence": 0.6666666666666666,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_021",
+        "oracleSide": "hybrid_support",
+        "status": "active",
+        "supersededBy": "kb_seed_identity_6bfd",
+        "confidence": 0.7777777777777778,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_022",
+        "oracleSide": "hybrid_support",
+        "status": "active",
+        "supersededBy": "kb_seed_identity_6bfd",
+        "confidence": 0.7777777777777778,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_025",
+        "oracleSide": "hybrid_support",
+        "status": "active",
+        "supersededBy": "kb_seed_identity_6bfd",
+        "confidence": 0.6666666666666666,
+        "expectedDisposition": "retained_as_final_decision",
+        "correct": false
+      }
+    ],
+    "unscoredExamples": []
+  },
+  "faithfulness": {
+    "status": "low_coverage",
+    "judgeMode": "lexical",
+    "faithfulness": 0.172414,
+    "hallucinationRate": 0.827586,
+    "threshold": 0.95,
+    "stretchMedicalTarget": 0.98,
+    "scored": 87,
+    "supported": 15,
+    "unsupported": 72,
+    "indeterminate": 56,
+    "totalClaims": 143,
+    "evidenceClaimCount": 50,
+    "totalCandidates": 21,
+    "eligible": 9,
+    "denominator": 9,
+    "eligibleConflictKnowledgeTotal": 9,
+    "minEligible": 10,
+    "scoreableDenominator": 9,
+    "scoreableKnowledge": 9,
+    "scoreableKnowledgeItems": 9,
+    "claimScoreableCoverage": 0.608392,
+    "scoreableCoverage": 1,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": false,
+    "unsupportedClaims": [
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_011",
+        "oracleSide": "hybrid_support",
+        "claim": "在用户静息心率监测场景下，应该优先选用 光学 PPG 传感器 还是 生物电阻抗 ECG 方案",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "静息心率",
+          "在用户静息心率监测场景下",
+          "应该优先选用 光学 ppg 传感器 还是 生物电阻抗 ecg 方案",
+          "应该优先选用 光学 ppg 传感器 还是",
+          "光学 ppg 传感器 还是 生物电阻抗",
+          "ppg 传感器 还是 生物电阻抗 ecg",
+          "传感器 还是 生物电阻抗 ecg 方案",
+          "应该优先选用 光学 ppg 传感器",
+          "光学 ppg 传感器 还是",
+          "ppg 传感器 还是 生物电阻抗",
+          "传感器 还是 生物电阻抗 ecg",
+          "还是 生物电阻抗 ecg 方案",
+          "应该优先选用 光学 ppg",
+          "光学 ppg 传感器",
+          "ppg 传感器 还是",
+          "还是 生物电阻抗 ecg",
+          "生物电阻抗 ecg 方案",
+          "光学 ppg",
+          "ppg 传感器",
+          "生物电阻抗 ecg",
+          "ecg 方案"
+        ],
+        "supportedAnchors": [
+          "静息心率",
+          "光学 ppg",
+          "生物电阻抗 ecg"
+        ],
+        "keywordCoverage": 0.142857,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.210526,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_011",
+        "oracleSide": "hybrid_support",
+        "claim": "已知约束：设备定价目标 ¥899，续航目标 7 天，目标用户是 35-50 岁亚健康白领，需要通过 NMPA 三类医疗器械认证",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "nmpa 三类",
+          "医疗器械认证",
+          "定价目标",
+          "设备定价目标 ¥899",
+          "续航目标 7 天",
+          "续航目标 7",
+          "通过 nmpa 三类医疗器械认证",
+          "通过 nmpa",
+          "nmpa 三类医疗器械认证",
+          "¥899",
+          "7",
+          "35-50"
+        ],
+        "supportedAnchors": [
+          "nmpa 三类",
+          "医疗器械认证",
+          "定价目标",
+          "nmpa 三类医疗器械认证",
+          "¥899",
+          "7"
+        ],
+        "keywordCoverage": 0.5,
+        "longestCommonSubstring": 12,
+        "longestCommonSubstringRatio": 0.230769,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_011",
+        "oracleSide": "hybrid_support",
+        "claim": "每轮任务：基于当前知识库，给出当前最优选型决策，并列明置信度与关键证据",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "并列明置信度与"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.25,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_011",
+        "oracleSide": "hybrid_support",
+        "claim": "目标用户:35-50 岁亚健康白领",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "35-50"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 2,
+        "longestCommonSubstringRatio": 0.133333,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_011",
+        "oracleSide": "hybrid_support",
+        "claim": "创始人偏好:优先满足 ¥899 与 7 天续航，但不能牺牲医疗器械认证路径与长期可信度",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "医疗器械认证",
+          "7 天续航",
+          "优先满足 ¥899 与 7 天续航",
+          "¥899 与 7 天续航",
+          "与 7 天续航",
+          "但 牺牲医疗器械认证路径与长期可信度",
+          "¥899",
+          "7"
+        ],
+        "supportedAnchors": [
+          "医疗器械认证",
+          "7 天续航",
+          "与 7 天续航",
+          "¥899",
+          "7"
+        ],
+        "keywordCoverage": 0.625,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.216216,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_011",
+        "oracleSide": "hybrid_support",
+        "claim": "绝不做:不得把互相矛盾的 PPG/ECG 结论同时作为 active 决策事实复用",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "不得把互相矛盾的 ppg/ecg 结论同时 active 决策事实复用",
+          "不得把互相矛盾的 ppg/ecg 结论同时 active",
+          "ppg/ecg 结论同时 active 决策事实复用",
+          "不得把互相矛盾的 ppg/ecg 结论同时",
+          "ppg/ecg 结论同时 active",
+          "不得把互相矛盾的 ppg/ecg",
+          "ppg/ecg 结论同时"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 10,
+        "longestCommonSubstringRatio": 0.277778,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_011",
+        "oracleSide": "hybrid_support",
+        "claim": "不得绕过 NMPA 三类认证约束",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "nmpa 三类",
+          "不得绕过 nmpa 三类认证约束",
+          "不得绕过 nmpa",
+          "nmpa 三类认证约束"
+        ],
+        "supportedAnchors": [
+          "nmpa 三类"
+        ],
+        "keywordCoverage": 0.25,
+        "longestCommonSubstring": 6,
+        "longestCommonSubstringRatio": 0.428571,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_011",
+        "oracleSide": "hybrid_support",
+        "claim": "红线:遇到 PPG vs ECG 选型矛盾必须记录 conflict 并等待人工审核、低置信度或单轮 LLM 结论不得直接晋级 strong、所有传感器选型建议必须同时说明成本、续航、目标用户和认证约束",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "遇到 ppg vs ecg 选型矛盾 记录 conflict 并等待人工审核",
+          "遇到 ppg vs ecg 选型矛盾",
+          "ppg vs ecg 选型矛盾 记录",
+          "vs ecg 选型矛盾 记录 conflict",
+          "ecg 选型矛盾 记录 conflict 并等待人工审核",
+          "遇到 ppg vs ecg",
+          "ppg vs ecg 选型矛盾",
+          "vs ecg 选型矛盾 记录",
+          "ecg 选型矛盾 记录 conflict",
+          "遇到 ppg vs",
+          "ppg vs ecg",
+          "vs ecg 选型矛盾",
+          "ecg 选型矛盾 记录",
+          "遇到 ppg",
+          "ppg vs",
+          "vs ecg",
+          "ecg 选型矛盾",
+          "低置信度或单轮 llm 结论不得直接晋级 strong",
+          "低置信度或单轮 llm 结论不得直接晋级",
+          "低置信度或单轮 llm",
+          "所有传感器选型 同时说明成本",
+          "目标用户和认证约束"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.091954,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_011",
+        "oracleSide": "hybrid_support",
+        "claim": "本轮应用场景: PPG 持续监测 + ECG 二次确认混合方案成本与续航可行性仿真验证",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "混合方案",
+          "ppg 持续监测 + ecg 二次确认混合方案成本与续航可行性仿真验证",
+          "ppg 持续监测 + ecg",
+          "持续监测 + ecg 二次确认混合方案成本与续航可行性仿真验证",
+          "ppg 持续监测 +",
+          "持续监测 + ecg",
+          "+ ecg 二次确认混合方案成本与续航可行性仿真验证",
+          "ppg 持续监测",
+          "+ ecg",
+          "ecg 二次确认混合方案成本与续航可行性仿真验证"
+        ],
+        "supportedAnchors": [
+          "混合方案",
+          "+ ecg"
+        ],
+        "keywordCoverage": 0.2,
+        "longestCommonSubstring": 5,
+        "longestCommonSubstringRatio": 0.135135,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_012",
+        "oracleSide": "hybrid_support",
+        "claim": "在用户静息心率监测场景下，应该优先选用 光学 PPG 传感器 还是 生物电阻抗 ECG 方案",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "静息心率",
+          "在用户静息心率监测场景下",
+          "应该优先选用 光学 ppg 传感器 还是 生物电阻抗 ecg 方案",
+          "应该优先选用 光学 ppg 传感器 还是",
+          "光学 ppg 传感器 还是 生物电阻抗",
+          "ppg 传感器 还是 生物电阻抗 ecg",
+          "传感器 还是 生物电阻抗 ecg 方案",
+          "应该优先选用 光学 ppg 传感器",
+          "光学 ppg 传感器 还是",
+          "ppg 传感器 还是 生物电阻抗",
+          "传感器 还是 生物电阻抗 ecg",
+          "还是 生物电阻抗 ecg 方案",
+          "应该优先选用 光学 ppg",
+          "光学 ppg 传感器",
+          "ppg 传感器 还是",
+          "还是 生物电阻抗 ecg",
+          "生物电阻抗 ecg 方案",
+          "光学 ppg",
+          "ppg 传感器",
+          "生物电阻抗 ecg",
+          "ecg 方案"
+        ],
+        "supportedAnchors": [
+          "静息心率",
+          "光学 ppg",
+          "生物电阻抗 ecg"
+        ],
+        "keywordCoverage": 0.142857,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.210526,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_012",
+        "oracleSide": "hybrid_support",
+        "claim": "已知约束：设备定价目标 ¥899，续航目标 7 天，目标用户是 35-50 岁亚健康白领，需要通过 NMPA 三类医疗器械认证",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "nmpa 三类",
+          "医疗器械认证",
+          "定价目标",
+          "设备定价目标 ¥899",
+          "续航目标 7 天",
+          "续航目标 7",
+          "通过 nmpa 三类医疗器械认证",
+          "通过 nmpa",
+          "nmpa 三类医疗器械认证",
+          "¥899",
+          "7",
+          "35-50"
+        ],
+        "supportedAnchors": [
+          "nmpa 三类",
+          "医疗器械认证",
+          "定价目标",
+          "nmpa 三类医疗器械认证",
+          "¥899",
+          "7"
+        ],
+        "keywordCoverage": 0.5,
+        "longestCommonSubstring": 12,
+        "longestCommonSubstringRatio": 0.230769,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_012",
+        "oracleSide": "hybrid_support",
+        "claim": "每轮任务：基于当前知识库，给出当前最优选型决策，并列明置信度与关键证据",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "并列明置信度与"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.25,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_012",
+        "oracleSide": "hybrid_support",
+        "claim": "目标用户:35-50 岁亚健康白领",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "35-50"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 2,
+        "longestCommonSubstringRatio": 0.133333,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_012",
+        "oracleSide": "hybrid_support",
+        "claim": "创始人偏好:优先满足 ¥899 与 7 天续航，但不能牺牲医疗器械认证路径与长期可信度",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "医疗器械认证",
+          "7 天续航",
+          "优先满足 ¥899 与 7 天续航",
+          "¥899 与 7 天续航",
+          "与 7 天续航",
+          "但 牺牲医疗器械认证路径与长期可信度",
+          "¥899",
+          "7"
+        ],
+        "supportedAnchors": [
+          "医疗器械认证",
+          "7 天续航",
+          "与 7 天续航",
+          "¥899",
+          "7"
+        ],
+        "keywordCoverage": 0.625,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.216216,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_012",
+        "oracleSide": "hybrid_support",
+        "claim": "绝不做:不得把互相矛盾的 PPG/ECG 结论同时作为 active 决策事实复用",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "不得把互相矛盾的 ppg/ecg 结论同时 active 决策事实复用",
+          "不得把互相矛盾的 ppg/ecg 结论同时 active",
+          "ppg/ecg 结论同时 active 决策事实复用",
+          "不得把互相矛盾的 ppg/ecg 结论同时",
+          "ppg/ecg 结论同时 active",
+          "不得把互相矛盾的 ppg/ecg",
+          "ppg/ecg 结论同时"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 10,
+        "longestCommonSubstringRatio": 0.277778,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_012",
+        "oracleSide": "hybrid_support",
+        "claim": "不得绕过 NMPA 三类认证约束",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "nmpa 三类",
+          "不得绕过 nmpa 三类认证约束",
+          "不得绕过 nmpa",
+          "nmpa 三类认证约束"
+        ],
+        "supportedAnchors": [
+          "nmpa 三类"
+        ],
+        "keywordCoverage": 0.25,
+        "longestCommonSubstring": 6,
+        "longestCommonSubstringRatio": 0.428571,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_012",
+        "oracleSide": "hybrid_support",
+        "claim": "红线:遇到 PPG vs ECG 选型矛盾必须记录 conflict 并等待人工审核、低置信度或单轮 LLM 结论不得直接晋级 strong、所有传感器选型建议必须同时说明成本、续航、目标用户和认证约束",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "遇到 ppg vs ecg 选型矛盾 记录 conflict 并等待人工审核",
+          "遇到 ppg vs ecg 选型矛盾",
+          "ppg vs ecg 选型矛盾 记录",
+          "vs ecg 选型矛盾 记录 conflict",
+          "ecg 选型矛盾 记录 conflict 并等待人工审核",
+          "遇到 ppg vs ecg",
+          "ppg vs ecg 选型矛盾",
+          "vs ecg 选型矛盾 记录",
+          "ecg 选型矛盾 记录 conflict",
+          "遇到 ppg vs",
+          "ppg vs ecg",
+          "vs ecg 选型矛盾",
+          "ecg 选型矛盾 记录",
+          "遇到 ppg",
+          "ppg vs",
+          "vs ecg",
+          "ecg 选型矛盾",
+          "低置信度或单轮 llm 结论不得直接晋级 strong",
+          "低置信度或单轮 llm 结论不得直接晋级",
+          "低置信度或单轮 llm",
+          "所有传感器选型 同时说明成本",
+          "目标用户和认证约束"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.091954,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_012",
+        "oracleSide": "hybrid_support",
+        "claim": "本轮应用场景: PPG 持续监测 + ECG 二次确认混合方案成本与续航仿真验证(纳入可回滚审计摘要)",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "混合方案",
+          "ppg 持续监测 + ecg 二次确认混合方案成本与续航仿真验证",
+          "ppg 持续监测 + ecg",
+          "持续监测 + ecg 二次确认混合方案成本与续航仿真验证",
+          "ppg 持续监测 +",
+          "持续监测 + ecg",
+          "+ ecg 二次确认混合方案成本与续航仿真验证",
+          "ppg 持续监测",
+          "+ ecg",
+          "ecg 二次确认混合方案成本与续航仿真验证"
+        ],
+        "supportedAnchors": [
+          "混合方案",
+          "+ ecg"
+        ],
+        "keywordCoverage": 0.2,
+        "longestCommonSubstring": 5,
+        "longestCommonSubstringRatio": 0.116279,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_013",
+        "oracleSide": "hybrid_support",
+        "claim": "在用户静息心率监测场景下，应该优先选用 光学 PPG 传感器 还是 生物电阻抗 ECG 方案",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "静息心率",
+          "在用户静息心率监测场景下",
+          "应该优先选用 光学 ppg 传感器 还是 生物电阻抗 ecg 方案",
+          "应该优先选用 光学 ppg 传感器 还是",
+          "光学 ppg 传感器 还是 生物电阻抗",
+          "ppg 传感器 还是 生物电阻抗 ecg",
+          "传感器 还是 生物电阻抗 ecg 方案",
+          "应该优先选用 光学 ppg 传感器",
+          "光学 ppg 传感器 还是",
+          "ppg 传感器 还是 生物电阻抗",
+          "传感器 还是 生物电阻抗 ecg",
+          "还是 生物电阻抗 ecg 方案",
+          "应该优先选用 光学 ppg",
+          "光学 ppg 传感器",
+          "ppg 传感器 还是",
+          "还是 生物电阻抗 ecg",
+          "生物电阻抗 ecg 方案",
+          "光学 ppg",
+          "ppg 传感器",
+          "生物电阻抗 ecg",
+          "ecg 方案"
+        ],
+        "supportedAnchors": [
+          "静息心率",
+          "光学 ppg",
+          "生物电阻抗 ecg"
+        ],
+        "keywordCoverage": 0.142857,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.210526,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_013",
+        "oracleSide": "hybrid_support",
+        "claim": "已知约束：设备定价目标 ¥899，续航目标 7 天，目标用户是 35-50 岁亚健康白领，需要通过 NMPA 三类医疗器械认证",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "nmpa 三类",
+          "医疗器械认证",
+          "定价目标",
+          "设备定价目标 ¥899",
+          "续航目标 7 天",
+          "续航目标 7",
+          "通过 nmpa 三类医疗器械认证",
+          "通过 nmpa",
+          "nmpa 三类医疗器械认证",
+          "¥899",
+          "7",
+          "35-50"
+        ],
+        "supportedAnchors": [
+          "nmpa 三类",
+          "医疗器械认证",
+          "定价目标",
+          "nmpa 三类医疗器械认证",
+          "¥899",
+          "7"
+        ],
+        "keywordCoverage": 0.5,
+        "longestCommonSubstring": 12,
+        "longestCommonSubstringRatio": 0.230769,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_013",
+        "oracleSide": "hybrid_support",
+        "claim": "每轮任务：基于当前知识库，给出当前最优选型决策，并列明置信度与关键证据",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "并列明置信度与"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.25,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_013",
+        "oracleSide": "hybrid_support",
+        "claim": "目标用户:35-50 岁亚健康白领",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "35-50"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 2,
+        "longestCommonSubstringRatio": 0.133333,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_013",
+        "oracleSide": "hybrid_support",
+        "claim": "创始人偏好:优先满足 ¥899 与 7 天续航，但不能牺牲医疗器械认证路径与长期可信度",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "医疗器械认证",
+          "7 天续航",
+          "优先满足 ¥899 与 7 天续航",
+          "¥899 与 7 天续航",
+          "与 7 天续航",
+          "但 牺牲医疗器械认证路径与长期可信度",
+          "¥899",
+          "7"
+        ],
+        "supportedAnchors": [
+          "医疗器械认证",
+          "7 天续航",
+          "与 7 天续航",
+          "¥899",
+          "7"
+        ],
+        "keywordCoverage": 0.625,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.216216,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_013",
+        "oracleSide": "hybrid_support",
+        "claim": "绝不做:不得把互相矛盾的 PPG/ECG 结论同时作为 active 决策事实复用",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "不得把互相矛盾的 ppg/ecg 结论同时 active 决策事实复用",
+          "不得把互相矛盾的 ppg/ecg 结论同时 active",
+          "ppg/ecg 结论同时 active 决策事实复用",
+          "不得把互相矛盾的 ppg/ecg 结论同时",
+          "ppg/ecg 结论同时 active",
+          "不得把互相矛盾的 ppg/ecg",
+          "ppg/ecg 结论同时"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 10,
+        "longestCommonSubstringRatio": 0.277778,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_013",
+        "oracleSide": "hybrid_support",
+        "claim": "不得绕过 NMPA 三类认证约束",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "nmpa 三类",
+          "不得绕过 nmpa 三类认证约束",
+          "不得绕过 nmpa",
+          "nmpa 三类认证约束"
+        ],
+        "supportedAnchors": [
+          "nmpa 三类"
+        ],
+        "keywordCoverage": 0.25,
+        "longestCommonSubstring": 6,
+        "longestCommonSubstringRatio": 0.428571,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_013",
+        "oracleSide": "hybrid_support",
+        "claim": "红线:遇到 PPG vs ECG 选型矛盾必须记录 conflict 并等待人工审核、低置信度或单轮 LLM 结论不得直接晋级 strong、所有传感器选型建议必须同时说明成本、续航、目标用户和认证约束",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "遇到 ppg vs ecg 选型矛盾 记录 conflict 并等待人工审核",
+          "遇到 ppg vs ecg 选型矛盾",
+          "ppg vs ecg 选型矛盾 记录",
+          "vs ecg 选型矛盾 记录 conflict",
+          "ecg 选型矛盾 记录 conflict 并等待人工审核",
+          "遇到 ppg vs ecg",
+          "ppg vs ecg 选型矛盾",
+          "vs ecg 选型矛盾 记录",
+          "ecg 选型矛盾 记录 conflict",
+          "遇到 ppg vs",
+          "ppg vs ecg",
+          "vs ecg 选型矛盾",
+          "ecg 选型矛盾 记录",
+          "遇到 ppg",
+          "ppg vs",
+          "vs ecg",
+          "ecg 选型矛盾",
+          "低置信度或单轮 llm 结论不得直接晋级 strong",
+          "低置信度或单轮 llm 结论不得直接晋级",
+          "低置信度或单轮 llm",
+          "所有传感器选型 同时说明成本",
+          "目标用户和认证约束"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.091954,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_013",
+        "oracleSide": "hybrid_support",
+        "claim": "本轮应用场景: 把可回滚审计摘要接入 PPG 持续监测 + ECG 二次确认混合方案的成本与续航仿真验证",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "混合方案",
+          "把可回滚审计摘要接入 ppg 持续监测 + ecg 二次确认混合方案的成本与续航仿真验证",
+          "把可回滚审计摘要接入 ppg 持续监测 + ecg",
+          "ppg 持续监测 + ecg 二次确认混合方案的成本与续航仿真验证",
+          "把可回滚审计摘要接入 ppg 持续监测 +",
+          "ppg 持续监测 + ecg",
+          "持续监测 + ecg 二次确认混合方案的成本与续航仿真验证",
+          "把可回滚审计摘要接入 ppg 持续监测",
+          "ppg 持续监测 +",
+          "持续监测 + ecg",
+          "+ ecg 二次确认混合方案的成本与续航仿真验证",
+          "把可回滚审计摘要接入 ppg",
+          "ppg 持续监测",
+          "+ ecg",
+          "ecg 二次确认混合方案的成本与续航仿真验证"
+        ],
+        "supportedAnchors": [
+          "混合方案",
+          "+ ecg"
+        ],
+        "keywordCoverage": 0.133333,
+        "longestCommonSubstring": 5,
+        "longestCommonSubstringRatio": 0.111111,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_014",
+        "oracleSide": "hybrid_support",
+        "claim": "在用户静息心率监测场景下，应该优先选用 光学 PPG 传感器 还是 生物电阻抗 ECG 方案",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "静息心率",
+          "在用户静息心率监测场景下",
+          "应该优先选用 光学 ppg 传感器 还是 生物电阻抗 ecg 方案",
+          "应该优先选用 光学 ppg 传感器 还是",
+          "光学 ppg 传感器 还是 生物电阻抗",
+          "ppg 传感器 还是 生物电阻抗 ecg",
+          "传感器 还是 生物电阻抗 ecg 方案",
+          "应该优先选用 光学 ppg 传感器",
+          "光学 ppg 传感器 还是",
+          "ppg 传感器 还是 生物电阻抗",
+          "传感器 还是 生物电阻抗 ecg",
+          "还是 生物电阻抗 ecg 方案",
+          "应该优先选用 光学 ppg",
+          "光学 ppg 传感器",
+          "ppg 传感器 还是",
+          "还是 生物电阻抗 ecg",
+          "生物电阻抗 ecg 方案",
+          "光学 ppg",
+          "ppg 传感器",
+          "生物电阻抗 ecg",
+          "ecg 方案"
+        ],
+        "supportedAnchors": [
+          "静息心率",
+          "光学 ppg",
+          "生物电阻抗 ecg"
+        ],
+        "keywordCoverage": 0.142857,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.210526,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_014",
+        "oracleSide": "hybrid_support",
+        "claim": "已知约束：设备定价目标 ¥899，续航目标 7 天，目标用户是 35-50 岁亚健康白领，需要通过 NMPA 三类医疗器械认证",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "nmpa 三类",
+          "医疗器械认证",
+          "定价目标",
+          "设备定价目标 ¥899",
+          "续航目标 7 天",
+          "续航目标 7",
+          "通过 nmpa 三类医疗器械认证",
+          "通过 nmpa",
+          "nmpa 三类医疗器械认证",
+          "¥899",
+          "7",
+          "35-50"
+        ],
+        "supportedAnchors": [
+          "nmpa 三类",
+          "医疗器械认证",
+          "定价目标",
+          "nmpa 三类医疗器械认证",
+          "¥899",
+          "7"
+        ],
+        "keywordCoverage": 0.5,
+        "longestCommonSubstring": 12,
+        "longestCommonSubstringRatio": 0.230769,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_014",
+        "oracleSide": "hybrid_support",
+        "claim": "每轮任务：基于当前知识库，给出当前最优选型决策，并列明置信度与关键证据",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "并列明置信度与"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.25,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_014",
+        "oracleSide": "hybrid_support",
+        "claim": "目标用户:35-50 岁亚健康白领",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "35-50"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 2,
+        "longestCommonSubstringRatio": 0.133333,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_014",
+        "oracleSide": "hybrid_support",
+        "claim": "创始人偏好:优先满足 ¥899 与 7 天续航，但不能牺牲医疗器械认证路径与长期可信度",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "医疗器械认证",
+          "7 天续航",
+          "优先满足 ¥899 与 7 天续航",
+          "¥899 与 7 天续航",
+          "与 7 天续航",
+          "但 牺牲医疗器械认证路径与长期可信度",
+          "¥899",
+          "7"
+        ],
+        "supportedAnchors": [
+          "医疗器械认证",
+          "7 天续航",
+          "与 7 天续航",
+          "¥899",
+          "7"
+        ],
+        "keywordCoverage": 0.625,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.216216,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_014",
+        "oracleSide": "hybrid_support",
+        "claim": "绝不做:不得把互相矛盾的 PPG/ECG 结论同时作为 active 决策事实复用",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "不得把互相矛盾的 ppg/ecg 结论同时 active 决策事实复用",
+          "不得把互相矛盾的 ppg/ecg 结论同时 active",
+          "ppg/ecg 结论同时 active 决策事实复用",
+          "不得把互相矛盾的 ppg/ecg 结论同时",
+          "ppg/ecg 结论同时 active",
+          "不得把互相矛盾的 ppg/ecg",
+          "ppg/ecg 结论同时"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 10,
+        "longestCommonSubstringRatio": 0.277778,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_014",
+        "oracleSide": "hybrid_support",
+        "claim": "不得绕过 NMPA 三类认证约束",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "nmpa 三类",
+          "不得绕过 nmpa 三类认证约束",
+          "不得绕过 nmpa",
+          "nmpa 三类认证约束"
+        ],
+        "supportedAnchors": [
+          "nmpa 三类"
+        ],
+        "keywordCoverage": 0.25,
+        "longestCommonSubstring": 6,
+        "longestCommonSubstringRatio": 0.428571,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_014",
+        "oracleSide": "hybrid_support",
+        "claim": "红线:遇到 PPG vs ECG 选型矛盾必须记录 conflict 并等待人工审核、低置信度或单轮 LLM 结论不得直接晋级 strong、所有传感器选型建议必须同时说明成本、续航、目标用户和认证约束",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "遇到 ppg vs ecg 选型矛盾 记录 conflict 并等待人工审核",
+          "遇到 ppg vs ecg 选型矛盾",
+          "ppg vs ecg 选型矛盾 记录",
+          "vs ecg 选型矛盾 记录 conflict",
+          "ecg 选型矛盾 记录 conflict 并等待人工审核",
+          "遇到 ppg vs ecg",
+          "ppg vs ecg 选型矛盾",
+          "vs ecg 选型矛盾 记录",
+          "ecg 选型矛盾 记录 conflict",
+          "遇到 ppg vs",
+          "ppg vs ecg",
+          "vs ecg 选型矛盾",
+          "ecg 选型矛盾 记录",
+          "遇到 ppg",
+          "ppg vs",
+          "vs ecg",
+          "ecg 选型矛盾",
+          "低置信度或单轮 llm 结论不得直接晋级 strong",
+          "低置信度或单轮 llm 结论不得直接晋级",
+          "低置信度或单轮 llm",
+          "所有传感器选型 同时说明成本",
+          "目标用户和认证约束"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.091954,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_014",
+        "oracleSide": "hybrid_support",
+        "claim": "本轮应用场景: 把可回滚审计摘要接入 PPG 持续监测 + ECG 二次确认混合方案的成本与续航仿真验证并扩展到批量发布前检查",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "混合方案",
+          "把可回滚审计摘要接入 ppg 持续监测 + ecg 二次确认混合方案的成本与续航仿真验证并扩展到批量发布前检查",
+          "把可回滚审计摘要接入 ppg 持续监测 + ecg",
+          "ppg 持续监测 + ecg 二次确认混合方案的成本与续航仿真验证并扩展到批量发布前检查",
+          "把可回滚审计摘要接入 ppg 持续监测 +",
+          "ppg 持续监测 + ecg",
+          "持续监测 + ecg 二次确认混合方案的成本与续航仿真验证并扩展到批量发布前检查",
+          "把可回滚审计摘要接入 ppg 持续监测",
+          "ppg 持续监测 +",
+          "持续监测 + ecg",
+          "+ ecg 二次确认混合方案的成本与续航仿真验证并扩展到批量发布前检查",
+          "把可回滚审计摘要接入 ppg",
+          "ppg 持续监测",
+          "+ ecg",
+          "ecg 二次确认混合方案的成本与续航仿真验证并扩展到批量发布前检查"
+        ],
+        "supportedAnchors": [
+          "混合方案",
+          "+ ecg"
+        ],
+        "keywordCoverage": 0.133333,
+        "longestCommonSubstring": 5,
+        "longestCommonSubstringRatio": 0.089286,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_017",
+        "oracleSide": "hybrid_support",
+        "claim": "在用户静息心率监测场景下，应该优先选用 光学 PPG 传感器 还是 生物电阻抗 ECG 方案",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "静息心率",
+          "在用户静息心率监测场景下",
+          "应该优先选用 光学 ppg 传感器 还是 生物电阻抗 ecg 方案",
+          "应该优先选用 光学 ppg 传感器 还是",
+          "光学 ppg 传感器 还是 生物电阻抗",
+          "ppg 传感器 还是 生物电阻抗 ecg",
+          "传感器 还是 生物电阻抗 ecg 方案",
+          "应该优先选用 光学 ppg 传感器",
+          "光学 ppg 传感器 还是",
+          "ppg 传感器 还是 生物电阻抗",
+          "传感器 还是 生物电阻抗 ecg",
+          "还是 生物电阻抗 ecg 方案",
+          "应该优先选用 光学 ppg",
+          "光学 ppg 传感器",
+          "ppg 传感器 还是",
+          "还是 生物电阻抗 ecg",
+          "生物电阻抗 ecg 方案",
+          "光学 ppg",
+          "ppg 传感器",
+          "生物电阻抗 ecg",
+          "ecg 方案"
+        ],
+        "supportedAnchors": [
+          "静息心率",
+          "光学 ppg",
+          "生物电阻抗 ecg"
+        ],
+        "keywordCoverage": 0.142857,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.210526,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_017",
+        "oracleSide": "hybrid_support",
+        "claim": "已知约束：设备定价目标 ¥899，续航目标 7 天，目标用户是 35-50 岁亚健康白领，需要通过 NMPA 三类医疗器械认证",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "nmpa 三类",
+          "医疗器械认证",
+          "定价目标",
+          "设备定价目标 ¥899",
+          "续航目标 7 天",
+          "续航目标 7",
+          "通过 nmpa 三类医疗器械认证",
+          "通过 nmpa",
+          "nmpa 三类医疗器械认证",
+          "¥899",
+          "7",
+          "35-50"
+        ],
+        "supportedAnchors": [
+          "nmpa 三类",
+          "医疗器械认证",
+          "定价目标",
+          "nmpa 三类医疗器械认证",
+          "¥899",
+          "7"
+        ],
+        "keywordCoverage": 0.5,
+        "longestCommonSubstring": 12,
+        "longestCommonSubstringRatio": 0.230769,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_017",
+        "oracleSide": "hybrid_support",
+        "claim": "每轮任务：基于当前知识库，给出当前最优选型决策，并列明置信度与关键证据",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "并列明置信度与"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.25,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_017",
+        "oracleSide": "hybrid_support",
+        "claim": "目标用户:35-50 岁亚健康白领",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "35-50"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 2,
+        "longestCommonSubstringRatio": 0.133333,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_017",
+        "oracleSide": "hybrid_support",
+        "claim": "创始人偏好:优先满足 ¥899 与 7 天续航，但不能牺牲医疗器械认证路径与长期可信度",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "医疗器械认证",
+          "7 天续航",
+          "优先满足 ¥899 与 7 天续航",
+          "¥899 与 7 天续航",
+          "与 7 天续航",
+          "但 牺牲医疗器械认证路径与长期可信度",
+          "¥899",
+          "7"
+        ],
+        "supportedAnchors": [
+          "医疗器械认证",
+          "7 天续航",
+          "与 7 天续航",
+          "¥899",
+          "7"
+        ],
+        "keywordCoverage": 0.625,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.216216,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_017",
+        "oracleSide": "hybrid_support",
+        "claim": "绝不做:不得把互相矛盾的 PPG/ECG 结论同时作为 active 决策事实复用",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "不得把互相矛盾的 ppg/ecg 结论同时 active 决策事实复用",
+          "不得把互相矛盾的 ppg/ecg 结论同时 active",
+          "ppg/ecg 结论同时 active 决策事实复用",
+          "不得把互相矛盾的 ppg/ecg 结论同时",
+          "ppg/ecg 结论同时 active",
+          "不得把互相矛盾的 ppg/ecg",
+          "ppg/ecg 结论同时"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 10,
+        "longestCommonSubstringRatio": 0.277778,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_017",
+        "oracleSide": "hybrid_support",
+        "claim": "不得绕过 NMPA 三类认证约束",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "nmpa 三类",
+          "不得绕过 nmpa 三类认证约束",
+          "不得绕过 nmpa",
+          "nmpa 三类认证约束"
+        ],
+        "supportedAnchors": [
+          "nmpa 三类"
+        ],
+        "keywordCoverage": 0.25,
+        "longestCommonSubstring": 6,
+        "longestCommonSubstringRatio": 0.428571,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_017",
+        "oracleSide": "hybrid_support",
+        "claim": "红线:遇到 PPG vs ECG 选型矛盾必须记录 conflict 并等待人工审核、低置信度或单轮 LLM 结论不得直接晋级 strong、所有传感器选型建议必须同时说明成本、续航、目标用户和认证约束",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "遇到 ppg vs ecg 选型矛盾 记录 conflict 并等待人工审核",
+          "遇到 ppg vs ecg 选型矛盾",
+          "ppg vs ecg 选型矛盾 记录",
+          "vs ecg 选型矛盾 记录 conflict",
+          "ecg 选型矛盾 记录 conflict 并等待人工审核",
+          "遇到 ppg vs ecg",
+          "ppg vs ecg 选型矛盾",
+          "vs ecg 选型矛盾 记录",
+          "ecg 选型矛盾 记录 conflict",
+          "遇到 ppg vs",
+          "ppg vs ecg",
+          "vs ecg 选型矛盾",
+          "ecg 选型矛盾 记录",
+          "遇到 ppg",
+          "ppg vs",
+          "vs ecg",
+          "ecg 选型矛盾",
+          "低置信度或单轮 llm 结论不得直接晋级 strong",
+          "低置信度或单轮 llm 结论不得直接晋级",
+          "低置信度或单轮 llm",
+          "所有传感器选型 同时说明成本",
+          "目标用户和认证约束"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.091954,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_017",
+        "oracleSide": "hybrid_support",
+        "claim": "本轮应用场景: C10 PPG 持续监测 + ECG 二次确认混合方案的可回滚审计闭环仿真验证",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "混合方案",
+          "c10 ppg 持续监测 + ecg 二次确认混合方案的可回滚审计闭环仿真验证",
+          "c10 ppg 持续监测 + ecg",
+          "ppg 持续监测 + ecg 二次确认混合方案的可回滚审计闭环仿真验证",
+          "c10 ppg 持续监测 +",
+          "ppg 持续监测 + ecg",
+          "持续监测 + ecg 二次确认混合方案的可回滚审计闭环仿真验证",
+          "c10 ppg 持续监测",
+          "ppg 持续监测 +",
+          "持续监测 + ecg",
+          "+ ecg 二次确认混合方案的可回滚审计闭环仿真验证",
+          "c10 ppg",
+          "ppg 持续监测",
+          "+ ecg",
+          "ecg 二次确认混合方案的可回滚审计闭环仿真验证"
+        ],
+        "supportedAnchors": [
+          "混合方案",
+          "+ ecg"
+        ],
+        "keywordCoverage": 0.133333,
+        "longestCommonSubstring": 4,
+        "longestCommonSubstringRatio": 0.1,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_021",
+        "oracleSide": "hybrid_support",
+        "claim": "在用户静息心率监测场景下，应该优先选用 光学 PPG 传感器 还是 生物电阻抗 ECG 方案",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "静息心率",
+          "在用户静息心率监测场景下",
+          "应该优先选用 光学 ppg 传感器 还是 生物电阻抗 ecg 方案",
+          "应该优先选用 光学 ppg 传感器 还是",
+          "光学 ppg 传感器 还是 生物电阻抗",
+          "ppg 传感器 还是 生物电阻抗 ecg",
+          "传感器 还是 生物电阻抗 ecg 方案",
+          "应该优先选用 光学 ppg 传感器",
+          "光学 ppg 传感器 还是",
+          "ppg 传感器 还是 生物电阻抗",
+          "传感器 还是 生物电阻抗 ecg",
+          "还是 生物电阻抗 ecg 方案",
+          "应该优先选用 光学 ppg",
+          "光学 ppg 传感器",
+          "ppg 传感器 还是",
+          "还是 生物电阻抗 ecg",
+          "生物电阻抗 ecg 方案",
+          "光学 ppg",
+          "ppg 传感器",
+          "生物电阻抗 ecg",
+          "ecg 方案"
+        ],
+        "supportedAnchors": [
+          "静息心率",
+          "光学 ppg",
+          "生物电阻抗 ecg"
+        ],
+        "keywordCoverage": 0.142857,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.210526,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_021",
+        "oracleSide": "hybrid_support",
+        "claim": "已知约束：设备定价目标 ¥899，续航目标 7 天，目标用户是 35-50 岁亚健康白领，需要通过 NMPA 三类医疗器械认证",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "nmpa 三类",
+          "医疗器械认证",
+          "定价目标",
+          "设备定价目标 ¥899",
+          "续航目标 7 天",
+          "续航目标 7",
+          "通过 nmpa 三类医疗器械认证",
+          "通过 nmpa",
+          "nmpa 三类医疗器械认证",
+          "¥899",
+          "7",
+          "35-50"
+        ],
+        "supportedAnchors": [
+          "nmpa 三类",
+          "医疗器械认证",
+          "定价目标",
+          "nmpa 三类医疗器械认证",
+          "¥899",
+          "7"
+        ],
+        "keywordCoverage": 0.5,
+        "longestCommonSubstring": 12,
+        "longestCommonSubstringRatio": 0.230769,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_021",
+        "oracleSide": "hybrid_support",
+        "claim": "每轮任务：基于当前知识库，给出当前最优选型决策，并列明置信度与关键证据",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "并列明置信度与"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.25,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_021",
+        "oracleSide": "hybrid_support",
+        "claim": "目标用户:35-50 岁亚健康白领",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "35-50"
+        ],
+        "supportedAnchors": [],
+        "keywordCoverage": 0,
+        "longestCommonSubstring": 2,
+        "longestCommonSubstringRatio": 0.133333,
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_021",
+        "oracleSide": "hybrid_support",
+        "claim": "创始人偏好:优先满足 ¥899 与 7 天续航，但不能牺牲医疗器械认证路径与长期可信度",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "医疗器械认证",
+          "7 天续航",
+          "优先满足 ¥899 与 7 天续航",
+          "¥899 与 7 天续航",
+          "与 7 天续航",
+          "但 牺牲医疗器械认证路径与长期可信度",
+          "¥899",
+          "7"
+        ],
+        "supportedAnchors": [
+          "医疗器械认证",
+          "7 天续航",
+          "与 7 天续航",
+          "¥899",
+          "7"
+        ],
+        "keywordCoverage": 0.625,
+        "longestCommonSubstring": 8,
+        "longestCommonSubstringRatio": 0.216216,
+        "supported": false
+      }
+    ],
+    "indeterminateReasonCounts": {
+      "no_deterministic_anchor": 56
+    },
+    "indeterminateReasons": {
+      "no_deterministic_anchor": 56
+    },
+    "excludedAsNonConflict": {
+      "count": 12,
+      "reasonCounts": {
+        "no_oracle_side": 10,
+        "seed_identity_or_world": 2
+      },
+      "exampleIds": [
+        "kb_seed_identity_6bfd",
+        "kb_seed_world_6bfd",
+        "kb_gate_gate_meaning_1_e_1_6bfd_f1",
+        "kb_proj_mqdu6bfd_004",
+        "kb_proj_mqdu6bfd_006",
+        "kb_proj_mqdu6bfd_009",
+        "kb_proj_mqdu6bfd_016",
+        "kb_proj_mqdu6bfd_018",
+        "kb_proj_mqdu6bfd_024",
+        "kb_proj_mqdu6bfd_027",
+        "kb_proj_mqdu6bfd_028",
+        "kb_proj_mqdu6bfd_029"
+      ]
+    },
+    "indeterminateExamples": [
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_011",
+        "oracleSide": "hybrid_support",
+        "claim": "种子身份",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_011",
+        "oracleSide": "hybrid_support",
+        "claim": "身份:wearable-health-signal-decision —— 你是某智能健康硬件的产品决策系统",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_011",
+        "oracleSide": "hybrid_support",
+        "claim": "你需要对一个穿戴设备的核心传感器选型做出决策：",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_011",
+        "oracleSide": "hybrid_support",
+        "claim": "每轮必须复用当前知识库，不得只重算单轮结论",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_011",
+        "oracleSide": "hybrid_support",
+        "claim": "最终需要观察知识熵变、Human Gate 收敛、冲突解决和 Stall Guard 触发率",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_011",
+        "oracleSide": "hybrid_support",
+        "claim": "如果遇到矛盾证据，必须在知识库中记录冲突并等待人工审核",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_011",
+        "oracleSide": "hybrid_support",
+        "claim": "匿名智能健康硬件产品与合规团队",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_012",
+        "oracleSide": "hybrid_support",
+        "claim": "种子身份",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_012",
+        "oracleSide": "hybrid_support",
+        "claim": "身份:wearable-health-signal-decision —— 你是某智能健康硬件的产品决策系统",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_012",
+        "oracleSide": "hybrid_support",
+        "claim": "你需要对一个穿戴设备的核心传感器选型做出决策：",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_012",
+        "oracleSide": "hybrid_support",
+        "claim": "每轮必须复用当前知识库，不得只重算单轮结论",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_012",
+        "oracleSide": "hybrid_support",
+        "claim": "最终需要观察知识熵变、Human Gate 收敛、冲突解决和 Stall Guard 触发率",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_012",
+        "oracleSide": "hybrid_support",
+        "claim": "如果遇到矛盾证据，必须在知识库中记录冲突并等待人工审核",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_012",
+        "oracleSide": "hybrid_support",
+        "claim": "匿名智能健康硬件产品与合规团队",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_013",
+        "oracleSide": "hybrid_support",
+        "claim": "种子身份",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_013",
+        "oracleSide": "hybrid_support",
+        "claim": "身份:wearable-health-signal-decision —— 你是某智能健康硬件的产品决策系统",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_013",
+        "oracleSide": "hybrid_support",
+        "claim": "你需要对一个穿戴设备的核心传感器选型做出决策：",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_013",
+        "oracleSide": "hybrid_support",
+        "claim": "每轮必须复用当前知识库，不得只重算单轮结论",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_013",
+        "oracleSide": "hybrid_support",
+        "claim": "最终需要观察知识熵变、Human Gate 收敛、冲突解决和 Stall Guard 触发率",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      },
+      {
+        "knowledgeId": "kb_proj_mqdu6bfd_013",
+        "oracleSide": "hybrid_support",
+        "claim": "如果遇到矛盾证据，必须在知识库中记录冲突并等待人工审核",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": [],
+        "keywordCoverage": null,
+        "longestCommonSubstring": null,
+        "longestCommonSubstringRatio": null
+      }
+    ]
+  },
+  "latencyAndEfficiency": {
+    "measurementNote": "API request latency is runner/harness-observed latency under validation polling load, not an isolated production retrieval SLO.",
+    "apiRequest": {
+      "sampleSize": 406,
+      "p50Ms": 6,
+      "p95Ms": 21476,
+      "p99Ms": 51563
+    },
+    "apiRequestBySegment": {
+      "runner_control_api_request": {
+        "sampleSize": 83,
+        "p50Ms": 4,
+        "p95Ms": 2149,
+        "p99Ms": 11477
+      },
+      "scheduler_tick": {
+        "sampleSize": 62,
+        "p50Ms": 17282,
+        "p95Ms": 52639,
+        "p99Ms": 67986
+      },
+      "harness_polling_api_request": {
+        "sampleSize": 251,
+        "p50Ms": 4,
+        "p95Ms": 70,
+        "p99Ms": 145
+      },
+      "knowledge_retrieval": {
+        "sampleSize": 10,
+        "p50Ms": 24,
+        "p95Ms": 112,
+        "p99Ms": 112
+      }
+    },
+    "slo": {
+      "sloStatus": "fail",
+      "sloBlocking": false,
+      "enforceLatencySlo": false,
+      "thresholdsMs": {
+        "knowledge_retrieval": 2000,
+        "scheduler_tick": 30000
+      },
+      "includedSegments": [
+        {
+          "segment": "knowledge_retrieval",
+          "sampleSize": 10,
+          "p95Ms": 112,
+          "p95ThresholdMs": 2000,
+          "status": "pass"
+        },
+        {
+          "segment": "scheduler_tick",
+          "sampleSize": 62,
+          "p95Ms": 52639,
+          "p95ThresholdMs": 30000,
+          "status": "fail"
+        }
+      ],
+      "excludedSegments": [
+        "harness_polling_api_request"
+      ],
+      "measurementNote": "harness_polling_api_request is excluded: harness polling is not a production SLO; knowledge_retrieval and scheduler_tick are SLO-observed segments."
+    },
+    "llmOverall": {
+      "sampleSize": 148,
+      "p50Ms": 9155,
+      "p95Ms": 16815,
+      "p99Ms": 22167
+    },
+    "llmAgentP95Ms": {
+      "orchestrator": 16862,
+      "sensor": 12375,
+      "builder": 19463,
+      "distiller": 16815,
+      "librarian": 19271
+    },
+    "totals": {
+      "closedCycles": 17,
+      "resolvedConflicts": 7,
+      "netActiveKnowledge": 7,
+      "totalTokens": 451170,
+      "totalCostUsd": 0.90234
+    },
+    "ratios": {
+      "tokensPerClosedCycle": 26539.411765,
+      "costPerClosedCycleUsd": 0.053079,
+      "tokensPerResolvedConflict": 64452.857143,
+      "costPerResolvedConflictUsd": 0.128906,
+      "tokensPerNetActiveKnowledge": 64452.857143,
+      "costPerNetActiveKnowledgeUsd": 0.128906
+    }
+  },
+  "rssSlopeMbPerHour": -19.823232,
+  "rssSlopeThresholdMbPerHour": 50,
+  "rssSlopeUnder50MbPerHour": true,
+  "notes": [
+    {
+      "type": "benchmark_mapping",
+      "decisionTsr": "task-success-rate style single-scenario oracle check, similar to tau-bench pass@1/pass^k reliability framing",
+      "resolutionAccuracy": "conflict resolution / implicit inference accuracy over deterministic oracle pair rules",
+      "faithfulness": "claim-level lexical NLI proxy for RAGAS/TruLens-style faithfulness; LLM judge interface is reserved but off by default",
+      "confidenceCalibration": "expected calibration error / reliability table over confidence_score or extracted confidence text"
+    },
+    "decisionTsr is a single-scenario pass@1 oracle-state check, not an independent reasoning benchmark.",
+    "pass^k multi-seed reliability is intentionally deferred to v2.",
+    "API latency is runner/harness-observed polling and control request latency under validation load, not an isolated production retrieval SLO.",
+    "Resolution accuracy is blocking only when scoreable coverage meets the configured threshold."
+  ],
+  "sources": {
+    "knowledge": "health-signal.db:knowledge_items",
+    "llmCalls": "health-signal.db:llm_calls",
+    "resolutionEvents": "events.jsonl:knowledge_review_resolved",
+    "apiRequestLatency": "events.jsonl:api_request_timing",
+    "rss": "monitor_log.csv:appRssMb"
+  }
+}

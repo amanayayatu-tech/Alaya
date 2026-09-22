@@ -1,0 +1,66 @@
+{
+  "projectId": "proj_mq6oaxtc",
+  "projectName": "wearable-health-signal-decision",
+  "baseUrl": "http://127.0.0.1:5310",
+  "dbPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/health-signal-smoke-codex-goal-run2/health-signal.db",
+  "logDir": "/Users/LOCAL_USER/Documents/alaya/validation-logs/health-signal-smoke-codex-goal-run2",
+  "startedAt": "2026-06-09T13:26:23.060Z",
+  "endedAt": "2026-06-09T13:54:30.636Z",
+  "validationStartedAt": "2026-06-09T13:26:23.060Z",
+  "sampleCount": 6,
+  "processDurationMs": 1687576,
+  "validationDurationMs": 1687576,
+  "timing": {
+    "durationMs": 1800000,
+    "sampleMs": 300000,
+    "maxSamples": 6,
+    "progressTicksPerSample": 6
+  },
+  "llmProvider": "openai",
+  "model": "MiniMax-M3",
+  "decisionVia": "local_api_human_proxy",
+  "finalDrain": {
+    "status": "blocked",
+    "attempts": 0,
+    "lastAction": "",
+    "pendingGateCount": 4,
+    "pendingConflictReviewCount": 0,
+    "openCycleCount": 1
+  },
+  "assessment": {
+    "criteria": {
+      "deltaReached8": true,
+      "conflictAtLeast5": false,
+      "conflictResolvedAtLeast3": false,
+      "humanGateDropAtLeast30pct": false,
+      "stallGuardUnder5pct": true
+    },
+    "observed": {
+      "firstDelta": "1",
+      "lastDelta": "10",
+      "maxConflictCount": 2,
+      "maxSnapshotConflictCount": 0,
+      "maxResolvedConflictReviews": 2,
+      "cumulativeConflictEvidence": {
+        "maxOpenReviews": 0,
+        "maxResolvedReviews": 2,
+        "resolvedUniqueReviewCount": 2,
+        "maxScanReviewRequired": 2,
+        "maxScanConflictCandidates": 0,
+        "cumulativeConflictCount": 2
+      },
+      "maxStallGuardCount": 0,
+      "cyclesClosed": 12,
+      "earlyPendingGateAverage": 0,
+      "latePendingGateAverage": 3,
+      "humanGatePendingDropRatio": null
+    }
+  },
+  "files": {
+    "monitorCsv": "/Users/LOCAL_USER/Documents/alaya/validation-logs/health-signal-smoke-codex-goal-run2/monitor_log.csv",
+    "eventsJsonl": "/Users/LOCAL_USER/Documents/alaya/validation-logs/health-signal-smoke-codex-goal-run2/events.jsonl",
+    "issuesMd": "/Users/LOCAL_USER/Documents/alaya/validation-logs/health-signal-smoke-codex-goal-run2/issues.md",
+    "appLogPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/health-signal-smoke-codex-goal-run2/app.log",
+    "runnerLogPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/health-signal-smoke-codex-goal-run2/runner.log"
+  }
+}

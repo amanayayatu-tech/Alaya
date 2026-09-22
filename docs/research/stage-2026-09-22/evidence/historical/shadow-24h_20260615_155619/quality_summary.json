@@ -1,0 +1,293 @@
+{
+  "generatedAt": "2026-06-15T16:03:34.003Z",
+  "expectedDecision": "tiered_thesis",
+  "decisionTsr": {
+    "status": "pass",
+    "passed": true,
+    "interpretation": "single-scenario pass@1 check: verifies that the final active/strong card state matches the preset equity-thesis oracle; it is not an independent reasoning benchmark",
+    "passK": {
+      "implemented": false,
+      "plannedVersion": "v2"
+    },
+    "expectedDecision": "tiered_thesis",
+    "eligibleKnowledgeCount": 6,
+    "tieredThesisCount": 2,
+    "disallowedFinalCount": 0,
+    "decisions": {
+      "tiered_thesis": 2,
+      "unknown": 4
+    },
+    "disallowedFinalKnowledge": [],
+    "tieredThesisKnowledge": [
+      {
+        "knowledgeId": "kb_seed_identity_b6u8",
+        "title": "种子身份",
+        "oracleSide": null,
+        "decision": "tiered_thesis",
+        "status": "active"
+      },
+      {
+        "knowledgeId": "kb_seed_world_b6u8",
+        "title": "初始世界模型",
+        "oracleSide": null,
+        "decision": "tiered_thesis",
+        "status": "active"
+      }
+    ]
+  },
+  "resolutionAccuracy": {
+    "status": "insufficient_evidence",
+    "passed": false,
+    "threshold": 0.9,
+    "accuracy": null,
+    "correct": 0,
+    "scored": 0,
+    "unscored": 1,
+    "totalReviewed": 1,
+    "scoreableCoverage": 0,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": false,
+    "dedupeMode": "exact",
+    "pairTypeCounts": {
+      "long_support|short_support": 1
+    },
+    "scoredPairTypeCounts": {},
+    "unscoredPairTypeCounts": {
+      "long_support|short_support": 1
+    },
+    "unscoredReasonCounts": {
+      "ambiguous_same_layer_t3_support_pair": 1
+    },
+    "duplicatePairTypeCounts": {},
+    "scoredEvents": [],
+    "unscoredExamples": [
+      {
+        "reviewId": "kr_70858bf1",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_feb6u8_equity_thesis_contradiction_runner_sample_0001_long_support",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_feb6u8_equity_thesis_contradiction_runner_sample_0002_short_support",
+        "action": "quarantine",
+        "oracleSide": "long_support",
+        "relatedOracleSide": "short_support",
+        "primaryOracleSide": "long_support",
+        "resolutionPairType": "long_support|short_support",
+        "resolutionUnorderedPairType": "long_support|short_support",
+        "primaryResolutionTier": "T3_single_side_support",
+        "relatedResolutionTier": "T3_single_side_support",
+        "expectedDecision": "tiered_thesis",
+        "expectedDisposition": "superseded_or_quarantined_when_conflicted",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": null,
+        "scoreableResolutionRationale": null,
+        "resolutionUnscoredReason": "ambiguous_same_layer_t3_support_pair",
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": false,
+        "resolutionExpectedWinnerSide": null,
+        "resolutionActualWinnerSide": "short_support",
+        "resolutionCorrect": null
+      }
+    ]
+  },
+  "confidenceCalibration": {
+    "status": "low_coverage",
+    "ece": null,
+    "threshold": 0.05,
+    "warnThreshold": 0.1,
+    "bucketCount": 10,
+    "sampleSize": 0,
+    "scored": 0,
+    "unscored": 0,
+    "totalCandidates": 6,
+    "eligible": 0,
+    "denominator": 0,
+    "eligibleConflictKnowledgeTotal": 0,
+    "minEligible": 10,
+    "totalEligible": 0,
+    "scoreableDenominator": 0,
+    "outOfScopeNoOracle": 2,
+    "excludedAsNonConflict": {
+      "count": 6,
+      "reasonCounts": {
+        "governance_or_task_restatement": 2,
+        "no_oracle_side": 2,
+        "seed_identity_or_world": 2
+      },
+      "exampleIds": [
+        "kb_seed_identity_b6u8",
+        "kb_seed_world_b6u8",
+        "kb_gate_gate_meaning_1_e_1_b6u8_f1",
+        "kb_proj_mqfeb6u8_004",
+        "kb_proj_mqfeb6u8_006",
+        "kb_proj_mqfeb6u8_008"
+      ]
+    },
+    "scoreableCoverage": 0,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": false,
+    "reliabilityTable": [],
+    "unscoredReasonCounts": {},
+    "scoredKnowledge": [],
+    "unscoredExamples": []
+  },
+  "faithfulness": {
+    "status": "low_coverage",
+    "judgeMode": "lexical",
+    "faithfulness": null,
+    "hallucinationRate": null,
+    "threshold": 0.95,
+    "stretchMedicalTarget": 0.98,
+    "scored": 0,
+    "supported": 0,
+    "unsupported": 0,
+    "indeterminate": 0,
+    "totalClaims": 0,
+    "evidenceClaimCount": 11,
+    "totalCandidates": 6,
+    "eligible": 0,
+    "denominator": 0,
+    "eligibleConflictKnowledgeTotal": 0,
+    "minEligible": 10,
+    "scoreableDenominator": 0,
+    "scoreableKnowledge": 0,
+    "scoreableKnowledgeItems": 0,
+    "claimScoreableCoverage": 0,
+    "scoreableCoverage": 0,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": false,
+    "unsupportedClaims": [],
+    "indeterminateReasonCounts": {},
+    "indeterminateReasons": {},
+    "excludedAsNonConflict": {
+      "count": 6,
+      "reasonCounts": {
+        "governance_or_task_restatement": 2,
+        "no_oracle_side": 2,
+        "seed_identity_or_world": 2
+      },
+      "exampleIds": [
+        "kb_seed_identity_b6u8",
+        "kb_seed_world_b6u8",
+        "kb_gate_gate_meaning_1_e_1_b6u8_f1",
+        "kb_proj_mqfeb6u8_004",
+        "kb_proj_mqfeb6u8_006",
+        "kb_proj_mqfeb6u8_008"
+      ]
+    },
+    "indeterminateExamples": []
+  },
+  "latencyAndEfficiency": {
+    "measurementNote": "API request latency is runner/harness-observed latency under validation polling load, not an isolated production retrieval SLO.",
+    "apiRequest": {
+      "sampleSize": 86,
+      "p50Ms": 5,
+      "p95Ms": 16960,
+      "p99Ms": 39710
+    },
+    "apiRequestBySegment": {
+      "runner_control_api_request": {
+        "sampleSize": 24,
+        "p50Ms": 2,
+        "p95Ms": 2929,
+        "p99Ms": 19233
+      },
+      "harness_polling_api_request": {
+        "sampleSize": 49,
+        "p50Ms": 3,
+        "p95Ms": 22,
+        "p99Ms": 27
+      },
+      "scheduler_tick": {
+        "sampleSize": 11,
+        "p50Ms": 13453,
+        "p95Ms": 39710,
+        "p99Ms": 39710
+      },
+      "knowledge_retrieval": {
+        "sampleSize": 2,
+        "p50Ms": 6,
+        "p95Ms": 11,
+        "p99Ms": 11
+      }
+    },
+    "slo": {
+      "sloStatus": "fail",
+      "sloBlocking": false,
+      "enforceLatencySlo": false,
+      "thresholdsMs": {
+        "knowledge_retrieval": 2000,
+        "scheduler_tick": 30000
+      },
+      "includedSegments": [
+        {
+          "segment": "knowledge_retrieval",
+          "sampleSize": 2,
+          "p95Ms": 11,
+          "p95ThresholdMs": 2000,
+          "status": "pass"
+        },
+        {
+          "segment": "scheduler_tick",
+          "sampleSize": 11,
+          "p95Ms": 39710,
+          "p95ThresholdMs": 30000,
+          "status": "fail"
+        }
+      ],
+      "excludedSegments": [
+        "harness_polling_api_request"
+      ],
+      "measurementNote": "harness_polling_api_request is excluded: harness polling is not a production SLO; knowledge_retrieval and scheduler_tick are SLO-observed segments."
+    },
+    "llmOverall": {
+      "sampleSize": 24,
+      "p50Ms": 6221,
+      "p95Ms": 19218,
+      "p99Ms": 20941
+    },
+    "llmAgentP95Ms": {
+      "orchestrator": 19218,
+      "sensor": 9519,
+      "builder": 10120,
+      "distiller": 6690,
+      "librarian": 20941
+    },
+    "totals": {
+      "closedCycles": 4,
+      "resolvedConflicts": 1,
+      "netActiveKnowledge": 0,
+      "totalTokens": 50271,
+      "totalCostUsd": 0.100542
+    },
+    "ratios": {
+      "tokensPerClosedCycle": 12567.75,
+      "costPerClosedCycleUsd": 0.025136,
+      "tokensPerResolvedConflict": 50271,
+      "costPerResolvedConflictUsd": 0.100542,
+      "tokensPerNetActiveKnowledge": null,
+      "costPerNetActiveKnowledgeUsd": null
+    }
+  },
+  "rssSlopeMbPerHour": -212.673267,
+  "rssSlopeThresholdMbPerHour": 50,
+  "rssSlopeUnder50MbPerHour": true,
+  "notes": [
+    {
+      "type": "benchmark_mapping",
+      "decisionTsr": "task-success-rate style single-scenario oracle check, similar to tau-bench pass@1/pass^k reliability framing",
+      "resolutionAccuracy": "conflict resolution / implicit inference accuracy over deterministic oracle pair rules",
+      "faithfulness": "claim-level lexical NLI proxy for RAGAS/TruLens-style faithfulness; LLM judge interface is reserved but off by default",
+      "confidenceCalibration": "expected calibration error / reliability table over confidence_score or extracted confidence text"
+    },
+    "decisionTsr is a single-scenario pass@1 oracle-state check, not an independent reasoning benchmark.",
+    "pass^k multi-seed reliability is intentionally deferred to v2.",
+    "API latency is runner/harness-observed polling and control request latency under validation load, not an isolated production retrieval SLO.",
+    "Resolution accuracy is blocking only when scoreable coverage meets the configured threshold."
+  ],
+  "sources": {
+    "knowledge": "health-signal.db:knowledge_items",
+    "llmCalls": "health-signal.db:llm_calls",
+    "resolutionEvents": "events.jsonl:knowledge_review_resolved",
+    "apiRequestLatency": "events.jsonl:api_request_timing",
+    "rss": "monitor_log.csv:appRssMb"
+  }
+}

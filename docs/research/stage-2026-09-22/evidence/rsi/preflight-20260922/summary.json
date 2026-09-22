@@ -1,0 +1,6 @@
+{
+  "status": "RUNTIME_READY",
+  "model": "MiniMax-M3",
+  "requests": 2,
+  "learningEvidence": false
+}

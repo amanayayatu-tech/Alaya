@@ -1,0 +1,126 @@
+{
+  "evidence": "DEVELOPMENT_OFFLINE_PUBLISHED_ALGORITHM_REPRODUCTION",
+  "status": "PUBLISHED_ADVANTAGE_REPRODUCED",
+  "upstream": "https://github.com/google-deepmind/funsearch",
+  "upstreamCommit": "cc53f274237d7ab05c19df939edbc1f9616a7c19",
+  "notebookSha256": "eec45846a8661722addbb856179327cf2ede0bc502e32be4ad58a6ac54e0aca6",
+  "dataset": "OR3, original 20 instances, original item order/capacity/scoring",
+  "datasetSha256": "8d4c41fd3700a2a9583cb3ebf4b73494708696d54cb97ee875fdcde602fc472e",
+  "python": "3.12.14",
+  "numpy": "2.3.5",
+  "baselineMeanBins": 212.0,
+  "publishedHeuristicMeanBins": 207.45,
+  "relativeImprovementPercent": 2.146226415094345,
+  "perInstance": [
+    {
+      "instance": "u500_00",
+      "bestFit": 211,
+      "publishedHeuristic": 204
+    },
+    {
+      "instance": "u500_01",
+      "bestFit": 212,
+      "publishedHeuristic": 208
+    },
+    {
+      "instance": "u500_02",
+      "bestFit": 213,
+      "publishedHeuristic": 206
+    },
+    {
+      "instance": "u500_03",
+      "bestFit": 215,
+      "publishedHeuristic": 212
+    },
+    {
+      "instance": "u500_04",
+      "bestFit": 218,
+      "publishedHeuristic": 213
+    },
+    {
+      "instance": "u500_05",
+      "bestFit": 218,
+      "publishedHeuristic": 213
+    },
+    {
+      "instance": "u500_06",
+      "bestFit": 217,
+      "publishedHeuristic": 217
+    },
+    {
+      "instance": "u500_07",
+      "bestFit": 216,
+      "publishedHeuristic": 212
+    },
+    {
+      "instance": "u500_08",
+      "bestFit": 207,
+      "publishedHeuristic": 202
+    },
+    {
+      "instance": "u500_09",
+      "bestFit": 212,
+      "publishedHeuristic": 207
+    },
+    {
+      "instance": "u500_10",
+      "bestFit": 209,
+      "publishedHeuristic": 204
+    },
+    {
+      "instance": "u500_11",
+      "bestFit": 212,
+      "publishedHeuristic": 207
+    },
+    {
+      "instance": "u500_12",
+      "bestFit": 210,
+      "publishedHeuristic": 205
+    },
+    {
+      "instance": "u500_13",
+      "bestFit": 207,
+      "publishedHeuristic": 201
+    },
+    {
+      "instance": "u500_14",
+      "bestFit": 215,
+      "publishedHeuristic": 210
+    },
+    {
+      "instance": "u500_15",
+      "bestFit": 211,
+      "publishedHeuristic": 208
+    },
+    {
+      "instance": "u500_16",
+      "bestFit": 211,
+      "publishedHeuristic": 207
+    },
+    {
+      "instance": "u500_17",
+      "bestFit": 207,
+      "publishedHeuristic": 203
+    },
+    {
+      "instance": "u500_18",
+      "bestFit": 213,
+      "publishedHeuristic": 208
+    },
+    {
+      "instance": "u500_19",
+      "bestFit": 206,
+      "publishedHeuristic": 202
+    }
+  ],
+  "allPackingsValid": true,
+  "llmRequests": 0,
+  "providerTokens": 0,
+  "elapsedSeconds": 1.552,
+  "limits": [
+    "Published known solutions on a public benchmark; no new algorithm search",
+    "Not a reproduction of training or the full paper",
+    "No private held-out generalization, self-modification, or recursive inheritance claim",
+    "No changes to old Alaya P1 results or thresholds"
+  ]
+}

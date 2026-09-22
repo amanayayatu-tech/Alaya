@@ -1,0 +1,410 @@
+{
+  "diagnostic": "sql-format-posthoc",
+  "status": "posthoc_exploratory_not_frozen_evidence",
+  "generatedFrom": {
+    "runDir": "/Users/LOCAL_USER/Documents/Codex/2026-09-08/k/work/sql-transfer-final-20260909",
+    "summaryCompletedAt": "2026-09-08T17:06:10.911Z",
+    "summaryFile": "/Users/LOCAL_USER/Documents/Codex/2026-09-08/k/work/sql-transfer-final-20260909/summary.json",
+    "resultsFile": "/Users/LOCAL_USER/Documents/Codex/2026-09-08/k/work/sql-transfer-final-20260909/results.jsonl",
+    "requestsFile": "/Users/LOCAL_USER/Documents/Codex/2026-09-08/k/work/sql-transfer-final-20260909/requests.jsonl",
+    "casesFile": "/Users/LOCAL_USER/Documents/Codex/2026-09-08/k/work/sql-transfer-final-20260909/cases.json",
+    "oracleFile": "/Users/LOCAL_USER/Documents/Codex/2026-09-08/k/work/alaya-cognition-20260909/scripts/lib/sql-repair-cases.py",
+    "oracleMethod": "evaluate_case(case, extracted_sql)"
+  },
+  "scope": {
+    "sourceFilesRead": [
+      "summary.json",
+      "results.jsonl",
+      "requests.jsonl",
+      "cases.json"
+    ],
+    "builderSchemaFailures": 7,
+    "testBuilderSchemaFailures": 3,
+    "trainBuilderSchemaFailures": 4,
+    "providerCallsMade": 0,
+    "runDirectoryModified": false,
+    "mainSummaryModified": false
+  },
+  "frozenMainMetric": {
+    "summaryScores": {
+      "none": {
+        "n": 24,
+        "correct": 18,
+        "schemaFailures": 3
+      },
+      "raw": {
+        "n": 24,
+        "correct": 24,
+        "schemaFailures": 0
+      },
+      "alaya": {
+        "n": 24,
+        "correct": 22,
+        "schemaFailures": 0
+      }
+    },
+    "testArmsAggregate": {
+      "correct": 64,
+      "n": 72,
+      "rate": 0.8888888888888888
+    }
+  },
+  "threeArmSqlSemanticRates": {
+    "none": {
+      "phase": "test",
+      "n": 24,
+      "frozenJsonSql": {
+        "correct": 18,
+        "n": 24,
+        "rate": 0.75,
+        "schemaFailures": 3
+      },
+      "posthocSqlSemantic": {
+        "correct": 21,
+        "n": 24,
+        "rate": 0.875,
+        "recoveredSchemaFailures": 3
+      },
+      "deltaPercentagePoints": 12.5,
+      "summaryResultCountMatches": true
+    },
+    "raw": {
+      "phase": "test",
+      "n": 24,
+      "frozenJsonSql": {
+        "correct": 24,
+        "n": 24,
+        "rate": 1.0,
+        "schemaFailures": 0
+      },
+      "posthocSqlSemantic": {
+        "correct": 24,
+        "n": 24,
+        "rate": 1.0,
+        "recoveredSchemaFailures": 0
+      },
+      "deltaPercentagePoints": 0.0,
+      "summaryResultCountMatches": true
+    },
+    "alaya": {
+      "phase": "test",
+      "n": 24,
+      "frozenJsonSql": {
+        "correct": 22,
+        "n": 24,
+        "rate": 0.9166666666666666,
+        "schemaFailures": 0
+      },
+      "posthocSqlSemantic": {
+        "correct": 22,
+        "n": 24,
+        "rate": 0.9166666666666666,
+        "recoveredSchemaFailures": 0
+      },
+      "deltaPercentagePoints": 0.0,
+      "summaryResultCountMatches": true
+    }
+  },
+  "aggregateTestSqlSemantic": {
+    "frozenJsonSql": {
+      "correct": 64,
+      "n": 72,
+      "rate": 0.8888888888888888
+    },
+    "posthocSqlSemantic": {
+      "correct": 67,
+      "n": 72,
+      "rate": 0.9305555555555556,
+      "recoveredTestSchemaFailures": 3
+    },
+    "deltaPercentagePoints": 4.166666666666674
+  },
+  "extractionModeRatesAmongAllBuilderSchemaFailures": {
+    "fencedSql": {
+      "correct": 7,
+      "n": 7,
+      "rate": 1.0,
+      "eligible": 7
+    },
+    "rawSelectOrWith": {
+      "correct": 0,
+      "n": 0,
+      "rate": null,
+      "eligible": 0
+    }
+  },
+  "trainingSchemaFailureRecovery": {
+    "fencedSql": {
+      "correct": 4,
+      "n": 4,
+      "rate": 1.0
+    },
+    "tasks": [
+      "train-aggregation-01",
+      "train-aggregation-03",
+      "train-funnel-01",
+      "train-latest-status-01"
+    ]
+  },
+  "formatFailureTasks": [
+    {
+      "taskId": "test-funnel-01",
+      "family": "funnel",
+      "phase": "test",
+      "arm": "none",
+      "requestCall": 99,
+      "requestMatch": "single_builder_request",
+      "responseContentSha256": "a140ea4cadf855f2f3cb82ea8b4d9102e9a2df1296d9e812e8542e4d17da6220",
+      "responseContentLength": 1214,
+      "fenceMatchCount": 1,
+      "selectedExtraction": "fenced_sql",
+      "fencedSql": "WITH first_view AS (\n  SELECT person_id, MIN(event_time) AS view_at\n  FROM funnel_events_te_funnel_01\n  WHERE event_type = 'view'\n    AND event_time >= '2025-01-12 00:00:00'\n    AND event_time <= '2025-01-14 00:00:00'\n  GROUP BY person_id\n),\nfirst_cart AS (\n  SELECT e.person_id, MIN(e.event_time) AS cart_at\n  FROM funnel_events_te_funnel_01 e\n  JOIN first_view v ON v.person_id = e.person_id\n  WHERE e.event_type = 'add_to_cart'\n    AND e.event_time >= v.view_at\n    AND e.event_time <= '2025-01-14 00:00:00'\n  GROUP BY e.person_id\n),\nfirst_purchase AS (\n  SELECT e.person_id, MIN(e.event_time) AS purchase_at\n  FROM funnel_events_te_funnel_01 e\n  JOIN first_view v ON v.person_id = e.person_id\n  WHERE e.event_type = 'purchase'\n    AND e.event_time >= v.view_at\n    AND e.event_time <= '2025-01-14 00:00:00'\n  GROUP BY e.person_id\n)\nSELECT\n  p.person_id,\n  v.view_at,\n  c.cart_at,\n  x.purchase_at,\n  CASE WHEN v.person_id IS NOT NULL AND x.person_id IS NOT NULL THEN 1 ELSE 0 END AS converted\nFROM people_te_funnel_01 p\nLEFT JOIN first_view v ON v.person_id = p.person_id\nLEFT JOIN first_cart c ON c.person_id = p.person_id\nLEFT JOIN first_purchase x ON x.person_id = p.person_id\nORDER BY p.person_id\n",
+      "rawSql": null,
+      "original": {
+        "schemaValid": false,
+        "outcome": {
+          "checks": 0,
+          "error": "sql must be a non-empty string",
+          "passed": false,
+          "passedChecks": 0
+        }
+      },
+      "pureSql": {
+        "fenced": {
+          "passed": true,
+          "checks": 4,
+          "passedChecks": 4
+        },
+        "raw": null,
+        "selected": {
+          "passed": true,
+          "checks": 4,
+          "passedChecks": 4
+        }
+      }
+    },
+    {
+      "taskId": "test-funnel-03",
+      "family": "funnel",
+      "phase": "test",
+      "arm": "none",
+      "requestCall": 74,
+      "requestMatch": "single_builder_request",
+      "responseContentSha256": "c536586f7346e9e111d37bdeef815aca37fba8e2d5e9dba3ebe91b2886aaf09c",
+      "responseContentLength": 1231,
+      "fenceMatchCount": 1,
+      "selectedExtraction": "fenced_sql",
+      "fencedSql": "WITH in_window_events AS (\n  SELECT person_id, event_type, event_time\n  FROM funnel_events_te_funnel_03\n  WHERE event_time >= '2025-01-11 00:00:00'\n    AND event_time <= '2025-01-13 00:00:00'\n    AND channel = 'web'\n),\nfirst_view AS (\n  SELECT person_id, MIN(event_time) AS view_at\n  FROM in_window_events\n  WHERE event_type = 'view'\n  GROUP BY person_id\n),\nfirst_cart AS (\n  SELECT v.person_id, MIN(e.event_time) AS cart_at\n  FROM first_view v\n  JOIN in_window_events e\n    ON e.person_id = v.person_id\n   AND e.event_type = 'add_to_cart'\n   AND e.event_time > v.view_at\n  GROUP BY v.person_id\n),\nfirst_purchase AS (\n  SELECT v.person_id, MIN(e.event_time) AS purchase_at\n  FROM first_view v\n  JOIN in_window_events e\n    ON e.person_id = v.person_id\n   AND e.event_type = 'purchase'\n   AND e.event_time > v.view_at\n  GROUP BY v.person_id\n)\nSELECT\n  p.person_id,\n  v.view_at,\n  c.cart_at,\n  x.purchase_at,\n  CASE WHEN v.view_at IS NOT NULL AND x.purchase_at IS NOT NULL THEN 1 ELSE 0 END AS converted\nFROM people_te_funnel_03 p\nLEFT JOIN first_view      v ON v.person_id = p.person_id\nLEFT JOIN first_cart      c ON c.person_id = p.person_id\nLEFT JOIN first_purchase  x ON x.person_id = p.person_id\nORDER BY p.person_id\n",
+      "rawSql": null,
+      "original": {
+        "schemaValid": false,
+        "outcome": {
+          "checks": 0,
+          "error": "sql must be a non-empty string",
+          "passed": false,
+          "passedChecks": 0
+        }
+      },
+      "pureSql": {
+        "fenced": {
+          "passed": true,
+          "checks": 4,
+          "passedChecks": 4
+        },
+        "raw": null,
+        "selected": {
+          "passed": true,
+          "checks": 4,
+          "passedChecks": 4
+        }
+      }
+    },
+    {
+      "taskId": "test-latest-status-07",
+      "family": "latest_status",
+      "phase": "test",
+      "arm": "none",
+      "requestCall": 56,
+      "requestMatch": "single_builder_request",
+      "responseContentSha256": "0fbbadffd198c1e4f5643e014a0207b6bc3436e2af877f0f49a6f31300601746",
+      "responseContentLength": 669,
+      "fenceMatchCount": 1,
+      "selectedExtraction": "fenced_sql",
+      "fencedSql": "WITH eligible_events AS (\n  SELECT s.entity_id, s.event_time, s.seq, s.status, s.event_id\n  FROM status_events_te_latest_07 s\n  WHERE s.event_time <= '2025-01-14 12:00:00'\n    AND s.status IN ('draft','ready','approved','queued','running','done','paused')\n),\nranked AS (\n  SELECT\n    e.entity_id,\n    ee.status,\n    ee.event_time,\n    ee.seq,\n    ROW_NUMBER() OVER (\n      PARTITION BY e.entity_id\n      ORDER BY ee.event_time DESC, ee.seq DESC, ee.event_id DESC\n    ) AS rn\n  FROM entities_te_latest_07 e\n  LEFT JOIN eligible_events ee ON ee.entity_id = e.entity_id\n)\nSELECT entity_id, status, event_time, seq\nFROM ranked\nWHERE rn = 1\nORDER BY entity_id ASC\n",
+      "rawSql": null,
+      "original": {
+        "schemaValid": false,
+        "outcome": {
+          "checks": 0,
+          "error": "sql must be a non-empty string",
+          "passed": false,
+          "passedChecks": 0
+        }
+      },
+      "pureSql": {
+        "fenced": {
+          "passed": true,
+          "checks": 4,
+          "passedChecks": 4
+        },
+        "raw": null,
+        "selected": {
+          "passed": true,
+          "checks": 4,
+          "passedChecks": 4
+        }
+      }
+    },
+    {
+      "taskId": "train-aggregation-01",
+      "family": "aggregation",
+      "phase": "train",
+      "arm": "alaya",
+      "requestCall": 7,
+      "requestMatch": "single_builder_request",
+      "responseContentSha256": "289f6179e59f9016ba0ab7a58844a2e2232aa4cd882419c99149315f5836fae8",
+      "responseContentLength": 1092,
+      "fenceMatchCount": 1,
+      "selectedExtraction": "fenced_sql",
+      "fencedSql": "WITH qualifying_orders AS (\n  SELECT order_id, account_id, gross_cents\n  FROM orders_tr_agg_01\n  WHERE status IN ('paid', 'settled')\n    AND currency = 'USD'\n),\nposted_refunds AS (\n  SELECT order_id, SUM(refund_cents) AS refund_cents\n  FROM refunds_tr_agg_01\n  WHERE refund_status = 'posted'\n  GROUP BY order_id\n),\nconsidered_orders AS (\n  SELECT qo.order_id, qo.account_id, qo.gross_cents, pr.refund_cents\n  FROM qualifying_orders qo\n  INNER JOIN posted_refunds pr ON pr.order_id = qo.order_id\n)\nSELECT\n  a.account_id AS account_id,\n  COUNT(co.order_id) AS paid_order_count,\n  COALESCE(SUM(co.gross_cents), 0) AS gross_cents,\n  COALESCE(SUM(co.refund_cents), 0) AS refund_cents,\n  COALESCE(SUM(co.gross_cents), 0) - COALESCE(SUM(co.refund_cents), 0) AS net_cents,\n  CASE\n    WHEN COALESCE(SUM(co.gross_cents), 0) = 0 THEN NULL\n    ELSE ROUND(SUM(co.refund_cents) * 100.0 / SUM(co.gross_cents), 6)\n  END AS refund_rate_pct\nFROM accounts_tr_agg_01 a\nINNER JOIN considered_orders co ON co.account_id = a.account_id\nWHERE a.region = 'west'\nGROUP BY a.account_id\nORDER BY a.account_id;\n",
+      "rawSql": null,
+      "original": {
+        "schemaValid": false,
+        "outcome": {
+          "checks": 0,
+          "error": "sql must be a non-empty string",
+          "passed": false,
+          "passedChecks": 0
+        }
+      },
+      "pureSql": {
+        "fenced": {
+          "passed": true,
+          "checks": 4,
+          "passedChecks": 4
+        },
+        "raw": null,
+        "selected": {
+          "passed": true,
+          "checks": 4,
+          "passedChecks": 4
+        }
+      }
+    },
+    {
+      "taskId": "train-aggregation-03",
+      "family": "aggregation",
+      "phase": "train",
+      "arm": "alaya",
+      "requestCall": 19,
+      "requestMatch": "single_builder_request",
+      "responseContentSha256": "8c95e6d14ad1ea98833129ded3bd05d03a07b359026030e90c84f09ab43fba59",
+      "responseContentLength": 1320,
+      "fenceMatchCount": 1,
+      "selectedExtraction": "fenced_sql",
+      "fencedSql": "WITH qualifying_orders AS (\n  SELECT order_id, account_id, gross_cents\n  FROM orders_tr_agg_03\n  WHERE status IN ('paid', 'settled')\n    AND currency = 'EUR'\n    AND gross_cents <> 0\n),\norder_refunds AS (\n  SELECT r.order_id,\n         SUM(r.refund_cents) AS refund_total\n  FROM refunds_tr_agg_03 r\n  INNER JOIN qualifying_orders qo ON qo.order_id = r.order_id\n  WHERE r.refund_status = 'posted'\n  GROUP BY r.order_id\n),\nconsidered_orders AS (\n  SELECT qo.order_id,\n         qo.account_id,\n         qo.gross_cents,\n         CASE WHEN oref.refund_total > qo.gross_cents\n              THEN qo.gross_cents\n              ELSE oref.refund_total\n         END AS capped_refund\n  FROM qualifying_orders qo\n  INNER JOIN order_refunds oref ON oref.order_id = qo.order_id\n)\nSELECT co.account_id AS account_id,\n       COUNT(*) AS paid_order_count,\n       SUM(co.gross_cents) AS gross_cents,\n       SUM(co.capped_refund) AS refund_cents,\n       SUM(co.gross_cents) - SUM(co.capped_refund) AS net_cents,\n       CASE WHEN SUM(co.gross_cents) = 0 THEN NULL\n            ELSE ROUND(SUM(co.capped_refund) * 100.0 / SUM(co.gross_cents), 6)\n       END AS refund_rate_pct\nFROM considered_orders co\nINNER JOIN accounts_tr_agg_03 a ON a.account_id = co.account_id\nWHERE a.region = 'east'\nGROUP BY co.account_id\nORDER BY co.account_id;\n",
+      "rawSql": null,
+      "original": {
+        "schemaValid": false,
+        "outcome": {
+          "checks": 0,
+          "error": "sql must be a non-empty string",
+          "passed": false,
+          "passedChecks": 0
+        }
+      },
+      "pureSql": {
+        "fenced": {
+          "passed": true,
+          "checks": 4,
+          "passedChecks": 4
+        },
+        "raw": null,
+        "selected": {
+          "passed": true,
+          "checks": 4,
+          "passedChecks": 4
+        }
+      }
+    },
+    {
+      "taskId": "train-funnel-01",
+      "family": "funnel",
+      "phase": "train",
+      "arm": "alaya",
+      "requestCall": 11,
+      "requestMatch": "single_builder_request",
+      "responseContentSha256": "39de23e89657f3212bf4de56b2326fc3099d5a5478f1d29e9f258437bc80d2a7",
+      "responseContentLength": 1238,
+      "fenceMatchCount": 1,
+      "selectedExtraction": "fenced_sql",
+      "fencedSql": "WITH first_view AS (\n  SELECT person_id, MIN(event_time) AS view_at\n  FROM funnel_events_tr_funnel_01\n  WHERE event_type = 'view' AND event_time >= '2025-01-12 00:00:00' AND event_time <= '2025-01-14 00:00:00' AND channel = 'web'\n  GROUP BY person_id\n), first_cart AS (\n  SELECT e.person_id, MIN(e.event_time) AS cart_at\n  FROM funnel_events_tr_funnel_01 e JOIN first_view v ON v.person_id = e.person_id\n  WHERE e.event_type = 'add_to_cart' AND e.event_time >= v.view_at AND e.event_time <= '2025-01-14 00:00:00' AND e.channel = 'web'\n  GROUP BY e.person_id\n), first_purchase AS (\n  SELECT e.person_id, MIN(e.event_time) AS purchase_at\n  FROM funnel_events_tr_funnel_01 e JOIN first_view v ON v.person_id = e.person_id\n  WHERE e.event_type = 'purchase' AND e.event_time >= v.view_at AND e.event_time <= '2025-01-14 00:00:00' AND e.channel = 'web'\n  GROUP BY e.person_id\n)\nSELECT p.person_id, v.view_at, c.cart_at, x.purchase_at,\n       CASE WHEN v.person_id IS NULL OR x.person_id IS NULL THEN 0 ELSE 1 END AS converted\nFROM people_tr_funnel_01 p\nLEFT JOIN first_view v ON v.person_id = p.person_id\nLEFT JOIN first_cart c ON c.person_id = p.person_id\nLEFT JOIN first_purchase x ON x.person_id = p.person_id\nORDER BY p.person_id\n",
+      "rawSql": null,
+      "original": {
+        "schemaValid": false,
+        "outcome": {
+          "checks": 0,
+          "error": "sql must be a non-empty string",
+          "passed": false,
+          "passedChecks": 0
+        }
+      },
+      "pureSql": {
+        "fenced": {
+          "passed": true,
+          "checks": 4,
+          "passedChecks": 4
+        },
+        "raw": null,
+        "selected": {
+          "passed": true,
+          "checks": 4,
+          "passedChecks": 4
+        }
+      }
+    },
+    {
+      "taskId": "train-latest-status-01",
+      "family": "latest_status",
+      "phase": "train",
+      "arm": "alaya",
+      "requestCall": 9,
+      "requestMatch": "single_builder_request",
+      "responseContentSha256": "73eebeb07c4246435f7c541e63fabf3628ff9455b39a17982c89a90168168b18",
+      "responseContentLength": 692,
+      "fenceMatchCount": 1,
+      "selectedExtraction": "fenced_sql",
+      "fencedSql": "WITH eligible AS (\n  SELECT s.event_id, s.entity_id, s.event_time, s.seq, s.status\n  FROM status_events_tr_latest_01 s\n  WHERE s.event_time < '2025-01-14 12:00:00'\n    AND s.status IN ('draft','ready','approved','queued','running','done','paused')\n),\nranked AS (\n  SELECT\n    e.entity_id,\n    e.event_id,\n    e.event_time,\n    e.seq,\n    e.status,\n    ROW_NUMBER() OVER (\n      PARTITION BY e.entity_id\n      ORDER BY e.event_time DESC, e.seq ASC, e.event_id DESC\n    ) AS rn\n  FROM eligible e\n)\nSELECT e.entity_id, r.status, r.event_time, r.seq\nFROM entities_tr_latest_01 e\nLEFT JOIN ranked r\n  ON r.entity_id = e.entity_id AND r.rn = 1\nWHERE e.is_active = 1\nORDER BY e.entity_id;\n",
+      "rawSql": null,
+      "original": {
+        "schemaValid": false,
+        "outcome": {
+          "checks": 0,
+          "error": "sql must be a non-empty string",
+          "passed": false,
+          "passedChecks": 0
+        }
+      },
+      "pureSql": {
+        "fenced": {
+          "passed": true,
+          "checks": 4,
+          "passedChecks": 4
+        },
+        "raw": null,
+        "selected": {
+          "passed": true,
+          "checks": 4,
+          "passedChecks": 4
+        }
+      }
+    }
+  ],
+  "notes": [
+    "The original JSON+SQL metric is preserved from summary.json; no frozen result is overwritten.",
+    "For each listed failure, the selected SQL is copied from the matching real HTTP response.message.content: only the code-fence markers are removed for fencedSql; rawSql is kept verbatim.",
+    "Pure SQL truth is the independent Python oracle across the case's fixtures, not the model's self-report and not goldSql alone.",
+    "A post-hoc recovery rate cannot establish a predeclared positive result or prove that the learning loop caused the SQL behavior.",
+    "A zero-denominator raw SELECT/WITH group is reported as rate=null rather than treated as zero."
+  ]
+}

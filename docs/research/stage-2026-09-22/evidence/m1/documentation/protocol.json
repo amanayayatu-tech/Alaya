@@ -1,0 +1,114 @@
+{
+  "id": "ALAYA-M1-KNOWLEDGE-TRANSFER",
+  "protocolVersion": 2,
+  "sampleSeed": "alaya-m1-20260919",
+  "worldSeed": "alaya-m1-20260919",
+  "baseCommit": "7802ae20c3df5d3afd23d439291798d7796fca1e",
+  "domainSource": {
+    "sha": "b7090b11b41f358f4d82906c86be835a68c06e64",
+    "path": "scripts/lib/learning-scenario-domain.json"
+  },
+  "rulesSource": {
+    "sha": "b7090b11b41f358f4d82906c86be835a68c06e64",
+    "path": "scripts/lib/learning-scenario-generator.mjs",
+    "symbol": "buildWorldRules"
+  },
+  "counts": {
+    "universe": 4096,
+    "train": 40,
+    "dev": 20,
+    "test": 20,
+    "testRepeats": 2,
+    "minActionClasses": 2
+  },
+  "knowledge": {
+    "maxItems": 5,
+    "maxChars": 2000,
+    "status": "experimental_only",
+    "maxDistillRounds": 2,
+    "idPrefix": "exp_"
+  },
+  "gates": {
+    "devNetMin": 2,
+    "testNetMinPerRepeat": 3,
+    "noCandidateSkipsDev": true
+  },
+  "budget": {
+    "logicalCalls": 162,
+    "maxProviderRequests": 180,
+    "maxTokens": 500000
+  },
+  "model": {
+    "name": "MiniMax-M3",
+    "baseUrl": "https://api.minimax.io/openai",
+    "promptVersionDecision": "alaya-m1-decision-v1",
+    "promptVersionDistill": "alaya-m1-distill-v1",
+    "temperature": 0.2,
+    "maxRetries": 1,
+    "maxOutputTokens": 512
+  },
+  "liveRequires": [
+    "--authorize-live",
+    "ALAYA_M1_AUTHORIZE_LIVE=1"
+  ],
+  "revision": "ALAYA-M1.1-OFFICIAL",
+  "historicalRun": "validation-logs/m1/2026-09-19T09-19-20-583Z",
+  "preflight": {
+    "maxProviderRequests": 12,
+    "maxTokens": 30000,
+    "logicalCalls": 10,
+    "diagnosticOnly": true
+  },
+  "officialRun": {
+    "id": "ALAYA-M1.1-OFFICIAL-20260919",
+    "preflightRun": "validation-logs/m1/preflight-2026-09-19T09-56-27-363Z",
+    "preflightStatus": "PREFLIGHT_PASS",
+    "historicalRun": "validation-logs/m1/2026-09-19T09-19-20-583Z",
+    "historicalStatus": "NO_SIGNAL_ON_DEV",
+    "devUsedForDiagnosis": true,
+    "oldTestHadScoredResults": false,
+    "inheritOldBudget": false,
+    "handwrittenPositiveControlExcluded": true,
+    "codeFreeze": [
+      {
+        "path": "experiments/m1/protocol.json",
+        "sha256": "b23b0707629d6d7ecd66b042efb7ff4dc27a98eba387db6124e6445eb5c15da8",
+        "bytes": 1580
+      },
+      {
+        "path": "experiments/m1/domain.json",
+        "sha256": "85503fa3b82777013aa10bbb68fad55d88cefca7e6cfb8d2adb5ee1a754ba97f",
+        "bytes": 4322
+      },
+      {
+        "path": "experiments/m1/dataset.ts",
+        "sha256": "0c8cefb31733709d99acd1276aab8b11e5dd925e7147502424c802462eeaa601",
+        "bytes": 18210
+      },
+      {
+        "path": "experiments/m1/runner.ts",
+        "sha256": "f984535791ea856ad76b28010be31c7f67e9bdca2884e9839a6414ab780bd693",
+        "bytes": 41073
+      },
+      {
+        "path": "experiments/m1/runner.test.ts",
+        "sha256": "9389aff1e5e4a2cb489e643258a1fcc3d3dcf0a296a9c49ea5def04edce2aa05",
+        "bytes": 10503
+      }
+    ],
+    "modelFreeze": {
+      "name": "MiniMax-M3",
+      "baseUrl": "https://api.minimax.io/openai",
+      "promptVersionDecision": "alaya-m1-decision-v1",
+      "promptVersionDistill": "alaya-m1-distill-v1",
+      "temperature": 0.2,
+      "maxRetries": 1,
+      "maxOutputTokens": 512
+    },
+    "budget": {
+      "logicalCalls": 162,
+      "maxProviderRequests": 180,
+      "maxTokens": 500000
+    }
+  }
+}

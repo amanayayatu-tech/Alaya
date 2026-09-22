@@ -1,0 +1,14 @@
+{
+  "status": "READY_FOR_AUTHORIZED_K1_DIAGNOSE",
+  "reason": "Zero-call only. Live replay needs --authorize-live and ALAYA_M1_AUTHORIZE_LIVE=1. Budget: 2 HTTP / 30000 tokens. No Train/Dev/Test.",
+  "config": {
+    "model": "MiniMax-M3",
+    "baseUrl": "https://api.minimax.io/openai",
+    "temperature": 0.2,
+    "maxRetries": 1,
+    "maxOutputTokens": 512,
+    "diagnosticSingleAttempt": true,
+    "rebuiltNotByteReplay": true
+  },
+  "loggedRequestIsAgentContextNotHttp": true
+}

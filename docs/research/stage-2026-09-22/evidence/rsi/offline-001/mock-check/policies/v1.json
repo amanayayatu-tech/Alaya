@@ -1,0 +1,55 @@
+{
+  "id": "v1",
+  "policy": "You optimize an online bin-packing algorithm under a fixed experimental allocation.\nReturn one complete candidate function and one short, falsifiable improvement hypothesis.\nRespect the online input and legal output contract.\nWhen real history is supplied, inspect the current champion and recent failures, then choose one evidence-based change.\nWhen history is absent, propose a candidate from the supplied initial algorithm and task description.\nPreserve useful behavior; do not claim tests were executed unless execution receipts were supplied.\nDo not change the evaluator, data access, tools, or resource allocation.\nWhen asked to improve your own research policy, use actual development traces to propose one limited change to how you form hypotheses, interpret feedback, or choose the next modification.\n\nUse verified training feedback to choose a single small modification.",
+  "changeReason": "mock format and lineage check",
+  "parent": "v0",
+  "editor": "v0",
+  "sourceHash": "63c34ec75f3d0fd2d5bdcfd69a50d82bd934aa07a7c48fad3d95a69773248893",
+  "editorHash": "63c34ec75f3d0fd2d5bdcfd69a50d82bd934aa07a7c48fad3d95a69773248893",
+  "policyHash": "edbcca4713e54d7faafd33ee31db03a8d3683a38589cfffe6cf5b40045f7493c",
+  "materialHash": "6b9bfc795b30fa8c115fc956981c3d075efd911d9915e4b14c858fbb40513941",
+  "material": {
+    "sourcePolicy": "You optimize an online bin-packing algorithm under a fixed experimental allocation.\nReturn one complete candidate function and one short, falsifiable improvement hypothesis.\nRespect the online input and legal output contract.\nWhen real history is supplied, inspect the current champion and recent failures, then choose one evidence-based change.\nWhen history is absent, propose a candidate from the supplied initial algorithm and task description.\nPreserve useful behavior; do not claim tests were executed unless execution receipts were supplied.\nDo not change the evaluator, data access, tools, or resource allocation.\nWhen asked to improve your own research policy, use actual development traces to propose one limited change to how you form hypotheses, interpret feedback, or choose the next modification.\n",
+    "traces": [
+      {
+        "trial": "p1-D-combined-r0-v0",
+        "attempt": 0,
+        "code": "function chooseBin(item, remainingCapacities) {\n  let best = -1;\n  for (let i = 0; i < remainingCapacities.length; i++) {\n    if (remainingCapacities[i] >= item && (best === -1 || remainingCapacities[i] < remainingCapacities[best])) best = i;\n  }\n  return best;\n}",
+        "hypothesis": "mock baseline",
+        "train": {
+          "mean": 124.16666666666667,
+          "valid": true,
+          "error": null
+        }
+      },
+      {
+        "trial": "p1-D-combined-r1-v0",
+        "attempt": 0,
+        "code": "function chooseBin(item, remainingCapacities) {\n  let best = -1;\n  for (let i = 0; i < remainingCapacities.length; i++) {\n    if (remainingCapacities[i] >= item && (best === -1 || remainingCapacities[i] < remainingCapacities[best])) best = i;\n  }\n  return best;\n}",
+        "hypothesis": "mock baseline",
+        "train": {
+          "mean": 129.16666666666666,
+          "valid": true,
+          "error": null
+        }
+      },
+      {
+        "trial": "p1-D-combined-r2-v0",
+        "attempt": 0,
+        "code": "function chooseBin(item, remainingCapacities) {\n  let best = -1;\n  for (let i = 0; i < remainingCapacities.length; i++) {\n    if (remainingCapacities[i] >= item && (best === -1 || remainingCapacities[i] < remainingCapacities[best])) best = i;\n  }\n  return best;\n}",
+        "hypothesis": "mock baseline",
+        "train": {
+          "mean": 123.33333333333333,
+          "valid": true,
+          "error": null
+        }
+      }
+    ]
+  },
+  "change": {
+    "before": "You optimize an online bin-packing algorithm under a fixed experimental allocation.\nReturn one complete candidate function and one short, falsifiable improvement hypothesis.\nRespect the online input and legal output contract.\nWhen real history is supplied, inspect the current champion and recent failures, then choose one evidence-based change.\nWhen history is absent, propose a candidate from the supplied initial algorithm and task description.\nPreserve useful behavior; do not claim tests were executed unless execution receipts were supplied.\nDo not change the evaluator, data access, tools, or resource allocation.\nWhen asked to improve your own research policy, use actual development traces to propose one limited change to how you form hypotheses, interpret feedback, or choose the next modification.\n",
+    "after": "You optimize an online bin-packing algorithm under a fixed experimental allocation.\nReturn one complete candidate function and one short, falsifiable improvement hypothesis.\nRespect the online input and legal output contract.\nWhen real history is supplied, inspect the current champion and recent failures, then choose one evidence-based change.\nWhen history is absent, propose a candidate from the supplied initial algorithm and task description.\nPreserve useful behavior; do not claim tests were executed unless execution receipts were supplied.\nDo not change the evaluator, data access, tools, or resource allocation.\nWhen asked to improve your own research policy, use actual development traces to propose one limited change to how you form hypotheses, interpret feedback, or choose the next modification.\n\nUse verified training feedback to choose a single small modification."
+  },
+  "acceptedAttempt": 0,
+  "noTestInput": true
+}

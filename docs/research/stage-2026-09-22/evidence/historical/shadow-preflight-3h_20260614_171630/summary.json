@@ -1,0 +1,103 @@
+{
+  "projectId": "proj_mqdklbi9",
+  "projectName": "wearable-health-signal-decision",
+  "baseUrl": "http://127.0.0.1:64610",
+  "dbPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-preflight-3h_20260614_171630/health-signal.db",
+  "logDir": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-preflight-3h_20260614_171630",
+  "startedAt": "2026-06-14T09:16:53.561Z",
+  "endedAt": "2026-06-14T12:18:32.056Z",
+  "validationStartedAt": "2026-06-14T09:16:53.561Z",
+  "sampleCount": 61,
+  "processDurationMs": 10898495,
+  "validationDurationMs": 10898495,
+  "timing": {
+    "durationMs": 10800000,
+    "sampleMs": 60000,
+    "maxSamples": 180,
+    "progressTicksPerSample": 6
+  },
+  "scenario": {
+    "name": "standard",
+    "seed": null,
+    "runId": null,
+    "evidenceOrder": [
+      "ppg_support",
+      "ecg_support",
+      "ppg_risk",
+      "ecg_risk",
+      "hybrid_support",
+      "hybrid_reject"
+    ],
+    "qualityCanaryOffsetSamples": 0,
+    "conflictFloodHoldSamples": 0,
+    "conflictFloodMaxResolutionsPerSample": null,
+    "qualityCanaryEverySamples": 5
+  },
+  "llmProvider": "openai",
+  "model": "MiniMax-M3",
+  "decisionVia": "local_api_human_proxy",
+  "finalDrain": {
+    "status": "complete",
+    "attempts": 2,
+    "lastAction": "ran_operational_stages"
+  },
+  "assessment": {
+    "criteria": {
+      "deltaReached8": true,
+      "activeNeverZero": true,
+      "tokenSourceProviderAtLeast95pct": true,
+      "semanticContradictionBypassZero": true,
+      "conflictAtLeast5": true,
+      "conflictResolvedAtLeast3": true,
+      "humanGateDropAtLeast30pct": null,
+      "stallGuardUnder5pct": true,
+      "sampleFailedZero": true
+    },
+    "observed": {
+      "firstDelta": "1",
+      "lastDelta": "165",
+      "firstCurrentDelta": "1",
+      "lastCurrentDelta": "165",
+      "minActiveKnowledgeCount": 4,
+      "finalActiveKnowledgeCount": "118",
+      "finalLlmTokenSource": "mixed_provider_99pct",
+      "lastLlmTokenSourceStats": {
+        "total": 1011,
+        "provider": 1004,
+        "estimated": 7,
+        "providerRatio": 0.9931,
+        "label": "mixed_provider_99pct"
+      },
+      "semanticContradictionBypassCount": 0,
+      "sampleFailedCount": 0,
+      "maxConflictCount": 42,
+      "maxSnapshotConflictCount": 19,
+      "maxResolvedConflictReviews": 42,
+      "cumulativeConflictEvidence": {
+        "maxOpenReviews": 0,
+        "maxResolvedReviews": 42,
+        "resolvedUniqueReviewCount": 42,
+        "maxScanReviewRequired": 2,
+        "maxScanConflictCandidates": 0,
+        "cumulativeConflictCount": 42
+      },
+      "maxStallGuardCount": 0,
+      "cyclesClosed": 120,
+      "earlyPendingGateAverage": 0.267,
+      "latePendingGateAverage": 0.29,
+      "humanGateDropEligible": false,
+      "humanGateDropEligibilityThreshold": "earlyPendingGateAverage >= 1",
+      "humanGatePendingDropRatio": null
+    }
+  },
+  "files": {
+    "monitorCsv": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-preflight-3h_20260614_171630/monitor_log.csv",
+    "eventsJsonl": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-preflight-3h_20260614_171630/events.jsonl",
+    "issuesMd": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-preflight-3h_20260614_171630/issues.md",
+    "appLogPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-preflight-3h_20260614_171630/app.log",
+    "runnerLogPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-preflight-3h_20260614_171630/runner.log",
+    "metricsDir": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-preflight-3h_20260614_171630/metrics",
+    "opsTrendWarningsPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-preflight-3h_20260614_171630/ops_trend_warnings.log",
+    "watchdogPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/shadow-preflight-3h_20260614_171630/watchdog.jsonl"
+  }
+}

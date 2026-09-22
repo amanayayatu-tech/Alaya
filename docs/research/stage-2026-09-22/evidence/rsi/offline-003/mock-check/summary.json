@@ -1,0 +1,1559 @@
+{
+  "evidence": "MOCK_ONLY",
+  "phases": [
+    {
+      "phase": 1,
+      "continue": false,
+      "status": "NO_PRACTICAL_FEEDBACK_GAIN",
+      "comparisons": [
+        {
+          "control": "independent",
+          "treatment": "v0",
+          "pairs": [
+            {
+              "world": "D-combined",
+              "repeat": 2,
+              "control": 125.25,
+              "treatment": 125.25,
+              "gainPercent": 0
+            },
+            {
+              "world": "D-combined",
+              "repeat": 1,
+              "control": 126.75,
+              "treatment": 126.75,
+              "gainPercent": 0
+            },
+            {
+              "world": "D-combined",
+              "repeat": 0,
+              "control": 127.25,
+              "treatment": 127.25,
+              "gainPercent": 0
+            }
+          ],
+          "gainPercent": 0,
+          "positivePairs": 0,
+          "byWorld": {
+            "D-combined": 0
+          },
+          "interval": null,
+          "practicalSignal": false,
+          "beatsBestFit": false,
+          "stableSupport": false
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "continue": false,
+      "status": "NO_PRACTICAL_SELF_MODIFICATION_GAIN",
+      "comparisons": [
+        {
+          "control": "v0",
+          "treatment": "v1",
+          "pairs": [
+            {
+              "world": "T1",
+              "repeat": 2,
+              "control": 197.5,
+              "treatment": 197.5,
+              "gainPercent": 0
+            },
+            {
+              "world": "T1",
+              "repeat": 1,
+              "control": 197.75,
+              "treatment": 197.75,
+              "gainPercent": 0
+            },
+            {
+              "world": "T1",
+              "repeat": 0,
+              "control": 192.75,
+              "treatment": 192.75,
+              "gainPercent": 0
+            },
+            {
+              "world": "T2",
+              "repeat": 0,
+              "control": 140,
+              "treatment": 140,
+              "gainPercent": 0
+            },
+            {
+              "world": "T2",
+              "repeat": 2,
+              "control": 149.25,
+              "treatment": 149.25,
+              "gainPercent": 0
+            },
+            {
+              "world": "T2",
+              "repeat": 1,
+              "control": 149.25,
+              "treatment": 149.25,
+              "gainPercent": 0
+            },
+            {
+              "world": "T3",
+              "repeat": 1,
+              "control": 132,
+              "treatment": 132,
+              "gainPercent": 0
+            },
+            {
+              "world": "T3",
+              "repeat": 2,
+              "control": 131.25,
+              "treatment": 131.25,
+              "gainPercent": 0
+            },
+            {
+              "world": "T3",
+              "repeat": 0,
+              "control": 130.75,
+              "treatment": 130.75,
+              "gainPercent": 0
+            }
+          ],
+          "gainPercent": 0,
+          "positivePairs": 0,
+          "byWorld": {
+            "T1": 0,
+            "T2": 0,
+            "T3": 0
+          },
+          "interval": [
+            0,
+            0
+          ],
+          "practicalSignal": false,
+          "beatsBestFit": false,
+          "stableSupport": false
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "continue": false,
+      "status": "NO_NEXT_GENERATION_GAIN",
+      "comparisons": [
+        {
+          "control": "v1",
+          "treatment": "v2",
+          "pairs": [
+            {
+              "world": "R1",
+              "repeat": 2,
+              "control": 125.75,
+              "treatment": 125.75,
+              "gainPercent": 0
+            },
+            {
+              "world": "R1",
+              "repeat": 1,
+              "control": 120.25,
+              "treatment": 120.25,
+              "gainPercent": 0
+            },
+            {
+              "world": "R1",
+              "repeat": 0,
+              "control": 124.5,
+              "treatment": 124.5,
+              "gainPercent": 0
+            },
+            {
+              "world": "R2",
+              "repeat": 1,
+              "control": 138.75,
+              "treatment": 138.75,
+              "gainPercent": 0
+            },
+            {
+              "world": "R2",
+              "repeat": 0,
+              "control": 138.25,
+              "treatment": 138.25,
+              "gainPercent": 0
+            },
+            {
+              "world": "R2",
+              "repeat": 2,
+              "control": 138,
+              "treatment": 138,
+              "gainPercent": 0
+            },
+            {
+              "world": "R3",
+              "repeat": 2,
+              "control": 161.5,
+              "treatment": 161.5,
+              "gainPercent": 0
+            },
+            {
+              "world": "R3",
+              "repeat": 1,
+              "control": 161.25,
+              "treatment": 161.25,
+              "gainPercent": 0
+            },
+            {
+              "world": "R3",
+              "repeat": 0,
+              "control": 160.75,
+              "treatment": 160.75,
+              "gainPercent": 0
+            }
+          ],
+          "gainPercent": 0,
+          "positivePairs": 0,
+          "byWorld": {
+            "R1": 0,
+            "R2": 0,
+            "R3": 0
+          },
+          "interval": [
+            0,
+            0
+          ],
+          "practicalSignal": false,
+          "beatsBestFit": false,
+          "stableSupport": false
+        },
+        {
+          "control": "v2_reset",
+          "treatment": "v2",
+          "pairs": [
+            {
+              "world": "R1",
+              "repeat": 2,
+              "control": 125.75,
+              "treatment": 125.75,
+              "gainPercent": 0
+            },
+            {
+              "world": "R1",
+              "repeat": 1,
+              "control": 120.25,
+              "treatment": 120.25,
+              "gainPercent": 0
+            },
+            {
+              "world": "R1",
+              "repeat": 0,
+              "control": 124.5,
+              "treatment": 124.5,
+              "gainPercent": 0
+            },
+            {
+              "world": "R2",
+              "repeat": 1,
+              "control": 138.75,
+              "treatment": 138.75,
+              "gainPercent": 0
+            },
+            {
+              "world": "R2",
+              "repeat": 0,
+              "control": 138.25,
+              "treatment": 138.25,
+              "gainPercent": 0
+            },
+            {
+              "world": "R2",
+              "repeat": 2,
+              "control": 138,
+              "treatment": 138,
+              "gainPercent": 0
+            },
+            {
+              "world": "R3",
+              "repeat": 2,
+              "control": 161.5,
+              "treatment": 161.5,
+              "gainPercent": 0
+            },
+            {
+              "world": "R3",
+              "repeat": 1,
+              "control": 161.25,
+              "treatment": 161.25,
+              "gainPercent": 0
+            },
+            {
+              "world": "R3",
+              "repeat": 0,
+              "control": 160.75,
+              "treatment": 160.75,
+              "gainPercent": 0
+            }
+          ],
+          "gainPercent": 0,
+          "positivePairs": 0,
+          "byWorld": {
+            "R1": 0,
+            "R2": 0,
+            "R3": 0
+          },
+          "interval": [
+            0,
+            0
+          ],
+          "practicalSignal": false,
+          "beatsBestFit": false,
+          "stableSupport": false
+        }
+      ]
+    }
+  ],
+  "completedTrials": 51,
+  "actualHttpRequests": 0,
+  "responseCount": 0,
+  "missingOrErrorResponses": 0,
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "missingUsageResponses": 0
+  },
+  "estimatedPaygUsdKnownUsage": 0,
+  "billingIsNotInvoice": true,
+  "priceSource": {
+    "inputPerMillionUsd": 0.3,
+    "outputPerMillionUsd": 1.2,
+    "cachedInputPerMillionUsd": 0.06,
+    "source": "https://platform.minimax.io/docs/guides/pricing-paygo",
+    "checkedDate": "2026-09-22",
+    "note": "Standard PAYG equivalent; not an account invoice. Unknown usage remains unknown, with a conservative allocation-based estimate."
+  },
+  "candidateAttempts": 51,
+  "legalCandidates": 51,
+  "uniqueCodeHashes": 1,
+  "perTrial": [
+    {
+      "phase": 1,
+      "trial": "p1-D-combined-r2-independent",
+      "arm": "independent",
+      "world": "D-combined",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 125.25,
+      "valid": true,
+      "bestFitMean": 125.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 123.33333333333333,
+          "trainValid": true,
+          "devMean": 127.83333333333333,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "trial": "p1-D-combined-r1-independent",
+      "arm": "independent",
+      "world": "D-combined",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 126.75,
+      "valid": true,
+      "bestFitMean": 126.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 129.16666666666666,
+          "trainValid": true,
+          "devMean": 125.33333333333333,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "trial": "p1-D-combined-r0-independent",
+      "arm": "independent",
+      "world": "D-combined",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 127.25,
+      "valid": true,
+      "bestFitMean": 127.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 124.16666666666667,
+          "trainValid": true,
+          "devMean": 122.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "trial": "p1-D-combined-r2-v0",
+      "arm": "v0",
+      "world": "D-combined",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 125.25,
+      "valid": true,
+      "bestFitMean": 125.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 123.33333333333333,
+          "trainValid": true,
+          "devMean": 127.83333333333333,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "trial": "p1-D-combined-r1-v0",
+      "arm": "v0",
+      "world": "D-combined",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 126.75,
+      "valid": true,
+      "bestFitMean": 126.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 129.16666666666666,
+          "trainValid": true,
+          "devMean": 125.33333333333333,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "trial": "p1-D-combined-r0-v0",
+      "arm": "v0",
+      "world": "D-combined",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 127.25,
+      "valid": true,
+      "bestFitMean": 127.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 124.16666666666667,
+          "trainValid": true,
+          "devMean": 122.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "trial": "p2-T1-r2-v0",
+      "arm": "v0",
+      "world": "T1",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 197.5,
+      "valid": true,
+      "bestFitMean": 197.5,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 201,
+          "trainValid": true,
+          "devMean": 190,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "trial": "p2-T1-r1-v0",
+      "arm": "v0",
+      "world": "T1",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 197.75,
+      "valid": true,
+      "bestFitMean": 197.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 198,
+          "trainValid": true,
+          "devMean": 185,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "trial": "p2-T1-r0-v0",
+      "arm": "v0",
+      "world": "T1",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 192.75,
+      "valid": true,
+      "bestFitMean": 192.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 198.5,
+          "trainValid": true,
+          "devMean": 183.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "trial": "p2-T1-r2-v1",
+      "arm": "v1",
+      "world": "T1",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 197.5,
+      "valid": true,
+      "bestFitMean": 197.5,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 201,
+          "trainValid": true,
+          "devMean": 190,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "trial": "p2-T1-r1-v1",
+      "arm": "v1",
+      "world": "T1",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 197.75,
+      "valid": true,
+      "bestFitMean": 197.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 198,
+          "trainValid": true,
+          "devMean": 185,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "trial": "p2-T1-r0-v1",
+      "arm": "v1",
+      "world": "T1",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 192.75,
+      "valid": true,
+      "bestFitMean": 192.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 198.5,
+          "trainValid": true,
+          "devMean": 183.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "trial": "p2-T2-r0-v0",
+      "arm": "v0",
+      "world": "T2",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 140,
+      "valid": true,
+      "bestFitMean": 140,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 147,
+          "trainValid": true,
+          "devMean": 148.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "trial": "p2-T2-r2-v0",
+      "arm": "v0",
+      "world": "T2",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 149.25,
+      "valid": true,
+      "bestFitMean": 149.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 144,
+          "trainValid": true,
+          "devMean": 146,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "trial": "p2-T2-r1-v0",
+      "arm": "v0",
+      "world": "T2",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 149.25,
+      "valid": true,
+      "bestFitMean": 149.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 155,
+          "trainValid": true,
+          "devMean": 148.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "trial": "p2-T2-r0-v1",
+      "arm": "v1",
+      "world": "T2",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 140,
+      "valid": true,
+      "bestFitMean": 140,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 147,
+          "trainValid": true,
+          "devMean": 148.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "trial": "p2-T2-r2-v1",
+      "arm": "v1",
+      "world": "T2",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 149.25,
+      "valid": true,
+      "bestFitMean": 149.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 144,
+          "trainValid": true,
+          "devMean": 146,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "trial": "p2-T2-r1-v1",
+      "arm": "v1",
+      "world": "T2",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 149.25,
+      "valid": true,
+      "bestFitMean": 149.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 155,
+          "trainValid": true,
+          "devMean": 148.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "trial": "p2-T3-r1-v0",
+      "arm": "v0",
+      "world": "T3",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 132,
+      "valid": true,
+      "bestFitMean": 132,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 131.5,
+          "trainValid": true,
+          "devMean": 129.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "trial": "p2-T3-r2-v0",
+      "arm": "v0",
+      "world": "T3",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 131.25,
+      "valid": true,
+      "bestFitMean": 131.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 133.5,
+          "trainValid": true,
+          "devMean": 130.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "trial": "p2-T3-r0-v0",
+      "arm": "v0",
+      "world": "T3",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 130.75,
+      "valid": true,
+      "bestFitMean": 130.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 131.5,
+          "trainValid": true,
+          "devMean": 133,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "trial": "p2-T3-r1-v1",
+      "arm": "v1",
+      "world": "T3",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 132,
+      "valid": true,
+      "bestFitMean": 132,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 131.5,
+          "trainValid": true,
+          "devMean": 129.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "trial": "p2-T3-r2-v1",
+      "arm": "v1",
+      "world": "T3",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 131.25,
+      "valid": true,
+      "bestFitMean": 131.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 133.5,
+          "trainValid": true,
+          "devMean": 130.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "trial": "p2-T3-r0-v1",
+      "arm": "v1",
+      "world": "T3",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 130.75,
+      "valid": true,
+      "bestFitMean": 130.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 131.5,
+          "trainValid": true,
+          "devMean": 133,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R1-r2-v1",
+      "arm": "v1",
+      "world": "R1",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 125.75,
+      "valid": true,
+      "bestFitMean": 125.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 122.5,
+          "trainValid": true,
+          "devMean": 125.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R1-r1-v1",
+      "arm": "v1",
+      "world": "R1",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 120.25,
+      "valid": true,
+      "bestFitMean": 120.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 121,
+          "trainValid": true,
+          "devMean": 122.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R1-r0-v1",
+      "arm": "v1",
+      "world": "R1",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 124.5,
+      "valid": true,
+      "bestFitMean": 124.5,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 126.5,
+          "trainValid": true,
+          "devMean": 122,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R1-r2-v2",
+      "arm": "v2",
+      "world": "R1",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 125.75,
+      "valid": true,
+      "bestFitMean": 125.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 122.5,
+          "trainValid": true,
+          "devMean": 125.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R1-r1-v2",
+      "arm": "v2",
+      "world": "R1",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 120.25,
+      "valid": true,
+      "bestFitMean": 120.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 121,
+          "trainValid": true,
+          "devMean": 122.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R1-r0-v2",
+      "arm": "v2",
+      "world": "R1",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 124.5,
+      "valid": true,
+      "bestFitMean": 124.5,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 126.5,
+          "trainValid": true,
+          "devMean": 122,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R1-r2-v2_reset",
+      "arm": "v2_reset",
+      "world": "R1",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 125.75,
+      "valid": true,
+      "bestFitMean": 125.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 122.5,
+          "trainValid": true,
+          "devMean": 125.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R1-r1-v2_reset",
+      "arm": "v2_reset",
+      "world": "R1",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 120.25,
+      "valid": true,
+      "bestFitMean": 120.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 121,
+          "trainValid": true,
+          "devMean": 122.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R1-r0-v2_reset",
+      "arm": "v2_reset",
+      "world": "R1",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 124.5,
+      "valid": true,
+      "bestFitMean": 124.5,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 126.5,
+          "trainValid": true,
+          "devMean": 122,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R2-r1-v1",
+      "arm": "v1",
+      "world": "R2",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 138.75,
+      "valid": true,
+      "bestFitMean": 138.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 142.5,
+          "trainValid": true,
+          "devMean": 143.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R2-r0-v1",
+      "arm": "v1",
+      "world": "R2",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 138.25,
+      "valid": true,
+      "bestFitMean": 138.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 140,
+          "trainValid": true,
+          "devMean": 139,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R2-r2-v1",
+      "arm": "v1",
+      "world": "R2",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 138,
+      "valid": true,
+      "bestFitMean": 138,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 139.5,
+          "trainValid": true,
+          "devMean": 146.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R2-r1-v2",
+      "arm": "v2",
+      "world": "R2",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 138.75,
+      "valid": true,
+      "bestFitMean": 138.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 142.5,
+          "trainValid": true,
+          "devMean": 143.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R2-r0-v2",
+      "arm": "v2",
+      "world": "R2",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 138.25,
+      "valid": true,
+      "bestFitMean": 138.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 140,
+          "trainValid": true,
+          "devMean": 139,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R2-r2-v2",
+      "arm": "v2",
+      "world": "R2",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 138,
+      "valid": true,
+      "bestFitMean": 138,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 139.5,
+          "trainValid": true,
+          "devMean": 146.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R2-r1-v2_reset",
+      "arm": "v2_reset",
+      "world": "R2",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 138.75,
+      "valid": true,
+      "bestFitMean": 138.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 142.5,
+          "trainValid": true,
+          "devMean": 143.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R2-r0-v2_reset",
+      "arm": "v2_reset",
+      "world": "R2",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 138.25,
+      "valid": true,
+      "bestFitMean": 138.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 140,
+          "trainValid": true,
+          "devMean": 139,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R2-r2-v2_reset",
+      "arm": "v2_reset",
+      "world": "R2",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 138,
+      "valid": true,
+      "bestFitMean": 138,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 139.5,
+          "trainValid": true,
+          "devMean": 146.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R3-r2-v1",
+      "arm": "v1",
+      "world": "R3",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 161.5,
+      "valid": true,
+      "bestFitMean": 161.5,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 162,
+          "trainValid": true,
+          "devMean": 161.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R3-r1-v1",
+      "arm": "v1",
+      "world": "R3",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 161.25,
+      "valid": true,
+      "bestFitMean": 161.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 161.5,
+          "trainValid": true,
+          "devMean": 161.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R3-r0-v1",
+      "arm": "v1",
+      "world": "R3",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 160.75,
+      "valid": true,
+      "bestFitMean": 160.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 159,
+          "trainValid": true,
+          "devMean": 160,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R3-r2-v2",
+      "arm": "v2",
+      "world": "R3",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 161.5,
+      "valid": true,
+      "bestFitMean": 161.5,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 162,
+          "trainValid": true,
+          "devMean": 161.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R3-r1-v2",
+      "arm": "v2",
+      "world": "R3",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 161.25,
+      "valid": true,
+      "bestFitMean": 161.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 161.5,
+          "trainValid": true,
+          "devMean": 161.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R3-r0-v2",
+      "arm": "v2",
+      "world": "R3",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 160.75,
+      "valid": true,
+      "bestFitMean": 160.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 159,
+          "trainValid": true,
+          "devMean": 160,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R3-r2-v2_reset",
+      "arm": "v2_reset",
+      "world": "R3",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 161.5,
+      "valid": true,
+      "bestFitMean": 161.5,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 162,
+          "trainValid": true,
+          "devMean": 161.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R3-r1-v2_reset",
+      "arm": "v2_reset",
+      "world": "R3",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 161.25,
+      "valid": true,
+      "bestFitMean": 161.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 161.5,
+          "trainValid": true,
+          "devMean": 161.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "trial": "p3-R3-r0-v2_reset",
+      "arm": "v2_reset",
+      "world": "R3",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 160.75,
+      "valid": true,
+      "bestFitMean": 160.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 159,
+          "trainValid": true,
+          "devMean": 160,
+          "devValid": true
+        }
+      ]
+    }
+  ]
+}

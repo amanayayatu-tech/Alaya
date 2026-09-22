@@ -1,0 +1,1014 @@
+{
+  "evidence": "DEVELOPMENT",
+  "phases": [
+    {
+      "phase": 1,
+      "continue": false,
+      "status": "NO_PRACTICAL_FEEDBACK_GAIN",
+      "comparisons": [
+        {
+          "control": "independent",
+          "treatment": "v0",
+          "pairs": [
+            {
+              "world": "D-combined",
+              "repeat": 2,
+              "control": 126.2109375,
+              "treatment": 126.2109375,
+              "gainPercent": 0
+            },
+            {
+              "world": "D-combined",
+              "repeat": 1,
+              "control": 126.08854166666667,
+              "treatment": 126.078125,
+              "gainPercent": 0.008261390392006731
+            },
+            {
+              "world": "D-combined",
+              "repeat": 0,
+              "control": 125.95833333333333,
+              "treatment": 125.95833333333333,
+              "gainPercent": 0
+            }
+          ],
+          "gainPercent": 0.002753796797335577,
+          "positivePairs": 1,
+          "byWorld": {
+            "D-combined": 0.002753796797335577
+          },
+          "interval": null,
+          "practicalSignal": false,
+          "beatsBestFit": true,
+          "stableSupport": false
+        }
+      ]
+    }
+  ],
+  "completedTrials": 6,
+  "actualHttpRequests": 120,
+  "responseCount": 117,
+  "missingOrErrorResponses": 3,
+  "tokens": {
+    "input": 149874,
+    "output": 41812,
+    "missingUsageResponses": 0
+  },
+  "estimatedPaygUsdKnownUsage": 0.08179092000000003,
+  "billingIsNotInvoice": true,
+  "priceSource": {
+    "inputPerMillionUsd": 0.3,
+    "outputPerMillionUsd": 1.2,
+    "cachedInputPerMillionUsd": 0.06,
+    "source": "https://platform.minimax.io/docs/guides/pricing-paygo",
+    "checkedDate": "2026-09-22",
+    "note": "Standard PAYG equivalent; not an account invoice. Unknown usage remains unknown, with a conservative allocation-based estimate."
+  },
+  "candidateAttempts": 120,
+  "legalCandidates": 108,
+  "uniqueCodeHashes": 114,
+  "perTrial": [
+    {
+      "phase": 1,
+      "trial": "p1-D-combined-r2-independent",
+      "arm": "independent",
+      "world": "D-combined",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 126.2109375,
+      "valid": true,
+      "bestFitMean": 126.2109375,
+      "calls": 20,
+      "tokens": 19194,
+      "legalCandidates": 15,
+      "uniqueCodeHashes": 19,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 1,
+          "trainMean": 252.22916666666666,
+          "trainValid": true,
+          "devMean": 252.95833333333334,
+          "devValid": true
+        },
+        {
+          "attempt": 2,
+          "trainMean": 153.25,
+          "trainValid": true,
+          "devMean": 152.44791666666666,
+          "devValid": true
+        },
+        {
+          "attempt": 3,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 4,
+          "trainMean": 256,
+          "trainValid": false,
+          "devMean": 256,
+          "devValid": false
+        },
+        {
+          "attempt": 5,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 6,
+          "trainMean": 256,
+          "trainValid": false,
+          "devMean": 256,
+          "devValid": false
+        },
+        {
+          "attempt": 7,
+          "trainMean": 126.94791666666667,
+          "trainValid": true,
+          "devMean": 127.125,
+          "devValid": true
+        },
+        {
+          "attempt": 8,
+          "trainMean": 256,
+          "trainValid": false,
+          "devMean": 256,
+          "devValid": false
+        },
+        {
+          "attempt": 9,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 10,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 11,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 12,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 13,
+          "trainMean": 256,
+          "trainValid": false,
+          "devMean": 256,
+          "devValid": false
+        },
+        {
+          "attempt": 14,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 15,
+          "trainMean": 256,
+          "trainValid": false,
+          "devMean": 256,
+          "devValid": false
+        },
+        {
+          "attempt": 16,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 17,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 18,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 19,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "trial": "p1-D-combined-r2-v0",
+      "arm": "v0",
+      "world": "D-combined",
+      "repeat": 2,
+      "selected": "p1-D-combined-r2-v0-0",
+      "testMean": 126.2109375,
+      "valid": true,
+      "bestFitMean": 126.2109375,
+      "calls": 20,
+      "tokens": 41303,
+      "legalCandidates": 20,
+      "uniqueCodeHashes": 19,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 1,
+          "trainMean": 132.91666666666666,
+          "trainValid": true,
+          "devMean": 133.23958333333334,
+          "devValid": true
+        },
+        {
+          "attempt": 2,
+          "trainMean": 133.90625,
+          "trainValid": true,
+          "devMean": 134.16666666666666,
+          "devValid": true
+        },
+        {
+          "attempt": 3,
+          "trainMean": 133.90625,
+          "trainValid": true,
+          "devMean": 134.16666666666666,
+          "devValid": true
+        },
+        {
+          "attempt": 4,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 5,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 6,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 7,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 8,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 9,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 10,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 11,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 12,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 13,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 14,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 15,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 16,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 17,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 18,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        },
+        {
+          "attempt": 19,
+          "trainMean": 125.97916666666667,
+          "trainValid": true,
+          "devMean": 125.875,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "trial": "p1-D-combined-r1-independent",
+      "arm": "independent",
+      "world": "D-combined",
+      "repeat": 1,
+      "selected": "p1-D-combined-r1-independent-14",
+      "testMean": 126.08854166666667,
+      "valid": true,
+      "bestFitMean": 126.08854166666667,
+      "calls": 20,
+      "tokens": 19232,
+      "legalCandidates": 17,
+      "uniqueCodeHashes": 20,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 256,
+          "trainValid": false,
+          "devMean": 256,
+          "devValid": false
+        },
+        {
+          "attempt": 1,
+          "trainMean": 127.85416666666667,
+          "trainValid": true,
+          "devMean": 127.40625,
+          "devValid": true
+        },
+        {
+          "attempt": 2,
+          "trainMean": 127.90625,
+          "trainValid": true,
+          "devMean": 127.35416666666667,
+          "devValid": true
+        },
+        {
+          "attempt": 3,
+          "trainMean": 256,
+          "trainValid": false,
+          "devMean": 256,
+          "devValid": false
+        },
+        {
+          "attempt": 4,
+          "trainMean": 127.46875,
+          "trainValid": true,
+          "devMean": 126.94791666666667,
+          "devValid": true
+        },
+        {
+          "attempt": 5,
+          "trainMean": 128.375,
+          "trainValid": true,
+          "devMean": 127.71875,
+          "devValid": true
+        },
+        {
+          "attempt": 6,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 7,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 8,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 9,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 10,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 11,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 12,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 13,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 14,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 15,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 16,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 17,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 18,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 19,
+          "trainMean": 256,
+          "trainValid": false,
+          "devMean": 256,
+          "devValid": false
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "trial": "p1-D-combined-r1-v0",
+      "arm": "v0",
+      "world": "D-combined",
+      "repeat": 1,
+      "selected": "p1-D-combined-r1-v0-8",
+      "testMean": 126.078125,
+      "valid": true,
+      "bestFitMean": 126.08854166666667,
+      "calls": 20,
+      "tokens": 48579,
+      "legalCandidates": 20,
+      "uniqueCodeHashes": 20,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 1,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 2,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 3,
+          "trainMean": 153.27083333333334,
+          "trainValid": true,
+          "devMean": 152.875,
+          "devValid": true
+        },
+        {
+          "attempt": 4,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 5,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 6,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 7,
+          "trainMean": 126.04166666666667,
+          "trainValid": true,
+          "devMean": 125.55208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 8,
+          "trainMean": 126.0625,
+          "trainValid": true,
+          "devMean": 125.53125,
+          "devValid": true
+        },
+        {
+          "attempt": 9,
+          "trainMean": 126.0625,
+          "trainValid": true,
+          "devMean": 125.53125,
+          "devValid": true
+        },
+        {
+          "attempt": 10,
+          "trainMean": 126.0625,
+          "trainValid": true,
+          "devMean": 125.53125,
+          "devValid": true
+        },
+        {
+          "attempt": 11,
+          "trainMean": 126.03125,
+          "trainValid": true,
+          "devMean": 125.60416666666667,
+          "devValid": true
+        },
+        {
+          "attempt": 12,
+          "trainMean": 126.07291666666667,
+          "trainValid": true,
+          "devMean": 125.5625,
+          "devValid": true
+        },
+        {
+          "attempt": 13,
+          "trainMean": 126.14583333333333,
+          "trainValid": true,
+          "devMean": 125.69791666666667,
+          "devValid": true
+        },
+        {
+          "attempt": 14,
+          "trainMean": 126.16666666666667,
+          "trainValid": true,
+          "devMean": 125.71875,
+          "devValid": true
+        },
+        {
+          "attempt": 15,
+          "trainMean": 126.375,
+          "trainValid": true,
+          "devMean": 125.91666666666667,
+          "devValid": true
+        },
+        {
+          "attempt": 16,
+          "trainMean": 126.41666666666667,
+          "trainValid": true,
+          "devMean": 126.01041666666667,
+          "devValid": true
+        },
+        {
+          "attempt": 17,
+          "trainMean": 126.35416666666667,
+          "trainValid": true,
+          "devMean": 125.95833333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 18,
+          "trainMean": 126.375,
+          "trainValid": true,
+          "devMean": 126.01041666666667,
+          "devValid": true
+        },
+        {
+          "attempt": 19,
+          "trainMean": 126.39583333333333,
+          "trainValid": true,
+          "devMean": 126.02083333333333,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "trial": "p1-D-combined-r0-independent",
+      "arm": "independent",
+      "world": "D-combined",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 125.95833333333333,
+      "valid": true,
+      "bestFitMean": 125.95833333333333,
+      "calls": 20,
+      "tokens": 18067,
+      "legalCandidates": 16,
+      "uniqueCodeHashes": 18,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 125.94791666666667,
+          "trainValid": true,
+          "devMean": 126.30208333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 1,
+          "trainMean": 125.71875,
+          "trainValid": true,
+          "devMean": 126.125,
+          "devValid": true
+        },
+        {
+          "attempt": 2,
+          "trainMean": 125.71875,
+          "trainValid": true,
+          "devMean": 126.125,
+          "devValid": true
+        },
+        {
+          "attempt": 3,
+          "trainMean": 125.71875,
+          "trainValid": true,
+          "devMean": 126.125,
+          "devValid": true
+        },
+        {
+          "attempt": 4,
+          "trainMean": 125.71875,
+          "trainValid": true,
+          "devMean": 126.125,
+          "devValid": true
+        },
+        {
+          "attempt": 5,
+          "trainMean": 126.10416666666667,
+          "trainValid": true,
+          "devMean": 126.6875,
+          "devValid": true
+        },
+        {
+          "attempt": 6,
+          "trainMean": 149,
+          "trainValid": true,
+          "devMean": 147.30208333333334,
+          "devValid": true
+        },
+        {
+          "attempt": 7,
+          "trainMean": 125.71875,
+          "trainValid": true,
+          "devMean": 126.125,
+          "devValid": true
+        },
+        {
+          "attempt": 8,
+          "trainMean": 125.71875,
+          "trainValid": true,
+          "devMean": 126.125,
+          "devValid": true
+        },
+        {
+          "attempt": 9,
+          "trainMean": 256,
+          "trainValid": false,
+          "devMean": 256,
+          "devValid": false
+        },
+        {
+          "attempt": 10,
+          "trainMean": 256,
+          "trainValid": false,
+          "devMean": 256,
+          "devValid": false
+        },
+        {
+          "attempt": 11,
+          "trainMean": 125.71875,
+          "trainValid": true,
+          "devMean": 126.125,
+          "devValid": true
+        },
+        {
+          "attempt": 12,
+          "trainMean": 125.71875,
+          "trainValid": true,
+          "devMean": 126.125,
+          "devValid": true
+        },
+        {
+          "attempt": 13,
+          "trainMean": 256,
+          "trainValid": false,
+          "devMean": 256,
+          "devValid": false
+        },
+        {
+          "attempt": 14,
+          "trainMean": 125.71875,
+          "trainValid": true,
+          "devMean": 126.125,
+          "devValid": true
+        },
+        {
+          "attempt": 15,
+          "trainMean": 125.71875,
+          "trainValid": true,
+          "devMean": 126.125,
+          "devValid": true
+        },
+        {
+          "attempt": 16,
+          "trainMean": 125.71875,
+          "trainValid": true,
+          "devMean": 126.125,
+          "devValid": true
+        },
+        {
+          "attempt": 17,
+          "trainMean": 256,
+          "trainValid": false,
+          "devMean": 256,
+          "devValid": false
+        },
+        {
+          "attempt": 18,
+          "trainMean": 125.71875,
+          "trainValid": true,
+          "devMean": 126.125,
+          "devValid": true
+        },
+        {
+          "attempt": 19,
+          "trainMean": 125.71875,
+          "trainValid": true,
+          "devMean": 126.125,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "trial": "p1-D-combined-r0-v0",
+      "arm": "v0",
+      "world": "D-combined",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 125.95833333333333,
+      "valid": true,
+      "bestFitMean": 125.95833333333333,
+      "calls": 20,
+      "tokens": 45311,
+      "legalCandidates": 20,
+      "uniqueCodeHashes": 19,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 125.71875,
+          "trainValid": true,
+          "devMean": 126.125,
+          "devValid": true
+        },
+        {
+          "attempt": 1,
+          "trainMean": 125.71875,
+          "trainValid": true,
+          "devMean": 126.125,
+          "devValid": true
+        },
+        {
+          "attempt": 2,
+          "trainMean": 125.71875,
+          "trainValid": true,
+          "devMean": 126.125,
+          "devValid": true
+        },
+        {
+          "attempt": 3,
+          "trainMean": 125.70833333333333,
+          "trainValid": true,
+          "devMean": 126.16666666666667,
+          "devValid": true
+        },
+        {
+          "attempt": 4,
+          "trainMean": 125.73958333333333,
+          "trainValid": true,
+          "devMean": 126.14583333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 5,
+          "trainMean": 125.73958333333333,
+          "trainValid": true,
+          "devMean": 126.14583333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 6,
+          "trainMean": 125.73958333333333,
+          "trainValid": true,
+          "devMean": 126.14583333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 7,
+          "trainMean": 125.73958333333333,
+          "trainValid": true,
+          "devMean": 126.14583333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 8,
+          "trainMean": 125.75,
+          "trainValid": true,
+          "devMean": 126.19791666666667,
+          "devValid": true
+        },
+        {
+          "attempt": 9,
+          "trainMean": 125.95833333333333,
+          "trainValid": true,
+          "devMean": 126.3125,
+          "devValid": true
+        },
+        {
+          "attempt": 10,
+          "trainMean": 125.95833333333333,
+          "trainValid": true,
+          "devMean": 126.3125,
+          "devValid": true
+        },
+        {
+          "attempt": 11,
+          "trainMean": 125.75,
+          "trainValid": true,
+          "devMean": 126.15625,
+          "devValid": true
+        },
+        {
+          "attempt": 12,
+          "trainMean": 125.73958333333333,
+          "trainValid": true,
+          "devMean": 126.1875,
+          "devValid": true
+        },
+        {
+          "attempt": 13,
+          "trainMean": 125.72916666666667,
+          "trainValid": true,
+          "devMean": 126.16666666666667,
+          "devValid": true
+        },
+        {
+          "attempt": 14,
+          "trainMean": 125.72916666666667,
+          "trainValid": true,
+          "devMean": 126.16666666666667,
+          "devValid": true
+        },
+        {
+          "attempt": 15,
+          "trainMean": 125.77083333333333,
+          "trainValid": true,
+          "devMean": 126.15625,
+          "devValid": true
+        },
+        {
+          "attempt": 16,
+          "trainMean": 125.71875,
+          "trainValid": true,
+          "devMean": 126.13541666666667,
+          "devValid": true
+        },
+        {
+          "attempt": 17,
+          "trainMean": 125.73958333333333,
+          "trainValid": true,
+          "devMean": 126.1875,
+          "devValid": true
+        },
+        {
+          "attempt": 18,
+          "trainMean": 125.71875,
+          "trainValid": true,
+          "devMean": 126.14583333333333,
+          "devValid": true
+        },
+        {
+          "attempt": 19,
+          "trainMean": 125.73958333333333,
+          "trainValid": true,
+          "devMean": 126.17708333333333,
+          "devValid": true
+        }
+      ]
+    }
+  ]
+}

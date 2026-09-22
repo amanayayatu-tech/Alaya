@@ -1,0 +1,43 @@
+{
+  "phase": 1,
+  "continue": false,
+  "status": "NO_PRACTICAL_FEEDBACK_GAIN",
+  "comparisons": [
+    {
+      "control": "independent",
+      "treatment": "v0",
+      "pairs": [
+        {
+          "world": "D-combined",
+          "repeat": 2,
+          "control": 126.2109375,
+          "treatment": 126.2109375,
+          "gainPercent": 0
+        },
+        {
+          "world": "D-combined",
+          "repeat": 1,
+          "control": 126.08854166666667,
+          "treatment": 126.078125,
+          "gainPercent": 0.008261390392006731
+        },
+        {
+          "world": "D-combined",
+          "repeat": 0,
+          "control": 125.95833333333333,
+          "treatment": 125.95833333333333,
+          "gainPercent": 0
+        }
+      ],
+      "gainPercent": 0.002753796797335577,
+      "positivePairs": 1,
+      "byWorld": {
+        "D-combined": 0.002753796797335577
+      },
+      "interval": null,
+      "practicalSignal": false,
+      "beatsBestFit": true,
+      "stableSupport": false
+    }
+  ]
+}

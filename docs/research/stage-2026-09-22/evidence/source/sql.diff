@@ -1,0 +1,3561 @@
+diff --git a/README.md b/README.md
+index a4ff6593..aa8e8726 100644
+--- a/README.md
++++ b/README.md
+@@ -2,11 +2,13 @@
+ 
+ # Alaya
+ 
+-Alaya 是一个本地优先的 AI-native「认知复利飞轮」系统。它把每一轮产品或运营动作沉淀为可审计资产：预测、观察、误差归因、知识、人工闸门和下一轮决策。每一轮都可回放、可核验，下一轮可以引用上一轮的知识——这就是「认知复利」。
++Alaya 是一个本地优先的 AI-native「认知复利飞轮」系统。它把每一轮产品或运营动作沉淀为可审计资产：预测、观察、误差归因、知识、人工闸门和下一轮决策。下一轮可以引用上一轮的知识；这些知识是否提高新任务的正确率，需要独立对照实验验证。
+ 
+ 默认运行使用 deterministic mock LLM，不调用外部模型；只有显式配置 OpenAI-compatible provider 和 capability 后才会走真实 LLM。
+ 
+-**项目当前态**：稳定配置下的 24h 影子基线已 PASS 并冻结；`MINIMAX_THINKING=adaptive` treatment 臂未通过 provider/schema 稳定性门，不能据此声明认知增强有效。认知质量度量（confidence calibration / ECE）已可信化，并进入发布级实验阶段。详见 [认知质量验证](#认知质量验证-cognition-quality)。
++**本工作副本当前态（2026-09-09，DEVELOPMENT）**：新增真实模型 SQL 修复对照。24 道规则组合的原定成绩为无经验 18/24、完整原始经验 24/24、Alaya 蒸馏经验 22/24。事后排除代码块封装因素，无经验的 SQL 语义正确数为 21/24。当前证据不支持 Alaya 蒸馏超过原始经验；没有正式验收或通用认知增强结论。详见[方案](./docs/validation/SQL_REPAIR_DEVELOPMENT_PLAN.md)与[实测及下一步](./docs/validation/SQL_REPAIR_DEVELOPMENT_RESULT.md)。七月失败实验归档保持有效。
++
++SQL 最小离线验证：`npm run experiment:sql:check`。配置已有 provider key 后，真实开发题入口为 `npm run experiment:sql -- --dev-only --out /absolute/path/to/new-run`；完整三组比较去掉 `--dev-only`。新输出目录必须不存在。完整比较固定 120 次模型调用，使用独立数据库与现有审计/知识机制，不接入旧控制器。重跑当前题集属于复现，不能当作新的独立证据。
+ 
+ ---
+ 
+@@ -29,7 +31,7 @@ npm run dev
+ 
+ | 部分 | 状态 | 说明 |
+ | --- | --- | --- |
+-| Core | 可运行 | TypeScript 纯内核，验证 4 轮认知复利飞轮 |
++| Core | 可运行 | TypeScript 纯内核，覆盖 4 轮确定性演示流程 |
+ | Web App | 可运行 | Express + React + SQLite 本地 MVP |
+ | LLM | mock / OpenAI-compatible | 默认 mock，可切 OpenAI / MiniMax 等兼容端点 |
+ | Scheduler | 可运行 | 自动推进 cycle；第 5 轮起可由自主目标生成器接管 |
+@@ -38,7 +40,7 @@ npm run dev
+ | Knowledge | 可运行 | SQLite FTS5、任务前知识注入、合并、冲突复核、时间衰减 |
+ | Ops | 可运行 | health/ready/metrics、action ledger、secret scan、Docker shadow、备份恢复 |
+ | Validation | 可运行 | health-signal 长测 runner、shadow analyzer、质量评分与趋势报告 |
+-| **认知质量验证** | **进行中** | 24h 稳定配置基线已冻结；adaptive treatment 失败不构成增强结论；adaptive-vs-disabled 发布级实验已预注册 |
++| **认知质量验证** | **DEVELOPMENT** | SQL 真实模型比较已完成；Alaya 蒸馏未超过完整原始经验；历史影子基线与失败归档不构成学习效果证明 |
+ 
+ ## Experimental learning loop status
+ 
+diff --git a/alaya-app/server/autonomousGoal.ts b/alaya-app/server/autonomousGoal.ts
+index aeb60cb3..16189bdc 100644
+--- a/alaya-app/server/autonomousGoal.ts
++++ b/alaya-app/server/autonomousGoal.ts
+@@ -1,5 +1,6 @@
+ import { callLlm } from "./llm";
+ import { detectGoalRepetition } from "./stallGuard";
++import { knowledgeInjectionEnabled } from "./knowledgeInjection";
+ import type { KnowledgeItem } from "@shared/schema";
+ import type { Operator } from "alaya-core/src/core/types.js";
+ 
+@@ -306,8 +307,12 @@ function truncateForPrompt(value: string, maxChars: number): string {
+   return value.length <= maxChars ? value : `${value.slice(0, maxChars)}...`;
+ }
+ 
++function eligibleKnowledge(input: NextGoalInput): NextGoalInput["eligibleKnowledge"] {
++  return knowledgeInjectionEnabled() ? input.eligibleKnowledge : [];
++}
++
+ function rankedKnowledge(input: NextGoalInput) {
+-  return [...input.eligibleKnowledge].sort((a, b) => {
++  return [...eligibleKnowledge(input)].sort((a, b) => {
+     if (a.status !== b.status) return a.status === "strong" ? -1 : b.status === "strong" ? 1 : 0;
+     if (a.confidenceScore !== b.confidenceScore) return b.confidenceScore - a.confidenceScore;
+     return a.id.localeCompare(b.id);
+@@ -330,7 +335,7 @@ function promptRejectedGoals(input: NextGoalInput): string[] {
+ function topRefs(input: NextGoalInput) {
+   const ranked = rankedKnowledge(input);
+   const refs = ranked.slice(0, Math.min(2, ranked.length)).map((item) => item.id);
+-  if (refs.length === 0) {
++  if (refs.length === 0 && knowledgeInjectionEnabled()) {
+     throw new Error("autonomous goal blocked: no eligible knowledge can be referenced");
+   }
+   return { ranked, refs };
+@@ -353,7 +358,30 @@ function adaptiveTheme(input: NextGoalInput) {
+   };
+ }
+ 
++function fallbackWithoutKnowledge(input: NextGoalInput): NextGoalDraft {
++  const theme = deterministicTheme(input) ?? adaptiveTheme(input);
++  const target = Math.min(0.9, +(theme.target + Math.max(0, input.cycleIndex - 5) * 0.005).toFixed(3));
++  return {
++    proposedGoal: theme.goal,
++    belief: "知识注入已关闭；本轮只依据项目任务、轮次和可见反馈生成待验证目标。",
++    prediction: {
++      statement: `${theme.metric} >= ${target}`,
++      metric: theme.metric,
++      operator: ">=",
++      target,
++    },
++    action: theme.action,
++    alternativeGoals: [
++      `${theme.goal}的纯展示版本`,
++      `先收集反馈再扩大${theme.goal}`,
++    ],
++    referencedKnowledgeIds: [],
++    reasoningHowKnowledgeChangedDecision: "知识注入已关闭；本轮没有引用知识库或其派生内容。",
++  };
++}
++
+ function fallbackDraft(input: NextGoalInput): NextGoalDraft {
++  if (!knowledgeInjectionEnabled()) return fallbackWithoutKnowledge(input);
+   const { ranked, refs } = topRefs(input);
+   const theme = deterministicTheme(input) ?? adaptiveTheme(input);
+   const anchor = ranked.find((item) => item.id === refs[0]) ?? ranked[0];
+@@ -420,12 +448,12 @@ function recoveryDraft(input: NextGoalInput): NextGoalDraft {
+ 
+ function validateDraft(input: NextGoalInput, draft: NextGoalDraft): string[] {
+   const errors: string[] = [];
+-  const allowed = new Set(input.eligibleKnowledge.map((item) => item.id));
++  const allowed = new Set(eligibleKnowledge(input).map((item) => item.id));
+   const refs = draft.referencedKnowledgeIds.filter((id) => allowed.has(id));
+-  if (refs.length === 0) errors.push("referencedKnowledgeIds must include at least one eligible knowledge id");
++  if (knowledgeInjectionEnabled() && refs.length === 0) errors.push("referencedKnowledgeIds must include at least one eligible knowledge id");
+   if (detectGoalRepetition(draft.proposedGoal, input.rejectedGoals, 0.82)) errors.push("proposedGoal repeats a rejected or previously used goal");
+-  if (draft.reasoningHowKnowledgeChangedDecision.trim().length < 32) errors.push("reasoningHowKnowledgeChangedDecision is too short");
+-  if (!refs.some((id) => draft.reasoningHowKnowledgeChangedDecision.includes(id))) {
++  if (knowledgeInjectionEnabled() && draft.reasoningHowKnowledgeChangedDecision.trim().length < 32) errors.push("reasoningHowKnowledgeChangedDecision is too short");
++  if (knowledgeInjectionEnabled() && !refs.some((id) => draft.reasoningHowKnowledgeChangedDecision.includes(id))) {
+     errors.push("reasoningHowKnowledgeChangedDecision must mention a referenced knowledge id");
+   }
+   if (!draft.prediction.metric.trim() || typeof draft.prediction.target !== "number") errors.push("prediction must include metric/operator/target");
+@@ -433,8 +461,21 @@ function validateDraft(input: NextGoalInput, draft: NextGoalDraft): string[] {
+ }
+ 
+ export async function generateNextGoal(input: NextGoalInput, llm: LlmCaller = callLlm): Promise<NextGoalDraft> {
++  const injectionEnabled = knowledgeInjectionEnabled();
+   const fallback = fallbackDraft(input);
+   const promptKnowledge = promptEligibleKnowledge(input);
++  const outputContract = injectionEnabled
++    ? NEXT_GOAL_OUTPUT_CONTRACT
++    : {
++      ...NEXT_GOAL_OUTPUT_CONTRACT,
++      minimalExample: {
++        ...NEXT_GOAL_OUTPUT_CONTRACT.minimalExample,
++        belief: "Use the project task and visible feedback to form a measurable next goal.",
++        action: "Run the configured task with an explicit measurable check.",
++        referencedKnowledgeIds: [],
++        reasoningHowKnowledgeChangedDecision: "Knowledge injection is off; no library knowledge changed this decision.",
++      },
++    };
+   const data = await llm({
+     cycleId: input.cycleId,
+     agent: "orchestrator",
+@@ -448,7 +489,7 @@ export async function generateNextGoal(input: NextGoalInput, llm: LlmCaller = ca
+       lastCyclePredictionError: input.lastCyclePredictionError,
+       recentFeedback: input.recentFeedback,
+       rejectedGoals: promptRejectedGoals(input),
+-      outputContract: NEXT_GOAL_OUTPUT_CONTRACT,
++      outputContract,
+     },
+     knowledgeSummary: promptKnowledge.map((item) => `${item.id} ${item.status} ${item.title}`).join("\n"),
+     prohibited: [
+@@ -469,9 +510,9 @@ export async function generateNextGoal(input: NextGoalInput, llm: LlmCaller = ca
+     prediction: predictionFrom(data.prediction, fallback.prediction),
+     action: typeof data.action === "string" && data.action.trim() ? data.action.trim() : fallback.action,
+     alternativeGoals: asStringArray(data.alternativeGoals).length ? asStringArray(data.alternativeGoals) : fallback.alternativeGoals,
+-    referencedKnowledgeIds: asStringArray(data.referencedKnowledgeIds).filter((id) => input.eligibleKnowledge.some((item) => item.id === id)),
++    referencedKnowledgeIds: asStringArray(data.referencedKnowledgeIds).filter((id) => eligibleKnowledge(input).some((item) => item.id === id)),
+     reasoningHowKnowledgeChangedDecision:
+-      typeof data.reasoningHowKnowledgeChangedDecision === "string" && data.reasoningHowKnowledgeChangedDecision.trim()
++      injectionEnabled && typeof data.reasoningHowKnowledgeChangedDecision === "string" && data.reasoningHowKnowledgeChangedDecision.trim()
+         ? data.reasoningHowKnowledgeChangedDecision.trim()
+         : fallback.reasoningHowKnowledgeChangedDecision,
+   };
+diff --git a/alaya-app/server/flywheel/core.ts b/alaya-app/server/flywheel/core.ts
+index c98349fb..3d75fc29 100644
+--- a/alaya-app/server/flywheel/core.ts
++++ b/alaya-app/server/flywheel/core.ts
+@@ -7,7 +7,7 @@
+ import { storage, now } from "../storage";
+ import { callLlm } from "../llm";
+ import { generateNextGoal, type NextGoalDraft, type NextGoalInput } from "../autonomousGoal";
+-import { buildKnowledgeContext } from "../knowledgeInjection";
++import { buildKnowledgeContext, knowledgeInjectionEnabled } from "../knowledgeInjection";
+ import { computeSemanticKey, isContradiction, isSemanticDuplicate } from "../knowledgeSimilarity";
+ import { recordTrace } from "../trace";
+ import { recordActionProposal } from "../actionLedger";
+@@ -169,17 +169,22 @@ function rollbackReadyChangePackage(sc: ScenarioRound, action: string) {
+ }
+ 
+ function auditSummaryForCycle4(refs: string[]) {
++  const knowledgeEnabled = knowledgeInjectionEnabled();
+   return {
+     stage: "cycle_4_rollback_audit",
+-    whyNow: "第2-3轮已经证明预览能降低恐惧,第4轮验证用户是否愿意把更多高风险动作交给系统持续处理。",
+-    deltaFromCycle3: "第3轮解决看到将改什么;第4轮新增执行后可回滚与全过程可追责。",
++    whyNow: knowledgeEnabled
++      ? "第2-3轮已经证明预览能降低恐惧,第4轮验证用户是否愿意把更多高风险动作交给系统持续处理。"
++      : "第4轮按项目既定任务继续验证高风险动作是否具备可审阅的执行与回滚流程。",
++    deltaFromCycle3: knowledgeEnabled
++      ? "第3轮解决看到将改什么;第4轮新增执行后可回滚与全过程可追责。"
++      : "第4轮在既定任务上补充执行后可回滚与全过程可追责。",
+     verificationConstraints: [
+       "必须有 rollbackPlan",
+       "必须有 auditSummary",
+       "不得跳过方向闸",
+       "不得执行不可逆动作",
+     ],
+-    knowledgeRefs: refs,
++    knowledgeRefs: knowledgeEnabled ? refs : [],
+   };
+ }
+ 
+@@ -190,6 +195,7 @@ function activeKnowledge(projectId: string): KnowledgeItem[] {
+ }
+ 
+ function activeKnowledgeForPrompt(projectId: string): KnowledgeItem[] {
++  if (!knowledgeInjectionEnabled()) return [];
+   return activeKnowledge(projectId)
+     .sort((a, b) => {
+       if (a.status !== b.status) return a.status === "strong" ? -1 : b.status === "strong" ? 1 : 0;
+@@ -309,15 +315,17 @@ function planFromExistingDirectionGate(gate: HumanGateItem, sc: ScenarioRound) {
+   const scenario = payload.scenario && typeof payload.scenario === "object" && !Array.isArray(payload.scenario)
+     ? payload.scenario as Record<string, unknown>
+     : {};
+-  const refs = stringArray(payload.knowledgeRefs ?? scenario.knowledgeRefs);
++  const refs = knowledgeInjectionEnabled() ? stringArray(payload.knowledgeRefs ?? scenario.knowledgeRefs) : [];
+   const goal = nonEmptyString(payload.recommended ?? scenario.proposedGoal, sc.proposedGoal);
+   const belief = nonEmptyString(payload.belief ?? scenario.belief, sc.belief);
+   const prediction = nonEmptyString(payload.prediction ?? scenario.prediction, sc.prediction);
+   const action = nonEmptyString(payload.action ?? scenario.action, sc.action);
+-  const reasoning = nonEmptyString(
+-    payload.reasoning ?? scenario.reasoningHowKnowledgeChangedDecision,
+-    sc.reasoningHowKnowledgeChangedDecision ?? "",
+-  );
++  const reasoning = knowledgeInjectionEnabled()
++    ? nonEmptyString(
++      payload.reasoning ?? scenario.reasoningHowKnowledgeChangedDecision,
++      sc.reasoningHowKnowledgeChangedDecision ?? "",
++    )
++    : `第 ${sc.index} 轮沿用项目既定任务；知识注入已关闭。`;
+ 
+   return { goal, belief, prediction, action, refs, reasoning, gate };
+ }
+@@ -393,6 +401,7 @@ function distillerDraftOutput(sc: ScenarioRound, claimError: number): Record<str
+ }
+ 
+ function safeKnowledgeRefs(projectId: string, proposed: unknown, fallback: string[]): string[] {
++  if (!knowledgeInjectionEnabled()) return [];
+   const allowed = new Set(activeKnowledge(projectId).map((k) => k.id));
+   const refs = stringArray(proposed).filter((id) => allowed.has(id));
+   const selected = refs.length > 0 || fallback.length === 0 ? refs : fallback;
+@@ -433,6 +442,20 @@ function projectSpecificFirstCyclePlan(projectId: string, cycleId: string, sc: S
+   };
+ }
+ 
++function nonKnowledgeScenarioPlan(project: ReturnType<typeof storage.getProject>, sc: ScenarioRound) {
++  const direction = project?.direction?.trim() || "项目既定任务";
++  const generatedGoal = /由系统|前轮知识|strong\/active/i.test(sc.proposedGoal);
++  const generatedBelief = /由系统/.test(sc.belief);
++  const generatedPrediction = /由系统/.test(sc.prediction);
++  const generatedAction = /由系统/.test(sc.action);
++  return {
++    goal: generatedGoal ? `继续验证「${direction}」的第${sc.index}轮任务` : sc.proposedGoal,
++    belief: generatedBelief ? "项目按既定红线逐步验证本轮高风险任务。" : sc.belief,
++    prediction: generatedPrediction ? `第${sc.index}轮应获得可复核的用户反馈信号。` : sc.prediction,
++    action: generatedAction ? `围绕「${direction}」产出第${sc.index}轮可审阅任务。` : sc.action,
++  };
++}
++
+ function isOperator(value: string): value is Operator {
+   return value === ">=" || value === "<=";
+ }
+@@ -516,18 +539,20 @@ export function buildNextGoalInput(projectId: string, cycleIndex: number, cycleI
+   const project = storage.getProject(projectId);
+   const previous = lastClosedCycle(projectId, cycleIndex);
+   const previousFeedback = previous ? storage.listFeedback(previous.id).map((item) => item.summary || item.text) : [];
+-  const eligibleKnowledge = storage.listKnowledge(projectId)
+-    .filter((item) => !item.supersededBy)
+-    .filter((item) => ["active", "strong"].includes(item.status))
+-    .filter((item) => eligibleForHighRisk(coreFromDb(item)))
+-    .map((item) => ({
+-      id: item.id,
+-      title: item.title,
+-      content: item.content,
+-      type: item.type,
+-      confidenceScore: item.confidenceScore,
+-      status: item.status,
+-    }));
++  const eligibleKnowledge = knowledgeInjectionEnabled()
++    ? storage.listKnowledge(projectId)
++      .filter((item) => !item.supersededBy)
++      .filter((item) => ["active", "strong"].includes(item.status))
++      .filter((item) => eligibleForHighRisk(coreFromDb(item)))
++      .map((item) => ({
++        id: item.id,
++        title: item.title,
++        content: item.content,
++        type: item.type,
++        confidenceScore: item.confidenceScore,
++        status: item.status,
++      }))
++    : [];
+ 
+   return {
+     cycleId,
+@@ -641,7 +666,7 @@ function toDirectionScenario(candidate: unknown): ScenarioRound | undefined {
+     );
+   });
+   const alternativeGoals = Array.isArray(raw.alternativeGoals) ? raw.alternativeGoals.filter((item): item is string => typeof item === "string") : [];
+-  const resolveRefs = Array.isArray(raw.knowledgeRefs)
++  const resolveRefs = knowledgeInjectionEnabled() && Array.isArray(raw.knowledgeRefs)
+     ? raw.knowledgeRefs.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+     : [];
+   return {
+@@ -681,7 +706,18 @@ function directionScenarioFromGate(cycleId: string): ScenarioRound | undefined {
+       knowledgeRefs?: string[];
+     };
+     const fromStored = toDirectionScenario(parsed.scenario);
+-    if (fromStored) return fromStored;
++    if (fromStored) {
++      if (knowledgeInjectionEnabled()) return fromStored;
++      // A previously approved gate is an existing user decision, not a
++      // counterfactual no-knowledge plan. Preserve its action/meaning while
++      // removing retrieval metadata so turning injection off does not rewrite
++      // an approved direction or falsely label it as an off-mode experiment.
++      return {
++        ...fromStored,
++        knowledgeRefs: [],
++        reasoningHowKnowledgeChangedDecision: `第 ${fromStored.index} 轮复用已批准方向闸；知识注入已关闭，本轮不能作为无知识反事实。`,
++      };
++    }
+     const fallback: ScenarioRound = {
+       index: storage.getCycle(cycleId)?.idx ?? 1,
+       proposedGoal: typeof parsed.recommended === "string" ? parsed.recommended : "",
+@@ -697,9 +733,19 @@ function directionScenarioFromGate(cycleId: string): ScenarioRound | undefined {
+       buildSuccess: true,
+       perceptionOk: true,
+       humanValueMismatch: false,
+-      knowledgeRefs: Array.isArray(parsed.knowledgeRefs) ? parsed.knowledgeRefs.filter((item): item is string => typeof item === "string") : [],
++      knowledgeRefs: knowledgeInjectionEnabled() && Array.isArray(parsed.knowledgeRefs)
++        ? parsed.knowledgeRefs.filter((item): item is string => typeof item === "string")
++        : [],
+     };
+-    return fallback.proposedGoal ? fallback : undefined;
++    if (!fallback.proposedGoal) return undefined;
++    if (!knowledgeInjectionEnabled()) {
++      return {
++        ...fallback,
++        knowledgeRefs: [],
++        reasoningHowKnowledgeChangedDecision: `第 ${fallback.index} 轮复用已批准方向闸；知识注入已关闭，本轮不能作为无知识反事实。`,
++      };
++    }
++    return fallback;
+   } catch {
+     return undefined;
+   }
+@@ -718,13 +764,16 @@ export function buildDirectionScenarioFallback(sc: ScenarioRound, refs: string[]
+     belief: finalSc.belief,
+     prediction: finalSc.prediction,
+     action: finalSc.action,
+-    knowledgeRefs: refs,
+-    reasoningHowKnowledgeChangedDecision: finalSc.reasoning,
++    knowledgeRefs: knowledgeInjectionEnabled() ? refs : [],
++    reasoningHowKnowledgeChangedDecision: knowledgeInjectionEnabled()
++      ? finalSc.reasoning
++      : `第 ${sc.index} 轮沿用项目既定任务；知识注入已关闭。`,
+   };
+ }
+ 
+ // ---------------- Agents ----------------
+ export async function runOrchestrator(projectId: string, cycleId: string, sc: ScenarioRound, llmCaller: LlmCaller = callLlm) {
++  const knowledgeEnabled = knowledgeInjectionEnabled();
+   const gateId = sc.index === 4 ? `gate_dir_c4_rollback_${cycleId.slice(-8)}` : `gate_dir_c${sc.index}_${cycleId.slice(-8)}`;
+   const existingGate = storage.getGate(gateId);
+   if (existingGate) return planFromExistingDirectionGate(existingGate, sc);
+@@ -737,6 +786,9 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
+ 
+   if (firstCyclePlan) {
+     ({ goal, belief, prediction, action, reasoning } = firstCyclePlan);
++  } else if (!knowledgeEnabled) {
++    ({ goal, belief, prediction, action } = nonKnowledgeScenarioPlan(project, sc));
++    reasoning = `第 ${sc.index} 轮沿用项目既定任务与红线；知识注入已关闭。`;
+   } else if (sc.index > SCENARIO.length) {
+     refs.push(...(sc.knowledgeRefs ?? []));
+     reasoning = sc.reasoningHowKnowledgeChangedDecision ??
+@@ -781,6 +833,17 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
+     projectId,
+     { cycleIdx: sc.index, cycleId, agent: "orchestrator" },
+   );
++  const outputContract = knowledgeEnabled
++    ? PLAN_OUTPUT_CONTRACT
++    : {
++      ...PLAN_OUTPUT_CONTRACT,
++      minimalExample: {
++        ...PLAN_OUTPUT_CONTRACT.minimalExample,
++        belief: "Use the project task and visible feedback to form a measurable plan.",
++        reasoning: "Knowledge injection is off; this plan uses no library knowledge.",
++        knowledgeRefs: [],
++      },
++    };
+   const llmData = await llmCaller({
+     cycleId,
+     agent: "orchestrator",
+@@ -796,10 +859,10 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
+         worldModel: project.worldModel,
+       } : null,
+       cycleIndex: sc.index,
+-      proposedGoal: sc.proposedGoal,
++      proposedGoal: knowledgeEnabled ? sc.proposedGoal : goal,
+       alternativeGoals: sc.alternativeGoals,
+       fallbackPlan: { goal, belief, prediction, action, reasoning, knowledgeRefs: refs },
+-      outputContract: PLAN_OUTPUT_CONTRACT,
++      outputContract,
+       activeKnowledge: usableKnowledge.map((k) => ({
+         id: k.id,
+         title: k.title,
+@@ -940,6 +1003,7 @@ export function humanResolveDirectionGate(projectId: string, cycleId: string, ga
+ }
+ 
+ function readDirectionPlan(cycleId: string, sc: ScenarioRound) {
++  const knowledgeEnabled = knowledgeInjectionEnabled();
+   const gate = storage.listGates().find((g) => g.cycleId === cycleId && g.type === "direction");
+   if (!gate) {
+     return {
+@@ -963,14 +1027,14 @@ function readDirectionPlan(cycleId: string, sc: ScenarioRound) {
+         belief: persisted.belief || sc.belief,
+         prediction: persisted.prediction || sc.prediction,
+         action: persisted.action || sc.action,
+-        refs: persisted.knowledgeRefs ?? [],
++        refs: knowledgeEnabled ? persisted.knowledgeRefs ?? [] : [],
+       };
+     }
+     return {
+       belief: payload.belief ?? sc.belief,
+       prediction: payload.prediction ?? sc.prediction,
+       action: payload.action ?? sc.action,
+-      refs: Array.isArray(payload.knowledgeRefs) ? payload.knowledgeRefs : [],
++      refs: knowledgeEnabled && Array.isArray(payload.knowledgeRefs) ? payload.knowledgeRefs : [],
+     };
+   } catch {
+     return {
+@@ -1258,6 +1322,7 @@ export async function runDistiller(
+   llmCaller: LlmCaller = callLlm,
+   attributionBasis: AttributionBasis = defaultAttributionBasis(claimError),
+ ) {
++  refs = knowledgeInjectionEnabled() ? refs : [];
+   const distillerFeedback = sc.feedback.filter((item) => !sensorErrorKindFromPayload({}, item.text));
+   const llmData = await llmCaller({
+     cycleId,
+@@ -1471,16 +1536,19 @@ export async function runDistiller(
+ }
+ 
+ export async function runLibrarian(projectId: string, cycleId: string, sc: ScenarioRound) {
+-  const auditCorpus = storage.listKnowledge(projectId)
+-    .map((item) => `${item.title}\n${item.content}`)
+-    .join("\n")
+-    .slice(0, 4000);
++  const knowledgeEnabled = knowledgeInjectionEnabled();
++  const auditCorpus = knowledgeEnabled
++    ? storage.listKnowledge(projectId)
++      .map((item) => `${item.title}\n${item.content}`)
++      .join("\n")
++      .slice(0, 4000)
++    : "";
+   await callLlm({
+     cycleId,
+     agent: "librarian",
+     promptName: "audit_and_merge",
+     inputSummary: "incremental audit",
+-    context: { knowledgeCount: storage.listKnowledge(projectId).length },
++    context: { knowledgeCount: knowledgeEnabled ? storage.listKnowledge(projectId).length : 0 },
+     knowledgeSummary: buildKnowledgeContext(
+       `audit merge transition\n${scenarioKnowledgeQuery(sc)}\n${auditCorpus}`,
+       projectId,
+diff --git a/alaya-app/tests/knowledgeInjection.test.ts b/alaya-app/tests/knowledgeInjection.test.ts
+index 8cc7691f..839f4554 100644
+--- a/alaya-app/tests/knowledgeInjection.test.ts
++++ b/alaya-app/tests/knowledgeInjection.test.ts
+@@ -418,3 +418,41 @@ test("mock flywheel LLM receives injected prior knowledge in the system context
+   assert.match(captured.knowledgeSummary, /kb_llm_rollback_audit/);
+   assert.equal(buildSystemInstructions({ knowledgeSummary: captured.knowledgeSummary }).startsWith("[PRIOR KNOWLEDGE]"), true);
+ });
++
++test("flywheel orchestrator caller receives no active metadata or learned fallback when injection is off", async () => {
++  const previous = process.env.ALAYA_KNOWLEDGE_INJECTION;
++  process.env.ALAYA_KNOWLEDGE_INJECTION = "off";
++  try {
++    for (const index of [3, 4]) {
++      const projectId = `proj_injection_off_c${index}`;
++      createProject(projectId);
++      createCycle(projectId, index);
++      createKnowledge(projectId, `kb_off_secret_${index}`, {
++        title: `Secret library title ${index}`,
++        content: `Secret library content ${index} must not reach the provider`,
++        status: "strong",
++      });
++
++      const scenario = scenarioForCycle(index);
++      assert.ok(scenario);
++      let captured: any;
++      const fakeLlm = async (input: any) => {
++        captured = input;
++        return input.mockOutput;
++      };
++
++      await runOrchestrator(projectId, `cycle_${index}_${projectId.slice(-8)}`, scenario, fakeLlm);
++
++      assert.deepEqual(captured.context.activeKnowledge, []);
++      assert.deepEqual(captured.context.fallbackPlan.knowledgeRefs, []);
++      assert.deepEqual(captured.mockOutput?.knowledgeRefs ?? [], []);
++      assert.equal(captured.knowledgeSummary, "");
++      assert.deepEqual(captured.context.outputContract.minimalExample.knowledgeRefs, []);
++      assert.doesNotMatch(JSON.stringify(captured.context.outputContract), /kb_1/);
++      assert.doesNotMatch(JSON.stringify(captured), /kb_off_secret_|Secret library title|Secret library content|沿用前两轮验证过的知识|strong\/active/);
++    }
++  } finally {
++    if (previous == null) delete process.env.ALAYA_KNOWLEDGE_INJECTION;
++    else process.env.ALAYA_KNOWLEDGE_INJECTION = previous;
++  }
++});
+diff --git a/alaya-app/tests/llm_contracts.test.ts b/alaya-app/tests/llm_contracts.test.ts
+index 7b5529ee..518470be 100644
+--- a/alaya-app/tests/llm_contracts.test.ts
++++ b/alaya-app/tests/llm_contracts.test.ts
+@@ -150,6 +150,44 @@ test("generate_autonomous_goal prompt bounds knowledge and rejected-goal context
+   assert.equal(captured.knowledgeSummary.split("\n").length, 12);
+ });
+ 
++test("generate_autonomous_goal caller receives no knowledge-derived input when injection is off", async () => {
++  const previous = process.env.ALAYA_KNOWLEDGE_INJECTION;
++  process.env.ALAYA_KNOWLEDGE_INJECTION = "off";
++  let captured: any = null;
++  try {
++    const draft = await generateNextGoal({
++      cycleId: "cycle_goal_injection_off",
++      cycleIndex: 7,
++      identity: "Operators need guarded automation.",
++      worldModel: "Preview and rollback reduce fear.",
++      eligibleKnowledge: [{
++        id: "kb_should_not_reach_llm",
++        title: "Secret library title",
++        content: "Secret library content must stay outside the provider request.",
++        type: "principle",
++        confidenceScore: 0.99,
++        status: "strong",
++      }],
++      lastCyclePredictionError: { eCycle: 0.3, worstClaimError: 0.2 },
++      recentFeedback: ["operators want a rollback preview"],
++      rejectedGoals: [],
++    }, async (input: any) => {
++      captured = input;
++      return input.mockOutput;
++    });
++
++    assert.deepEqual(captured.context.eligibleKnowledge, []);
++    assert.equal(captured.knowledgeSummary, "");
++    assert.doesNotMatch(JSON.stringify(captured), /kb_should_not_reach_llm|Secret library title|Secret library content/);
++    assert.deepEqual(captured.context.outputContract.minimalExample.referencedKnowledgeIds, []);
++    assert.doesNotMatch(JSON.stringify(captured.context.outputContract), /kb_1/);
++    assert.deepEqual(draft.referencedKnowledgeIds, []);
++  } finally {
++    if (previous == null) delete process.env.ALAYA_KNOWLEDGE_INJECTION;
++    else process.env.ALAYA_KNOWLEDGE_INJECTION = previous;
++  }
++});
++
+ test("plan_cycle prompt carries an exact JSON schema contract", async () => {
+   const projectId = "proj_plan_contract";
+   createProject(projectId);
+diff --git a/alaya-core/src/llm/provider.ts b/alaya-core/src/llm/provider.ts
+index 0ddbe4a6..00007520 100644
+--- a/alaya-core/src/llm/provider.ts
++++ b/alaya-core/src/llm/provider.ts
+@@ -87,7 +87,12 @@ function summarize(value: unknown, max = 240): string {
+ function redactSensitiveText(input: string): string {
+   return input
+     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted-email]")
+-    .replace(/\b(?:\+?\d[\d\s().-]{7,}\d)\b/g, "[redacted-phone]")
++    .replace(/\b(?:\+?\d[\d\s().-]{7,}\d)\b/g, (candidate) => {
++      // Dates and numeric SQL inputs are task data, not phone numbers.
++      const digits = candidate.replace(/\D/g, "");
++      if (/^\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2})?$/.test(candidate.trim()) || digits.length < 10 || digits.length > 15) return candidate;
++      return "[redacted-phone]";
++    })
+     .replace(/\bsk-[A-Za-z0-9][A-Za-z0-9_\-]{20,}\b/g, "[redacted-token]")
+     .replace(/\b(?:ghp|github_pat|sk|xox[abprs])_[A-Za-z0-9_\-]{20,}\b/g, "[redacted-token]")
+     .replace(/\b(?:api[_-]?key|token|password|secret)\s*[:=]\s*["']?[^"'\s]{8,}/gi, "$1=[redacted-secret]");
+@@ -222,6 +227,7 @@ export interface OpenAIProviderOptions {
+   temperature?: number;
+   timeoutMs?: number;
+   maxOutputTokens?: number;
++  allowSimplifiedFallback?: boolean;
+ }
+ 
+ function readSecretFile(path: string | undefined): string {
+@@ -255,6 +261,7 @@ export class OpenAIProvider implements LLMProvider {
+   private temperature: number;
+   private timeoutMs: number;
+   private maxOutputTokens: number;
++  private allowSimplifiedFallback: boolean;
+ 
+   constructor(options: OpenAIProviderOptions = {}) {
+     this.apiKey = resolveOpenAIApiKey(options.apiKey);
+@@ -265,6 +272,7 @@ export class OpenAIProvider implements LLMProvider {
+     this.temperature = options.temperature ?? 0.2;
+     this.timeoutMs = resolveRequestTimeoutMs(options.timeoutMs);
+     this.maxOutputTokens = resolveMaxOutputTokens(options.maxOutputTokens);
++    this.allowSimplifiedFallback = options.allowSimplifiedFallback ?? true;
+   }
+ 
+   async call(request: AgentContext): Promise<LLMResponse> {
+@@ -311,6 +319,10 @@ export class OpenAIProvider implements LLMProvider {
+       }
+     }
+ 
++    if (!this.allowSimplifiedFallback) {
++      return this.degradedResponse(safeRequest, lastError, retryCount, started);
++    }
++
+     try {
+       const simpleSchema = safeRequest.simplifiedSchema ?? DEFAULT_SIMPLIFIED_SCHEMA;
+       const simpleData = await this.callStructuredApi(safeRequest, simpleSchema, redactSensitiveText(lastError));
+@@ -468,7 +480,7 @@ export class OpenAIProvider implements LLMProvider {
+ 
+     const json = await response.json() as any;
+     const text = extractOutputText(json);
+-    const parsed = parseJsonObjectText(text, "OpenAI");
++    const parsed = parseJsonObjectText(text, "OpenAI", schema);
+ 
+     parsed.__usage = {
+       inputTokens: json.usage?.input_tokens,
+@@ -529,7 +541,7 @@ export class OpenAIProvider implements LLMProvider {
+ 
+     const json = await response.json() as any;
+     const text = extractChatOutputText(json);
+-    const parsed = parseJsonObjectText(text, "OpenAI-compatible chat");
++    const parsed = parseJsonObjectText(text, "OpenAI-compatible chat", schema);
+ 
+     parsed.__usage = {
+       inputTokens: json.usage?.prompt_tokens ?? json.usage?.input_tokens,
+@@ -637,15 +649,54 @@ function extractChatOutputText(json: any): string {
+   return "";
+ }
+ 
+-function parseJsonObjectText(text: string, source: string): Record<string, unknown> {
+-  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+-  for (const candidate of [stripThinkingBlocks(trimmed), trimmed]) {
++function parseJsonObjectText(text: string, source: string, schema?: JsonSchema): Record<string, unknown> {
++  const raw = text.trim();
++  const jsonTrimmed = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
++  const candidates = [stripThinkingBlocks(raw), stripThinkingBlocks(jsonTrimmed), raw, jsonTrimmed];
++
++  // Some OpenAI-compatible models return a complete SQL answer despite the
++  // JSON instruction. Keep this envelope fallback narrow: only a schema whose
++  // sole declared and required field is sql:string may use it. The evaluator
++  // remains responsible for SQLite legality and correctness.
++  if (schema && isSingleSqlSchema(schema)) {
++    // Prefer the original text so a SQL literal containing a thinking-like
++    // marker is not rewritten; stripped candidates still handle a leading
++    // provider <think>...</think> wrapper.
++    for (const candidate of [raw, jsonTrimmed, ...candidates]) {
++      const sql = extractSqlEnvelope(candidate);
++      if (sql) return sql;
++    }
++  }
++
++  for (const candidate of candidates) {
+     const parsed = tryParseJsonObject(candidate);
+     if (parsed) return parsed;
+   }
+   throw new Error(`${source} response was not parseable JSON: ${text.slice(0, 300)}`);
+ }
+ 
++function isSingleSqlSchema(schema: JsonSchema): boolean {
++  const properties = schema.properties ?? {};
++  const sql = properties.sql;
++  return schema.type === "object"
++    && schema.required?.length === 1
++    && schema.required[0] === "sql"
++    && Object.keys(properties).length === 1
++    && !!sql
++    && "type" in sql
++    && sql.type === "string";
++}
++
++function extractSqlEnvelope(text: string): Record<string, unknown> | null {
++  let candidate = text.trim();
++  const fenced = /^```(?:sql)?[ \t]*(?:\r?\n)?([\s\S]*?)(?:\r?\n)?```$/i.exec(candidate);
++  if (fenced) candidate = fenced[1].trim();
++  else if (/^```|```$/.test(candidate)) return null;
++
++  if (!/^(?:select|with)\b/i.test(candidate)) return null;
++  return { sql: candidate };
++}
++
+ function stripThinkingBlocks(text: string): string {
+   return text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+ }
+diff --git a/alaya-core/tests/llm_provider.test.ts b/alaya-core/tests/llm_provider.test.ts
+index 501ddc31..cbf2a2c1 100644
+--- a/alaya-core/tests/llm_provider.test.ts
++++ b/alaya-core/tests/llm_provider.test.ts
+@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
+ import { mkdtempSync, writeFileSync } from "node:fs";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+-import { OpenAIProvider, resolveOpenAIApiKey } from "../src/llm/provider.js";
++import { OpenAIProvider, resolveOpenAIApiKey, type JsonSchema } from "../src/llm/provider.js";
+ 
+ test("OPENAI_API_KEY_FILE provides a local-only API key without putting it in the command", () => {
+   const previousKey = process.env.OPENAI_API_KEY;
+@@ -309,3 +309,107 @@ test("OpenAIProvider forces MiniMax thinking off for structured JSON calls", asy
+     else process.env.MINIMAX_THINKING = previousThinking;
+   }
+ });
++
++test("bounded SQL calls preserve dates and make no hidden simplified retry", async () => {
++  const originalFetch = globalThis.fetch;
++  const bodies: string[] = [];
++  globalThis.fetch = (async (_url, init) => {
++    bodies.push(String(init?.body));
++    return new Response(JSON.stringify({ choices: [{ message: { content: '{"summary":"wrong schema"}' } }] }), { status: 200 });
++  }) as typeof fetch;
++  try {
++    const provider = new OpenAIProvider({ apiKey: "test-key", baseUrl: "https://example.test/v1", model: "test", maxRetries: 0, allowSimplifiedFallback: false });
++    const result = await provider.call({ role: "builder", task: "repair SQL", promptVersion: "sql-repair.v1", context: { sql: "WHERE ts >= '2026-03-01 12:00:00' AND ts < '2026-04-01'", contact: "+1 415 555 2671" }, schema: { type: "object", required: ["sql"], properties: { sql: { type: "string" } } } });
++    assert.equal(bodies.length, 1);
++    assert.ok(bodies[0].includes("2026-03-01 12:00:00"));
++    assert.ok(bodies[0].includes("2026-04-01"));
++    assert.ok(!bodies[0].includes("415 555 2671"));
++    assert.equal(result.schemaValid, false);
++    assert.equal(result.retryCount, 0);
++  } finally { globalThis.fetch = originalFetch; }
++});
++
++
++test("SQL envelope fallback is limited to a single sql field", async () => {
++  const originalFetch = globalThis.fetch;
++  const responses = [
++    JSON.stringify({ sql: "SELECT 1" }),
++    "```sql\nSELECT 2\n```",
++    "WITH values AS (SELECT 3 AS value) SELECT value FROM values",
++    "Here is the query:\n```sql\nSELECT 4\n```",
++    "```sql\nDELETE FROM users\n```",
++    "```sql\nSELECT 5\n```",
++    "```sql\nSELECT 6\n```",
++  ];
++  let calls = 0;
++  globalThis.fetch = (async (_url: string | URL | Request, _init?: RequestInit) => {
++    const content = responses.shift();
++    assert.ok(content);
++    calls++;
++    return new Response(JSON.stringify({
++      choices: [{ message: { content } }],
++      usage: { prompt_tokens: 11, completion_tokens: 3, total_tokens: 14 },
++    }), { status: 200, headers: { "Content-Type": "application/json" } });
++  }) as typeof fetch;
++
++  const sqlSchema = {
++    type: "object" as const,
++    required: ["sql"],
++    properties: { sql: { type: "string" as const } },
++  };
++  const provider = new OpenAIProvider({
++    apiKey: "test-key-not-real",
++    apiMode: "chat",
++    endpoint: "https://llm.example.test/v1/chat/completions",
++    model: "MiniMax-M3",
++    maxRetries: 0,
++    allowSimplifiedFallback: false,
++  });
++  const call = (schema: JsonSchema = sqlSchema) => provider.call({
++    role: "builder",
++    task: "repair SQL",
++    promptVersion: "sql-repair.envelope.v1",
++    context: {},
++    schema,
++  });
++
++  try {
++    const json = await call();
++    assert.equal(json.schemaValid, true);
++    assert.deepEqual(json.data, { sql: "SELECT 1" });
++    assert.equal(json.log.tokenCount, 14);
++
++    const fenced = await call();
++    assert.equal(fenced.schemaValid, true);
++    assert.deepEqual(fenced.data, { sql: "SELECT 2" });
++
++    const plain = await call();
++    assert.equal(plain.schemaValid, true);
++    assert.match(String(plain.data.sql), /^WITH\b/i);
++
++    const article = await call();
++    assert.equal(article.schemaValid, false);
++    assert.equal(article.retryCount, 0);
++
++    const deleteSql = await call();
++    assert.equal(deleteSql.schemaValid, false);
++    assert.equal(deleteSql.retryCount, 0);
++
++    const multiField = await call({
++      type: "object",
++      required: ["sql", "summary"],
++      properties: { sql: { type: "string" }, summary: { type: "string" } },
++    });
++    assert.equal(multiField.schemaValid, false);
++
++    const distiller = await call({
++      type: "object",
++      required: ["title", "lesson", "sql"],
++      properties: { title: { type: "string" }, lesson: { type: "string" }, sql: { type: "string" } },
++    });
++    assert.equal(distiller.schemaValid, false);
++    assert.equal(calls, 7, "SQL envelope handling must not issue a second LLM call");
++  } finally {
++    globalThis.fetch = originalFetch;
++  }
++});
+diff --git a/package.json b/package.json
+index c59c9887..376cd918 100644
+--- a/package.json
++++ b/package.json
+@@ -29,6 +29,10 @@
+     "validation:health-signal": "node scripts/health-signal-36h-validation.mjs",
+     "validation:health-signal:timeseries": "node scripts/health-signal-timeseries-summary.mjs",
+     "validation:health-signal:conflicts": "node scripts/health-signal-conflict-lifecycle-summary.mjs",
++    "experiment:sql": "node --import tsx scripts/sql-repair-experiment.mjs",
++    "experiment:sql:check": "python3 scripts/lib/sql-repair-cases.py --self-test && node --import tsx --test alaya-app/tests/sqlRepair.test.ts",
++    "experiment:sql:closeout": "node --import tsx scripts/sql-closeout-experiment.mjs",
++    "experiment:sql:closeout-check": "python3 scripts/lib/sql-repair-closeout.py --self-test && node --import tsx --test alaya-app/tests/sqlRepair.test.ts && node scripts/analyze-sql-closeout.mjs --self-test",
+     "benchmark:smoke": "cd alaya-app && node --import tsx ../scripts/benchmark-smoke.mjs",
+     "provider:canary": "cd alaya-app && node --import tsx ../scripts/provider-canary.mjs",
+     "trace:export": "cd alaya-app && node --import tsx ../scripts/trace-export.mjs",
+diff --git a/alaya-app/server/sqlRepair.ts b/alaya-app/server/sqlRepair.ts
+new file mode 100644
+--- /dev/null
++++ b/alaya-app/server/sqlRepair.ts
+@@ -0,0 +1,129 @@
++/** Executable DEVELOPMENT task adapter. No SCENARIO or mock outcome enters this path. */
++import { createHash } from "node:crypto";
++import type { AgentContext, LLMProvider, LLMResponse } from "alaya-core/src/llm/provider.js";
++import { applyEvidence } from "alaya-core/src/core/update_confidence.js";
++import { transitionState } from "alaya-core/src/core/transition_state.js";
++import type { KnowledgeItem as CoreKnowledge } from "alaya-core/src/core/types.js";
++import type { KnowledgeItem } from "@shared/schema";
++import { storage, now } from "./storage";
++import { buildKnowledgeContext, withKnowledgeRetrievalIdentity, KNOWLEDGE_RETRIEVAL_CONTROL_SCHEMA } from "./knowledgeInjection";
++import { computeCreditUpdates, applyCreditUpdates } from "./knowledgeCredit";
++import { recordTrace } from "./trace";
++
++export type SqlTask = { id: string; family: string; prompt: string };
++export type SqlOutcome = { passed: boolean; checks: number; passedChecks: number; error?: string; counterexample?: unknown };
++export type SqlEpisode = { task: SqlTask; sql: string; outcome: SqlOutcome; correctSql: string };
++export const MEMORY_CHAR_LIMIT = 12_000;
++const SQL_SCHEMA = { type: "object" as const, required: ["sql"], properties: { sql: { type: "string" } } };
++const LESSON_SCHEMA = { type: "object" as const, required: ["title", "lesson", "sql"], properties: { title: { type: "string" }, lesson: { type: "string" }, sql: { type: "string" } } };
++
++const terms = (s: string) => new Set(s.toLowerCase().match(/[a-z][a-z_]{2,}/g) ?? []);
++export const sqlRetrievalQuery = (task: SqlTask) => `${task.family}\n${task.prompt}`;
++
++/** Strong raw baseline: same public family, fixed lexical similarity, two WHOLE episodes. */
++export function rawSqlMemory(task: SqlTask, episodes: readonly SqlEpisode[]): { text: string; ids: string[] } {
++  const query = terms(sqlRetrievalQuery(task));
++  const ranked = episodes.filter(e => e.task.family === task.family).map(e => {
++    const words = terms(sqlRetrievalQuery(e.task));
++    const common = Array.from(words).filter(w => query.has(w)).length;
++    return { e, score: common / Math.max(1, words.size + query.size - common) };
++  }).sort((a, b) => b.score - a.score || a.e.task.id.localeCompare(b.e.task.id));
++  const included: string[] = [], ids: string[] = [];
++  for (const { e } of ranked) {
++    const record = JSON.stringify(e);
++    if (record.length > MEMORY_CHAR_LIMIT) throw new Error(`Raw episode exceeds shared memory budget: ${e.task.id}`);
++    if (included.join("\n").length + record.length + 1 > MEMORY_CHAR_LIMIT) continue;
++    included.push(record); ids.push(e.task.id);
++    if (ids.length === 2) break;
++  }
++  return { text: included.join("\n"), ids };
++}
++
++function agentRecord(cycleId: string, cycleIdx: number, agent: string, action: string, summary: string, refs: string[] = []) {
++  storage.recordAgentRun({ cycleId, cycleIdx, agent, action, outputSummary: summary, knowledgeRefsUsed: JSON.stringify(refs), ts: now() });
++}
++
++export function createSqlProject(id: string) {
++  if (storage.getProject(id)) throw new Error(`SQL experiment requires a fresh project: ${id}`);
++  storage.createProject({ id, name: id, direction: "Repair read-only SQLite queries from explicit business contracts", targetUser: "SQL analysts", redlines: JSON.stringify(["only local read-only SQL", "no strong promotion without human approval"]), weeklyHumanMinutes: 0, weeklyLlmBudgetCents: 1000, firstClaimMetric: "all_fixtures_correct", firstClaimOperator: ">=", firstClaimTarget: 1, seedIdentity: "DEVELOPMENT executable task", worldModel: "", currentCycleIdx: 0, version: 1 });
++}
++
++export async function runSqlRepairTask(input: {
++  task: SqlTask; projectId: string; runId: string; cycleId: string; index: number;
++  phase: "dev" | "train" | "test" | "probe"; arm: "none" | "raw" | "alaya" | "source";
++  provider: LLMProvider; evaluate: (sql: string) => SqlOutcome;
++  episodes?: readonly SqlEpisode[]; correctSql?: string;
++}) {
++  const { task, projectId, cycleId, index, phase, provider } = input;
++  if (phase === "train" && input.arm !== "alaya" && input.arm !== "source") throw new Error("Training only records source episodes or Alaya learning.");
++  if (phase === "train" && !input.correctSql) throw new Error("Training requires independently checked corrective SQL.");
++  if (phase === "train" && !input.evaluate(input.correctSql!).passed) throw new Error("Corrective SQL disagrees with independent oracle; refuse to learn");
++  storage.createCycle({ id: cycleId, projectId, idx: index, goal: task.prompt, status: "running", eCycle: null, worstClaimError: null, reasoning: "", version: 1 });
++  agentRecord(cycleId, index, "orchestrator", "delegate_sql_repair", `Fixed ${phase} task; arm=${input.arm}; family=${task.family}`);
++  let memory = "", refs: string[] = [];
++  if (input.arm === "raw") ({ text: memory, ids: refs } = rawSqlMemory(task, input.episodes ?? []));
++  if (input.arm === "alaya") {
++    memory = withKnowledgeRetrievalIdentity({ schema: KNOWLEDGE_RETRIEVAL_CONTROL_SCHEMA, projectId, runId: input.runId, caseId: task.id, cycleId, mode: phase === "train" ? "mutating" : "read_only" }, { projectId, cycleId }, () => buildKnowledgeContext(sqlRetrievalQuery(task), projectId, { cycleId, cycleIdx: index, agent: "builder" }));
++    refs = storage.listTraceEventsByCycle(cycleId).flatMap(e => {
++      if (e.name !== "build_prior_knowledge_context") return [];
++      const a = JSON.parse(e.attributes);
++      return a.injectedKnowledgeIds.length ? a.injectedKnowledgeIds : a.readOnlySelectedKnowledgeIds;
++    });
++  }
++  if (memory.length > MEMORY_CHAR_LIMIT) throw new Error("Memory exceeds shared budget");
++  const responses: LLMResponse[] = [];
++  async function call(request: AgentContext) {
++    const response = await provider.call(request);
++    responses.push(response);
++    storage.recordLlmCall({ cycleId, agent: request.role, provider: provider.name, model: process.env.OPENAI_MODEL ?? provider.name, routeReason: "sql DEVELOPMENT; core log uses generic cost estimate; wire receipt is authoritative", promptVersion: request.promptVersion, inputSummary: response.log.inputSummary, outputSummary: response.log.outputSummary, schemaValid: response.schemaValid ? 1 : 0, retryCount: response.retryCount, latencyMs: response.log.latencyMs, tokenCount: response.log.tokenCount, tokenSource: "estimated", estimatedCost: response.log.estimatedCost, ts: response.log.ts });
++    return response;
++  }
++  const built = await call({ role: "builder", task: "Repair the supplied SQLite query to satisfy every stated business rule. Return JSON with one sql string. Use prior experiences only when applicable; the current contract always takes precedence. Do not assume unstated fixture values.", promptVersion: "sql-repair.builder.v1", context: { query: task.prompt }, knowledgeSummary: memory, schema: SQL_SCHEMA });
++  const sql = built.schemaValid && typeof built.data.sql === "string" ? built.data.sql.trim() : "";
++  agentRecord(cycleId, index, "builder", "submit_sql", sql || built.errorMessage || "invalid structured response", refs);
++  const outcome = input.evaluate(sql);
++  agentRecord(cycleId, index, "sensor", "execute_sql_and_compare_python_reference", JSON.stringify(outcome));
++  recordTrace({ projectId, cycleId, cycleIdx: index, kind: "sql_execution", name: "independent_sql_outcome", agent: "sensor", attributes: { phase, caseId: task.id, arm: input.arm, sqlSha256: createHash("sha256").update(sql).digest("hex"), outcome } });
++  let episode: SqlEpisode | undefined;
++  let learnedId: string | null = null;
++  let lessonOutcome: SqlOutcome | null = null;
++  if (phase === "train") {
++    // The actual execution outcome is the ONLY reward; never a model's self-report.
++    episode = { task, sql, outcome, correctSql: input.correctSql! };
++    if (input.arm === "source") {
++      agentRecord(cycleId, index, "distiller", "source_episode_no_distillation", "Closeout training stores the complete verified episode only.");
++      agentRecord(cycleId, index, "librarian", "source_episode_no_knowledge_write", "No distilled knowledge, usage or credit mutation.");
++    } else {
++      applyCreditUpdates(computeCreditUpdates(refs, { cycleId, correct: outcome.passed }), { cycleIdx: index });
++      for (const id of refs) {
++        const k = storage.getKnowledge(id)!;
++        const transition = transitionState({ ...k, tags: JSON.parse(k.tags) } as CoreKnowledge, { currentCycle: index, conflictsWithStrong: false });
++        if (transition.changed && !transition.requiresHuman) storage.updateKnowledge(id, { status: transition.nextStatus, actor: "librarian" });
++      }
++      const distilled = await call({ role: "distiller", task: "From this completed training experience and verified corrective SQL, extract ONE reusable repair rule. State its applicability and a boundary where it must not be used. Use generic concepts rather than source table names or literal dates. lesson must be at most 480 characters. Also return sql that solves THIS source task, so the source recipe can be independently validated. Return JSON {title,lesson,sql}. Do not claim a rule is universally proven and do not assign confidence.", promptVersion: "sql-repair.distiller.v1", context: { experience: episode }, schema: LESSON_SCHEMA });
++      if (distilled.schemaValid && typeof distilled.data.lesson === "string" && typeof distilled.data.title === "string" && typeof distilled.data.sql === "string" && distilled.data.lesson.trim()) {
++        lessonOutcome = input.evaluate(distilled.data.sql);
++        const title = `${task.family}: ${distilled.data.title.trim().slice(0, 80)}`;
++        const content = distilled.data.lesson.trim().slice(0, 480);
++        // ponytail: exact text dedup only; semantic merging needs independent evidence before use.
++        const fingerprint = createHash("sha256").update(`${title}\n${content}`).digest("hex");
++        const existing = storage.listKnowledge(projectId).find(k => k.semanticKey === fingerprint);
++        if (existing) learnedId = existing.id;
++        else {
++          const base: KnowledgeItem = { id: `sql_k_${cycleId}`, projectId, type: "principle", title, content, sourceType: "agent_observation", sourceRef: task.id, evidenceAlpha: 1, evidenceBeta: 1, confidenceScore: 0.5, confidenceLevel: "low", status: "draft", humanApprovedCount: 0, externalVerifiedCount: 0, validFrom: now().slice(0, 10), validUntil: null, lastValidatedCycle: index, createdByCycle: index, createdBy: "distiller", approvedBy: null, usageCount: 0, tags: JSON.stringify([task.family, "sql", "source_task_verified_only"]), notes: "Source recipe execution evidence only; generalization and causal utility remain unproven.", semanticKey: fingerprint, version: 1 };
++          const verified = applyEvidence({ ...base, tags: JSON.parse(base.tags) } as CoreKnowledge, { kind: "prediction", normalizedError: lessonOutcome.passed ? 0 : 1 }).next;
++          const transition = transitionState(verified, { currentCycle: index, conflictsWithStrong: false });
++          storage.createKnowledge({ ...base, evidenceAlpha: verified.evidenceAlpha, evidenceBeta: verified.evidenceBeta, confidenceScore: verified.confidenceScore, confidenceLevel: verified.confidenceLevel, status: transition.requiresHuman ? "draft" : transition.nextStatus });
++          learnedId = base.id;
++        }
++      }
++      agentRecord(cycleId, index, "distiller", "extract_verified_source_recipe", JSON.stringify({ learnedId, lessonOutcome, schemaValid: distilled.schemaValid }));
++      agentRecord(cycleId, index, "librarian", "audit_training_memory", JSON.stringify({ creditedIds: refs, learnedId, strongPromotion: false }));
++    }
++  } else {
++    agentRecord(cycleId, index, "distiller", "frozen_evaluation_no_learning", "Evaluation outcomes are excluded from training memory.");
++    agentRecord(cycleId, index, "librarian", "frozen_evaluation_no_writes", "No knowledge, usage or credit mutation.");
++  }
++  storage.updateCycle(cycleId, { status: "closed", eCycle: outcome.passed ? 0 : 1, worstClaimError: outcome.passed ? 0 : 1 });
++  return { taskId: task.id, family: task.family, phase, arm: input.arm, sql, outcome, memory, refs, episode, learnedId, lessonOutcome, schemaValid: built.schemaValid, responses };
++}
+diff --git a/alaya-app/tests/sqlRepair.test.ts b/alaya-app/tests/sqlRepair.test.ts
+new file mode 100644
+--- /dev/null
++++ b/alaya-app/tests/sqlRepair.test.ts
+@@ -0,0 +1,98 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import { mkdtempSync } from 'node:fs';
++import { join } from 'node:path';
++import { tmpdir } from 'node:os';
++import { MockLLM, type AgentContext, type LLMProvider } from 'alaya-core/src/llm/provider.ts';
++process.env.ALAYA_DB_PATH = join(mkdtempSync(join(tmpdir(), 'alaya-sql-test-')), 'test.db');
++process.env.ALAYA_KNOWLEDGE_RANKING = 'static';
++process.env.ALAYA_INJECTION_EPSILON = '0';
++process.env.ALAYA_KNOWLEDGE_INJECTION = 'on';
++const { storage } = await import('../server/storage.ts');
++const { createSqlProject, runSqlRepairTask, rawSqlMemory } = await import('../server/sqlRepair.ts');
++
++test('SQL adapter credits only executed outcomes, keeps all five roles, and freezes all test knowledge state', async () => {
++  createSqlProject('sql_regression');
++  const captured: AgentContext[] = [];
++  let wrong = false;
++  const provider: LLMProvider = { name: 'mock', async call(request) {
++    captured.push(request);
++    const data = request.role === 'distiller'
++      ? { title: 'Avoid duplicate aggregation', lesson: 'Pre-aggregate child SQL rows at the required grain; do not sum distinct amounts because different rows can have equal amounts.', sql: 'SELECT 1' }
++      : { sql: wrong ? 'SELECT 0' : 'SELECT 1', buildSuccess: true };
++    return new MockLLM().call({ ...request, mockData: data });
++  } };
++  const evaluate = (sql: string) => ({ passed: sql === 'SELECT 1', checks: 4, passedChecks: sql === 'SELECT 1' ? 4 : 0 });
++  const base = { projectId: 'sql_regression', runId: 'unit', provider, evaluate, task: { id: 'train-1', family: 'aggregation', prompt: 'Repair SQL aggregation with duplicate child rows.' } };
++  const first = await runSqlRepairTask({ ...base, index: 1, cycleId: 'source1', phase: 'train', arm: 'alaya', correctSql: 'SELECT 1' });
++  assert.ok(first.learnedId);
++  const k1 = storage.getKnowledge(first.learnedId!)!;
++  assert.equal(k1.status, 'active');
++  assert.equal(k1.evidenceAlpha, 2);
++  assert.equal(k1.evidenceBeta, 1);
++  assert.equal(k1.humanApprovedCount, 0);
++  const beforeBadOracle = JSON.stringify(storage.listKnowledge('sql_regression'));
++  await assert.rejects(runSqlRepairTask({ ...base, index: 9, cycleId: 'bad_oracle', phase: 'train', arm: 'alaya', correctSql: 'SELECT 0' }), /Corrective SQL disagrees/);
++  assert.equal(JSON.stringify(storage.listKnowledge('sql_regression')), beforeBadOracle);
++  assert.equal(storage.getCycle('bad_oracle'), undefined);
++  wrong = true;
++  const second = await runSqlRepairTask({ ...base, index: 2, cycleId: 'source2', phase: 'train', arm: 'alaya', correctSql: 'SELECT 1' });
++  assert.equal(second.outcome.passed, false);
++  assert.ok(second.refs.includes(first.learnedId!));
++  const afterWrong = storage.getKnowledge(first.learnedId!)!;
++  assert.equal(afterWrong.evidenceBeta, 2, 'False model success must not credit a wrong SQL answer');
++  assert.equal(afterWrong.evidenceAlpha, 2);
++  const snapshot = JSON.stringify(storage.listKnowledge('sql_regression'));
++  for (const [i, arm] of (['none', 'raw', 'alaya'] as const).entries()) {
++    const result = await runSqlRepairTask({ ...base, task: { ...base.task, id: 'heldout-new' }, index: i + 3, cycleId: `eval${i}`, phase: 'test', arm, episodes: [first.episode!] });
++    assert.equal(JSON.stringify(storage.listKnowledge('sql_regression')), snapshot);
++    assert.equal(storage.listAgentRuns(`eval${i}`).length, 5);
++    const body = captured.at(-1)!;
++    assert.deepEqual(Object.keys(body.context), ['query']);
++    assert.equal(body.mockData, undefined);
++    if (arm === 'none') assert.equal(body.knowledgeSummary, '');
++    else assert.ok(result.memory.length > 0);
++  }
++  assert.equal(storage.listLlmCalls().length, 7);
++  assert.equal(captured.length, 7, 'two training calls per source, one call per test');
++});
++
++test('raw retrieval supplies complete same-family train records with a fixed tie-break', () => {
++  const task = { id: 'heldout', family: 'funnel', prompt: 'repair SQL funnel stage window' };
++  const records = ['train-b', 'train-a', 'train-c'].map(id => ({ task: { ...task, id }, sql: 'WRONG SQL', correctSql: 'CORRECT SQL', outcome: { passed: false, checks: 4, passedChecks: 0 } }));
++  const selected = rawSqlMemory(task, records);
++  assert.deepEqual(selected.ids, ['train-a', 'train-b']);
++  const decoded = selected.text.split('\n').map(s => JSON.parse(s));
++  assert.deepEqual(decoded, [records[1], records[0]]);
++  assert.equal(rawSqlMemory({ ...task, family: 'other' }, records).text, '');
++});
++
++test('source training stores one complete episode with one builder call and no knowledge writes', async () => {
++  createSqlProject('sql_source_closeout');
++  const captured: AgentContext[] = [];
++  const provider: LLMProvider = { name: 'mock', async call(request) {
++    captured.push(request);
++    return new MockLLM().call({ ...request, mockData: { sql: 'SELECT 1', buildSuccess: true } });
++  } };
++  const evaluate = (sql: string) => ({ passed: sql === 'SELECT 1', checks: 4, passedChecks: sql === 'SELECT 1' ? 4 : 0 });
++  const result = await runSqlRepairTask({
++    projectId: 'sql_source_closeout', runId: 'unit-source', provider, evaluate,
++    task: { id: 'train-source-1', family: 'line_item_refund', prompt: 'Repair line-item refund SQL.' },
++    index: 1, cycleId: 'source_only', phase: 'train', arm: 'source', correctSql: 'SELECT 1',
++  });
++  assert.equal(captured.length, 1);
++  assert.equal(captured[0].role, 'builder');
++  assert.ok(result.episode);
++  assert.equal(result.episode!.correctSql, 'SELECT 1');
++  assert.equal(result.episode!.sql, 'SELECT 1');
++  assert.equal(result.learnedId, null);
++  assert.equal(result.lessonOutcome, null);
++  assert.equal(storage.listKnowledge('sql_source_closeout').length, 0);
++  const runs = storage.listAgentRuns('source_only');
++  assert.equal(runs.length, 5);
++  assert.deepEqual(runs.map(run => run.action), [
++    'delegate_sql_repair', 'submit_sql', 'execute_sql_and_compare_python_reference',
++    'source_episode_no_distillation', 'source_episode_no_knowledge_write',
++  ]);
++  assert.equal(storage.listLlmCalls().filter(call => call.cycleId === 'source_only').length, 1);
++});
+diff --git a/docs/validation/SQL_REPAIR_DEVELOPMENT_PLAN.md b/docs/validation/SQL_REPAIR_DEVELOPMENT_PLAN.md
+new file mode 100644
+--- /dev/null
++++ b/docs/validation/SQL_REPAIR_DEVELOPMENT_PLAN.md
+@@ -0,0 +1,79 @@
++# Alaya 下一步：可执行 SQL 修复中的经验迁移
++
++日期：2026-09-09。身份：DEVELOPMENT。起点：b7090b11，保留七月失败归档和用户未提交 V2 工作，不重新启动旧 Controller。
++
++## 目标与领域
++
++检验同一固定模型能否通过 Alaya 的历史错误、外部纠错、知识提炼和检索，在相同业务数据结构的新表名、新条件组合的 SQL 修复任务上提高一次作答正确率。结果允许阳性、阴性和不确定，代码测试通过不等于认知增强成立。
++
++选择 SQLite 业务查询修复：真实执行在本地数秒内可得到客观结果；多表聚合、最新状态与时序转化存在可迁移的错误模式；无需浏览器、外部业务结果等待或大型基准部署。本轮是自建合成业务任务，不能冒称 Spider/BIRD 成绩或实际企业收益。借鉴 Spider 的跨数据库划分思路、BIRD 的执行正确率思路，第一轮保留明确适用边界。
++
++## 最小完整实现
++
++保留五个角色及运行记录：Orchestrator 选择固定任务并委派；Builder 通过已有 LLMProvider 提交 SQL；Sensor 使用 SQLite 执行和独立 Python 业务参考计算判定；Distiller 仅在训练期间从真实错误/外部纠错提炼可迁移经验并返回源题修复 SQL；Librarian 用已有存储、纯函数状态迁移和知识检索维护训练库。确定性职责不额外调用 LLM。
++
++复用 storage 的审计写路径、buildKnowledgeContext 的只读测试模式、applyCreditUpdates 的幂等更新和 transitionState 的状态约束。以实际执行结果给使用过的知识回填 credit，禁止读取旧 mock_analytics 作为 reward。新知识只获得源训练题验证证据，不获得人工批准或 strong 身份；该证据不表示其泛化已证明。多条同时注入时的 credit 是既有启发式，第一轮只评估经验处理整体效果，不声称已证明单条知识或 Thompson 算法的因果作用。
++
++修复旧 off 模式的知识 metadata / 学习后 fallback 旁路。修复真实 provider 对日期的错误脱敏及隐藏的额外 fallback 调用：保留正常默认重试，实验显式关闭重试和 simplified fallback。旧演示场景继续作为演示，新的认知证据只来自 SQL adapter 的实测。
++
++## 数据与对照
++
++三个任务族：聚合/金额，截止时最新事件，顺序漏斗。每族 2 dev、8 train、8 heldout，共 6/24/24。各题完整公布规则；答案不依赖隐瞒的业务定义。train/test 表结构名称分离，条件组合不同；承认它仍是同一任务族内的受控迁移，不是跨领域泛化。
++
++每题在 4 个数据库上运行：每个库均保留手工边界行，并使用不同种子加入随机背景行。Python 参考程序直接计算预期业务结果；正确 SQL 仅作交叉校验。必须通过正确 SQL 全过、注入错误的 SQL 被拒、只读执行限制和独立手算检查。同一题的数据库变体不扩大统计样本数。
++
++训练按固定顺序：Builder 可用当前训练记忆作答 → 独立执行 → 向使用过的知识记录结果 → 提供只属于该训练题的正确 SQL 和反馈 → Distiller 生成经验/源题修复 → 再执行验证 → Librarian 接受或保留为 draft。该共同经历池同时提供给 B、C。
++
++测试开始前固定所有程序、题集、训练经历、知识快照、模型与提示的 SHA-256。对每个 heldout 分别运行：
++
++- A：无历史经验；只有当前公开题目和相同任务指令。
++- B：同一训练经历池中的原始记录；固定检索、最多 2 条完整记录、经验内容上限 12,000 字符；包含训练题、模型 SQL、正确 SQL、独立反馈，不切掉答案而只留下题干。
++- C：同一训练经历池经过 Alaya 提炼/验证/结果 credit 的知识；现有静态选择和污染过滤，epsilon=0；只读检索，经验上限同为 12,000 字符，现有实现实际使用更少则照实报告。
++
++B/C 使用同一公开 family+prompt 检索输入，不读取 heldout private 字段。A/B 使用独立、无旧项目数据的上下文。模型接收的实际 HTTP body 留存，测试答案和参考程序不进入请求。测试期间不写知识内容、confidence、usage 或 credit；只允许评价运行记录与审计记录。前后知识快照逐字比较。
++
++## 调用与时间预算
++
++沿用原项目已配置可用的 MiniMax-M3；请求/响应 model 字段留证，不自行推断底层模型。temperature=0；每次最多 2,048 输出 tokens；每题 test-time 仅一次 Builder 调用；无自动重试或失败答案补写。
++
++预计 1 次 provider canary + 6 次 dev + 48 次 train/Distiller + 72 次 heldout = 127 次真实请求。本次总上限 160 次，仅余量用于 dev 联调，不能在看过 heldout 成绩后增加训练或调提示。单次超时 30 秒，独立测试最多并发 3；先用 dev 实测延迟再给运行时间估计。记录请求数、provider 实报输入/输出 tokens、缓存 tokens、延迟、失败及模型标识。学习成本单列；不使用仓库的通用估价冒充账单。
++
++## 验收与停止
++
++1. 工程：相关回归、typecheck、原则检查、构建及实际调用链检查通过；正确 SQL 全通过，错误 SQL 被独立执行器击败；基线无经验和 heldout 无知识写回有实际输入/存储证据。
++2. 实验有效性：固定题集、全部 24 个配对结果保留；超时/无效 JSON/执行错误计作失败，基础设施失败率另列。遇 oracle 不一致、泄漏、模型设置变化或大面积 provider 故障，不把所得分数解释为效果。
++3. 主比较 C−B（Alaya 经验处理是否超过原始经验）；次比较 C−A（相对无经验是否改善）。每题须 4 个数据库全部正确才算成功。报告总体/每族正确率、配对胜负、差值、按任务配对重采样的区间、精确 McNemar 检验；不把数据库变体或三臂当作独立新样本。
++4. 24 题小样本主要用于方向判断。C−B 与 C−A 差值为正且区间排除 0 才称本轮受控任务有正向证据；区间跨 0 则不确定，负向则记录机制/成本上限。即使有信号，也不能写为长期认知复利或真实业务收益已证明。
++5. dev 可修真实实现问题和校准提示；heldout 首次采集前停止优化。采集后只修报告/计算中可独立复现的错误并保留原始记录，不挑选好结果、换题或为阳性追加运行。验收完成即停止。
++
++## 后续路径（依本轮实际结果选择）
++
++- C 同时优于 A/B：下一批新增独立任务模板和真实匿名业务 SQL，重复一次后再接用户实际工作入口；不先扩展 UI。
++- C 优于 A 但不优于 B：保留原始经验基线，优先解决检索/压缩信息损失，暂不宣称 Alaya 学习机制有增量。
++- A 已接近满分：本任务分辨力不足；保留本轮结果，下一轮另定更真实复杂的 schema/约束，不能回改本轮测试。
++- 三组都低或 C 退步：看独立失败类型；修具体数据/检索/知识问题，再另建新的未见测试。不能靠更长运行替代有效反馈。
++
++## 一手依据
++
++- Spider：https://arxiv.org/abs/1809.08887
++- BIRD：https://arxiv.org/abs/2305.03111
++- SQLite SELECT：https://www.sqlite.org/lang_select.html
++- SQLite date/time：https://www.sqlite.org/lang_datefunc.html
++
++## 采集前实现细化
++
++- 每族四个完整公开布尔规则，以偶数 parity 的 8 种组合作 train，奇数 parity 的 8 种组合作 heldout。共用三个模板族，因此不把 24 种组合说成 24 个独立问题域；统计区间仅描述这些组合上的不确定性。
++- 三组均从空 K0 开始，用同一个新建 DEVELOPMENT SQLite 文件中的独立 projectId 隔离各 family/arm；A/B project 的知识库始终为空，C 仅有本次训练写入。测试前后对所有 project 的知识字段做完整快照比较。
++- raw 检索固定为相同公开 family 内的词集合 Jaccard 排序，score 降序、source id 升序，最多两条完整记录；C 以同一 family+prompt 调已有 FTS/静态排序。检索策略差异是处理变量的一部分，主比较代表 Alaya 经验处理整体增量。
++- 每个训练题在任何 credit/usage 写入前先执行正确 SQL。候选 SQL 的语法/只读限制拒绝作为错误答案保留；独立执行器进程异常视为基础设施错误并中止效果解释。
++- 6 道 dev 实测：A 5/6，一条漏斗查询丢失后续阶段的上界。未向 Builder 添加针对这道题的答案提示，未把 dev 经验加入训练库。实际单次延迟 1.4–7.1 秒。
++- 精确 McNemar 双侧检验与按题配对 bootstrap 同时展示；若宣称方向性阳性，两项主/次比较均需差值为正、区间下界大于 0、双侧 p<0.05。此规则是小样本开发判断，不是正式总体检验注册。
++
++
++## 独立复核后的最终边界与修复
++
++- 本轮是三个固定数据结构的规则组合迁移；各族 normalized schema shape 都为 1，不能称跨 schema 拓扑泛化。后续独立模板阶段才改变表关系/列类型/任务描述结构。
++- 四个数据库都含同一组手工边界行，再加入不同伪随机背景；不是四个独立随机世界。对预置 buggy SQL 的拒绝主要验证已定义边界，不表示穷尽了 SQL 错误。
++- 输入 schema 明确 NOT NULL；缺失关联产生的输出 NULL 仍被测试。金额舍入用 half-away-from-zero，与 SQLite ROUND 对齐，并加入 gross=512/refund=1 的直接回归。
++- C 即使训练后没有 active 知识，也照样进入 heldout 并报告空记忆成绩；不以学出知识作为选择运行样本的条件。
++- 首次训练因上述 oracle/契约复核在进入 heldout 前主动中止，留存 25 次已返回调用，另至多 1 次在途调用用量未知；没有收集测试集回答。最终完整运行仍为固定 120 次，与 canary/dev/中止训练合计至多 153 次，不突破 160 次上限。
+diff --git a/docs/validation/SQL_REPAIR_DEVELOPMENT_RESULT.md b/docs/validation/SQL_REPAIR_DEVELOPMENT_RESULT.md
+new file mode 100644
+--- /dev/null
++++ b/docs/validation/SQL_REPAIR_DEVELOPMENT_RESULT.md
+@@ -0,0 +1,192 @@
++# Alaya 修复、真实模型实测与下一步方案
++
++日期：2026-09-09，北京时间。身份：DEVELOPMENT。本次完成了领域选择、可运行实现、独立执行判定、三组真实模型比较、失败分析、具体修复和回归验证。
++
++## 结论
++
++**Alaya 可以继续做，但现阶段应把“经过验证的完整经验帮助模型解决新问题”作为主线。本轮没有证明 Alaya 的知识蒸馏比直接检索原始经验更有效。**
++
++选择的领域是 **SQLite 业务查询修复**，其中最值得继续的是订单、退款等多表聚合。模型提交 SQL，由真实 SQLite 执行，再与独立 Python 业务计算比较。这能在几分钟内得到可核对的对错，适合先检验经验迁移。
++
++本轮 24 道未见规则组合，原定“格式合格且 SQL 正确”成绩：无经验 18/24、原始经验 24/24、Alaya 蒸馏经验 22/24。无经验组另有 3 道题只是输出代码块，SQL 本身正确；事后单独检验语义正确性后是 21/24、24/24、22/24。两种口径都不支持 Alaya 蒸馏胜过原始经验。
++
++这次获得的是一次可以复核的开发实验和一个可运行的验证入口。代码测试通过、知识条目增加、模型使用历史经验，都不能单独算作认知增强有效。
++
++## 已完成的实现
++
++工作基于 `b7090b11b41f358f4d82906c86be835a68c06e64`，在独立工作副本中完成。原仓库未提交的 V2 存储、schema 和草稿保留；没有重启旧控制器，没有提交或推送 GitHub。
++
++| 位置 | 实际变化与作用 |
++|---|---|
++| `alaya-app/server/sqlRepair.ts` | 增加可执行 SQL 任务入口；调用已有 provider、知识检索、credit、知识状态机和审计存储。 |
++| `scripts/lib/sql-repair-cases.py` | 生成开发、训练、测试题；执行只读 SQL；用独立 Python 参考逻辑判定业务正确性。 |
++| `scripts/sql-repair-experiment.mjs` | 固定三组比较、从空知识库开始、训练后冻结、保存实际 HTTP 请求/响应、限制调用次数。 |
++| `scripts/analyze-sql-repair.mjs` | 计算配对成绩、各任务族成绩、描述性区间、精确 McNemar 检验和实际 token 使用。 |
++| 原自主目标与飞轮入口 | 关闭知识注入时清除模型输入中的隐性知识引用与相关兜底；已批准的人工计划保留，不把复用的计划冒称干净对照。 |
++| `alaya-core/src/llm/provider.ts` | 日期不会被手机号脱敏规则误删；实验可禁用隐式简化重试；单一 SQL 输出契约接受完整 SQL 代码块和裸 SELECT/WITH。 |
++| 现有测试与 README | 加入对应回归，提供运行入口，更新本次结果和证据边界。 |
++
++没有新增 npm 依赖。任务执行保留五个角色的职责和记录：Orchestrator 委派，Builder 生成 SQL，Sensor 执行并判错，Distiller 从训练经历提炼经验，Librarian 更新知识及审计。Builder 和 Distiller 调用真实模型，其余职责由现有代码和确定性计算承担。
++
++训练前先独立验证纠正 SQL。模型实际执行结果决定已有知识的 credit；蒸馏器还需提交能解源题的 SQL，才能获得相应源题证据。人工批准数保持为 0，没有自动晋升 strong。**源题通过只证明这份源题修复成立，不证明文字经验普遍有效，也不证明每条被引用知识的因果贡献。**
++
++当前入口是 CLI 实验路径，未把新 SQL 工作流接入 Web 或调度器，也未宣称原 V2 整体修复完成。
++
++## 本轮怎样比较
++
++模型请求和响应中的名称均为 `MiniMax-M3`；temperature 为 0，最大输出 2,048 tokens，无重试、无额外简化调用。三组使用相同模型设置和每次作答机会。
++
++| 组别 | 测试时得到的历史信息 | 要回答的问题 |
++|---|---|---|
++| A：none | 无历史经验，只有当前题目 | 当前模型本身能做多少？ |
++| B：raw | 同一公开任务族内，按固定词汇相似度选出的两条完整训练记录，含题目、作答、执行结果、纠正 SQL | 简单携带过去的实例能帮助多少？ |
++| C：alaya | 同一批训练经历经过 Alaya 提炼、存储、credit 和检索后的经验 | Alaya 的经验处理整体是否比原始记录更有用？ |
++
++题集为 6 道 dev、24 道 train、24 道 test。覆盖多表聚合、最新状态、时序漏斗三个任务族。每族四个公开布尔规则，训练使用 8 种偶数 parity 组合，测试使用 8 种奇数 parity 组合。每个规则在训练中出现，但测试组合未出现。
++
++每题必须在 4 个数据库 fixture 上全部正确才得 1 分。判定包含结果行、值、NULL 以及题目要求的排序。SQLite 只执行只读查询，执行异常或不正确结果计作失败；独立 evaluator 进程异常会阻止效果解释。
++
++训练和测试采用不同表名，但每个任务族的 schema 形状相同。因此本轮验证的是**同类业务结构中的规则组合迁移**，不是跨数据库拓扑或跨领域泛化。四个 fixture 共用手写边界行，另加不同随机背景，不能当作四个独立样本。
++
++A 的实际请求中经验为空；B 全部只包含训练记录；C 的知识来自本轮训练。测试前后知识完整快照一致，原始经验 hash 一致。所有 120 次请求均被保存，实际输入没有测试题 private 字段或测试正确 SQL。训练获得 23 条可用知识；另一次 Distiller 的 JSON 损坏，未进入知识库。
++
++## 真实结果与解释
++
++**原定主指标保持不变：格式合格且四个 fixture 全部正确。**
++
++| 组别 | 全部测试 | 多表聚合 | 最新状态 | 时序漏斗 | Builder 格式失败 |
++|---|---:|---:|---:|---:|---:|
++| A：无经验 | 18/24，75.0% | 5/8 | 7/8 | 6/8 | 3 |
++| B：原始经验 | 24/24，100.0% | 8/8 | 8/8 | 8/8 | 0 |
++| C：Alaya | 22/24，91.7% | 6/8 | 8/8 | 8/8 | 0 |
++
++主比较 C−B：0 胜、2 负、22 平，差值 −8.3 个百分点，配对描述性 bootstrap 95% 区间约为 [−20.8，0.0] 个百分点，精确 McNemar 双侧 p=0.5。次比较 C−A：5 胜、1 负、18 平，差值 +16.7 个百分点，区间约为 [0.0，37.5]，p=0.21875。没有达到本轮事先写下的正向证据条件。
++
++随后发现无经验组的 3 次格式失败实际返回了完整的 SQL 代码块。仅去除代码块围栏，不改 SQL、不再调用模型，三道题全部通过原执行器。这个**事后诊断**的结果如下，不能替换原定指标：
++
++| 组别 | 事后 SQL 语义正确数 | 相对原定成绩的变化 |
++|---|---:|---|
++| A：无经验 | 21/24，87.5% | 恢复 3 次格式失败 |
++| B：原始经验 | 24/24，100.0% | 无变化 |
++| C：Alaya | 22/24，91.7% | 无变化 |
++
++在这个诊断口径下，B 相对 A 为 3 胜、0 负，p=0.25；C 相对 A 为 2 胜、1 负，p=1.0。因此，连“原始经验已经可靠提高语义能力”也只能记为有希望的小样本观察，不能声称统计确认。**不能把 75% 到 100% 全部归因于认知增强，其中一半增量来自格式合格率。**
++
++C 的两道失败都在聚合族：
++
++- `test-aggregation-03`：遗漏当前题要求的地区过滤，包含了不该出现的账户。
++- `test-aggregation-04`：按账户和退款金额一起分组，把一个账户拆成多行，没有正确汇总订单退款。
++
++B 在这两题都正确。C 的现有短经验可能丢失适用条件，480 字符限长和检索压缩也存在信息损失；但本轮不能证明这就是两次失败的原因。没有根据这两道 heldout 题修改提示或经验并重刷分数。
++
++## 成本和耗时
++
++完整比较从北京时间 **01:00:28 到 01:06:10**，约 **5 分 43 秒**。120 次真实请求包括 24 次训练 Builder、24 次训练 Distiller 和 72 次测试 Builder，全部 HTTP 200，usage 全部存在，未发生传输或执行器基础设施失败。
++
++| 阶段 | 调用数 | 输入 tokens | 输出 tokens | 请求延迟中位数 |
++|---|---:|---:|---:|---:|
++| 训练 C | 48 | 70,760 | 18,608 | 3.92 秒 |
++| 测试 A | 24 | 21,872 | 7,851 | 3.20 秒 |
++| 测试 B | 24 | 84,847 | 8,338 | 2.57 秒 |
++| 测试 C | 24 | 38,792 | 7,749 | 4.10 秒 |
++
++C 的测试输入 token 比 B 少约 54.3%，但少答对两题，且没有观察到延迟优势。训练成本另计，不能拿输入 token 下降直接声称总费用下降；这里也没有用仓库的通用美元估价冒充实际账单。 训练中的 24 次 Builder 经历由 B/C 共用，另外 24 次 Distiller 是 C 的额外经验处理；本轮没有测长期摊销收益。
++
++前面另有 1 次连通检查、6 次 dev 和一批在进入 heldout 前中止的训练。中止原因是独立复核发现 oracle 舍入与输入契约需要修正，留有 25 次完整回执，另至多 1 次在途调用用量未知；没有采集该批测试答案。
++
++主实验结束后另用 6 次 dev 验证输出解析修复。全程合计 **158 次已返回并留存的调用，含未知在途请求最多 159 次**，没有突破 160 次上限。回放检查不调用模型。
++
++## 修复与验证结果
++
++| 验证 | 结果 | 能证明什么 |
++|---|---|---|
++| 全量现有及新增测试 | 494/494：core 73、app 299、scripts 122 | 相关代码回归检查通过 |
++| TypeScript 检查、应用构建 | 通过 | 交付源码可检查和构建 |
++| 原则检查、secret scan、diff check | 通过 | 仓库现有机械检查通过 |
++| 独立 evaluator 自检 | 54 道正确 SQL 全通过，各题预置错误 SQL 均被拒绝 | 题目、参考逻辑和既定边界可执行 |
++| 金额边界 | gross=512/refund=1 的舍入回归通过 | Python 参考与 SQLite 的该项舍入约定一致 |
++| 120 条真实响应回放 | 请求内容和原先有效答案保持不变；7 次完整代码块恢复；1 次损坏 JSON 保持拒绝；额外网络调用为 0 | 修复了实际发生的输出封装问题 |
++| 修复后真实模型 dev | 6/6，格式失败 0；约 21 秒 | 当前交付入口能完成小批真实任务 |
++| 实验独立回读 | 120 请求与 DB 日志一致，24×3 配对完整，知识冻结、题集和源码 hash 一致 | 主实验可按上述边界解释 |
++
++日期脱敏修复保留 ISO 日期/时间，同时仍脱敏手机号。SQL 输出封装修复只对单一 `sql:string` schema 生效；其他 JSON 契约保持原校验。JSON 形式的 SQL 仍由 SQLite evaluator 判断是否合法和正确，解析成功本身不是正确答案。
++
++主实验之前的代码版本已独立冻结；修复后版本作为可运行交付源码保存。回放和 6 道 dev 不会改写原始 24 道 heldout 成绩。初次 dev 5/6 与最终 dev 6/6 之间还发生过题目契约和 oracle 澄清，不能将其作为单一修复带来能力提升的对照实验。
++
++## 接下来的完整最小路径
++
++### 第一步：以聚合查询和原始经验作为主线
++
++范围收敛到订单、退款、账单等**需要正确处理关联粒度、过滤条件、空关联和金额口径的查询**。本轮原始经验相对无经验的三次 SQL 语义改善都来自聚合族，其他两族在去除格式因素后已经满分，继续刷同一难度的题分辨力有限。
++
++下一版先使用已有的完整经验检索作为默认候选：保留原题业务契约、错误作答、执行结果和经验证修复。当前 SQL 契约始终优先。先不把短摘要当成唯一记忆，也不追加强化学习、更多角色或全天控制器。
++
++这一步的产品目标是“减少同类业务查询中的重复错误”。权重不更新；即使后续证实有效，也应称为外部经验辅助的任务能力提升，不能推导为人的认知提升或通用智能增长。
++
++### 第二步：做一批新题，专门确认经验是否有效
++
++下一批先锁定 A 与 B 两组，把输入格式解析对齐，避免再次测到封装差异。C 的原始结果保留为参考，暂不继续花同等调用预算追逐蒸馏阳性。
++
++新题必须改变表关系和任务结构，而不只是表名与规则开关。例如从订单级退款转到行项目退款、从直接关联转到分摊关系、从单币种汇总转到明确汇率/有效期的金额口径。每种新结构需要独立 Python 参考计算和至少一个可手算反例；只有这些都通过，才采集模型答案。
++
++建议一次固定 **48 道新测试、A/B 各一次，共 96 次测试调用**，分布在多个独立 schema 结构，保留每结构的分项结果。沿用既有固定训练经验，不把本轮 heldout 答案塞回记忆。先写下主指标、题集与停止条件，再采集；若新题准备不充分，缩小结论范围，不拿改名旧题补数量。
++
++预计新题、参考逻辑和复核是主要工作，可先给 **60–90 分钟的开发上限**；模型采集按本轮速度通常是几分钟，但不是时长保证。到上限交付实际完成和未完成项，不启动多天循环。48 题是可负担的下一次检验规模，不保证统计功效或阳性结果。
++
++判定继续报告配对正确率差、胜负题、区间、格式失败和 token；同时看增量是否分布在多个 schema，不能把同模板变体当独立证据。只有 B 对 A 在新的、更独立的数据结构中有稳定正向差异，才扩大“经验有效”的主张。
++
++### 第三步：依据结果决定继续还是停
++
++| 新批次结果 | 决定 |
++|---|---|
++| B 稳定优于 A，收益跨多个结构 | 保留简单经验方案，再用一小批独立、可核对的真实匿名业务 SQL 验证实际价值。 |
++| B 与 A 接近，或 A 已接近满分 | 记录本任务上没有足够增量，不增加运行时长或代理数量来制造分差。 |
++| B 会引入旧题假设、出现负迁移 | 从明确失败的适用条件或检索选择修起；另用新题验证，不回改本次成绩。 |
++| 需要减少经验 token | 才重新比较完整经验与压缩经验；使用同一新题、同一输入上限，同时报告正确率与实际 token。不能用“差异不显著”宣称质量无损。 |
++
++这条路径最多推进一个新批次再做决定。若没有效果，交付阴性或不确定结果并停止；若有信号，再扩大独立证据。不存在既不增加样本、又能保证“真实证明有效”的捷径。
++
++## 运行与交付
++
++本机修复后的工作目录：
++
++```text
++/Users/LOCAL_USER/Documents/Codex/2026-09-08/k/work/alaya-cognition-20260909
++```
++
++离线最小检查，不调用模型：
++
++```bash
++npm run experiment:sql:check
++npm run typecheck
++```
++
++在源码根目录配置已有的 `OPENAI_API_KEY_FILE` 或 `OPENAI_API_KEY` 后，可执行开发题；输出目录必须尚不存在：
++
++```bash
++npm run experiment:sql -- --dev-only --out /absolute/path/to/new-dev-run
++```
++
++完整实验入口及分析命令：
++
++```bash
++npm run experiment:sql -- --out /absolute/path/to/new-run
++node scripts/analyze-sql-repair.mjs /absolute/path/to/new-run
++```
++
++这些命令使用当前固定题集，适合复现。重跑已有题集不能冒充新的独立验证。仓库声明 Node 20/npm 10；本次实际环境为 Node 22.22.1/npm 10.9.4，出现 engine 提示，但以上构建、检查和真实调用均已实测。
++
++交付包 `Alaya-SQL-DEVELOPMENT-2026-09-09.zip` 包含修复后完整源码、基于 b7090b11 的改动补丁、实验时冻结源码、完整运行回执与 SQLite 审计库、初始 dev、中止训练、最终 dev、回放脚本及验证日志。不包含真实 API key、node_modules 或原 V2 未提交材料。
++
++冻结实验源码 SHA-256：`de0ec35304fa453ffc04874f97f95d1da928512f19eff1d4d7897cd0b4effc7a`。已逐项确认其源码 hash 与完整实验 manifest 一致。交付源码的 provider 因输出封装修复而与冻结版本不同，两者保留独立身份。
++
++原始方案保存在《Alaya执行方案-2026-09-09.md》；本文件是基于真实结果更新后的判断与后续方案。证据包内 `evidence/final/summary.json` 是原定指标，`checks/sql-format-diagnostic.json` 是事后语义诊断，不混用。
++
++## 领域选择的一手参考
++
++SQL 的结构与执行判定适合构造可检验任务；本轮没有运行以下公开基准，不能报告为它们的成绩。
++
++- [Spider：跨领域、跨数据库 text-to-SQL 基准](https://arxiv.org/abs/1809.08887)
++- [BIRD：数据库理解与执行评估](https://arxiv.org/abs/2305.03111)
++- [SQLite SELECT 官方语义](https://www.sqlite.org/lang_select.html)
++- [SQLite 日期与时间函数](https://www.sqlite.org/lang_datefunc.html)
+diff --git a/scripts/analyze-sql-closeout.mjs b/scripts/analyze-sql-closeout.mjs
+new file mode 100644
+--- /dev/null
++++ b/scripts/analyze-sql-closeout.mjs
+@@ -0,0 +1,177 @@
++#!/usr/bin/env node
++import assert from 'node:assert/strict';
++import { readFileSync, writeFileSync } from 'node:fs';
++import { dirname, resolve } from 'node:path';
++import { fileURLToPath } from 'node:url';
++import { spawnSync } from 'node:child_process';
++
++function exactMcNemar(wins, losses) {
++  const n = wins + losses;
++  if (!n) return 1;
++  let term = 2 ** -n, sum = term;
++  for (let i = 1; i <= Math.min(wins, losses); i++) { term *= (n - i + 1) / i; sum += term; }
++  return Math.min(1, 2 * sum);
++}
++function interval(diffs) {
++  let seed = 20260913;
++  const rng = () => { seed = (Math.imul(1664525, seed) + 1013904223) >>> 0; return seed / 2 ** 32; };
++  const means = Array.from({ length: 10000 }, () => Array.from({ length: diffs.length }, () => diffs[Math.floor(rng() * diffs.length)]).reduce((a, b) => a + b, 0) / diffs.length).sort((a, b) => a - b);
++  return [means[249], means[9749]];
++}
++function compare(rows, treatment = 'raw', baseline = 'none') {
++  const pairs = rows.filter(r => r.arm === treatment).map(c => ({ c, b: rows.find(r => r.taskId === c.taskId && r.arm === baseline) }));
++  assert.ok(pairs.length && pairs.every(p => p.b), 'missing paired A/B rows');
++  const diffs = pairs.map(({ c, b }) => Number(c.outcome.passed) - Number(b.outcome.passed));
++  const wins = diffs.filter(d => d === 1).length, losses = diffs.filter(d => d === -1).length;
++  return { nTaskPairs: pairs.length, wins, losses, ties: diffs.length - wins - losses, netWins: wins - losses, difference: (wins - losses) / diffs.length, descriptivePairedBootstrap95: interval(diffs), exactMcNemarTwoSidedP: exactMcNemar(wins, losses) };
++}
++function extractSqlEnvelope(text) {
++  let candidate = String(text ?? '').trim();
++  const fenced = /^\`\`\`(?:sql)?[ \t]*(?:\r?\n)?([\s\S]*?)(?:\r?\n)?\`\`\`$/i.exec(candidate);
++  if (fenced) candidate = fenced[1].trim();
++  else if (/^\`\`\`|\`\`\`$/.test(candidate)) return null;
++  if (!/^(?:select|with)\b/i.test(candidate)) return null;
++  return candidate;
++}
++function responseText(receipt) {
++  const content = receipt?.response?.choices?.[0]?.message?.content;
++  return typeof content === 'string' ? content : '';
++}
++function probeDecision(byFamily) {
++  const hardFamilies = [], easyFamilies = [];
++  for (const [family, scored] of Object.entries(byFamily)) {
++    const n = scored.none.n, correct = scored.none.correct;
++    assert.equal(n, 4, `probe family size: ${family}`);
++    if (correct <= 2) hardFamilies.push(family);
++    if (correct >= 3) easyFamilies.push(family);
++  }
++  return { hardFamilies, easyFamilies, continueToAb: hardFamilies.length >= 2, rule: 'hard if A<=2/4; easy if A>=3/4; continue A/B iff >=2 hard families' };
++}
++
++if (process.argv.includes('--self-test')) {
++  assert.equal(exactMcNemar(0, 0), 1);
++  assert.equal(exactMcNemar(6, 0), 0.03125);
++  assert.deepEqual(interval([0, 0, 0]), [0, 0]);
++  const rows = [
++    { taskId: 'a', arm: 'raw', outcome: { passed: true } },
++    { taskId: 'a', arm: 'none', outcome: { passed: false } },
++    { taskId: 'b', arm: 'raw', outcome: { passed: true } },
++    { taskId: 'b', arm: 'none', outcome: { passed: false } },
++    { taskId: 'c', arm: 'raw', outcome: { passed: false } },
++    { taskId: 'c', arm: 'none', outcome: { passed: false } },
++  ];
++  assert.equal(compare(rows).netWins, 2);
++  assert.equal(extractSqlEnvelope('SELECT 1'), 'SELECT 1');
++  assert.equal(extractSqlEnvelope('\`\`\`sql\nSELECT 1\n\`\`\`'), 'SELECT 1');
++  const decision = probeDecision({ line_item_refund: { none: { n: 4, correct: 1 } }, fx_as_of: { none: { n: 4, correct: 2 } }, scd2_segment: { none: { n: 4, correct: 4 } } });
++  assert.deepEqual(decision.hardFamilies, ['line_item_refund', 'fx_as_of']);
++  assert.equal(decision.continueToAb, true);
++  assert.equal(probeDecision({ a: { none: { n: 4, correct: 3 } }, b: { none: { n: 4, correct: 1 } }, c: { none: { n: 4, correct: 4 } } }).continueToAb, false);
++  console.log('closeout analysis self-check passed');
++} else {
++  const out = resolve(process.argv[2] ?? '');
++  const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
++  const read = name => JSON.parse(readFileSync(resolve(out, name), 'utf8'));
++  const lines = name => readFileSync(resolve(out, name), 'utf8').trim().split('\n').map(JSON.parse);
++  const summary = read('summary.json'), all = lines('results.jsonl'), wire = lines('requests.jsonl');
++  assert.ok(summary.closeout, 'not a closeout summary');
++  const cases = read('cases.json');
++  const python = (payload) => {
++    const result = spawnSync('python3', [resolve(root, 'scripts/lib/sql-repair-closeout.py'), 'evaluate'], { encoding: 'utf8', input: JSON.stringify(payload), timeout: 20000, maxBuffer: 20 * 1024 * 1024 });
++    if (result.status !== 0) throw new Error(`Independent evaluator process failed: ${result.error?.message ?? result.stderr}`);
++    return JSON.parse(result.stdout);
++  };
++  const caseById = Object.fromEntries([...cases.dev, ...cases.train, ...cases.test].map(c => [c.id, c]));
++  function fenceRecovery(rows) {
++    return rows.map(row => {
++      if (row.schemaValid) return { taskId: row.taskId, arm: row.arm, family: row.family, recovered: false, passed: row.outcome.passed };
++      const receipt = wire.find(w => w.taskId === row.taskId && w.arm === row.arm && w.phase === row.phase && w.role === 'builder');
++      const sql = extractSqlEnvelope(responseText(receipt));
++      if (!sql) return { taskId: row.taskId, arm: row.arm, family: row.family, recovered: false, passed: false, reason: 'no_sql_envelope' };
++      const outcome = python({ case: caseById[row.taskId], sql });
++      return { taskId: row.taskId, arm: row.arm, family: row.family, recovered: true, passed: outcome.passed, outcome };
++    });
++  }
++  function costsFor(phase, arm) {
++    const calls = wire.filter(w => w.phase === phase && w.arm === arm);
++    if (!calls.length) return null;
++    const latencies = calls.map(c => c.latencyMs).sort((a, b) => a - b);
++    return { calls: calls.length, builderCalls: calls.filter(c => c.role === 'builder').length, distillerCalls: calls.filter(c => c.role === 'distiller').length, inputTokens: calls.reduce((s, c) => s + (c.response?.usage?.prompt_tokens ?? 0), 0), outputTokens: calls.reduce((s, c) => s + (c.response?.usage?.completion_tokens ?? 0), 0), cachedInputTokens: calls.reduce((s, c) => s + (c.response?.usage?.prompt_tokens_details?.cached_tokens ?? 0), 0), missingUsage: calls.filter(c => !c.response?.usage).length, medianMs: latencies[Math.floor(latencies.length / 2)], p95Ms: latencies[Math.ceil(latencies.length * .95) - 1] };
++  }
++  const failures = wire.filter(w => w.httpStatus !== 200 || w.transportError).length;
++  const sourceModelConsistent = summary.observedModels.length === 1 && summary.observedModels[0] === summary.modelRequested;
++  if (summary.closeout.kind === 'probe') {
++    const rows = all.filter(r => r.phase === 'probe' && r.arm === 'none');
++    assert.equal(rows.length, summary.closeout.families.length * 4);
++    const decision = probeDecision(summary.byFamily);
++    const recovered = fenceRecovery(rows);
++    const valid = !failures && sourceModelConsistent && summary.issuedCalls === summary.maxCalls;
++    const analysis = {
++      evidenceMode: 'DEVELOPMENT',
++      closeout: summary.closeout,
++      runValid: valid,
++      conclusion: !valid ? 'RUN_NOT_INTERPRETABLE' : decision.continueToAb ? 'PROBE_CONTINUE' : 'PROBE_STOP_INSUFFICIENT_HARD_FAMILIES',
++      probeDecision: decision,
++      scores: summary.scores,
++      byFamily: summary.byFamily,
++      fenceRecoveryPosthoc: {
++        n: recovered.length,
++        recoveredEnvelopes: recovered.filter(r => r.recovered).length,
++        passedAfterRecovery: recovered.filter(r => r.passed).length,
++        rows: recovered,
++      },
++      costs: { 'probe/none': costsFor('probe', 'none') },
++      infrastructureFailures: failures,
++      sourceModelConsistent,
++      knowledgeFrozen: summary.knowledgeFrozen,
++      uncertaintyBoundary: 'Probe only scores no-memory A. Four fixtures share hand-crafted traps. A family with A>=3/4 is too easy to prove B>A; continue only with >=2 hard families.',
++    };
++    writeFileSync(resolve(out, 'analysis.json'), JSON.stringify(analysis, null, 2));
++    console.log(JSON.stringify(analysis, null, 2));
++  } else {
++    assert.equal(summary.closeout.kind, 'full');
++    assert.equal(summary.closeout.distiller, false);
++    const rows = all.filter(r => r.phase === 'test');
++    const expected = summary.closeout.families.length * 6 * 2;
++    assert.equal(rows.length, expected);
++    assert.equal(new Set(rows.map(r => `${r.taskId}:${r.arm}`)).size, expected);
++    assert.ok(!rows.some(r => r.arm === 'alaya'));
++    assert.equal(summary.knowledgeFrozen, true);
++    assert.equal(JSON.stringify(read('knowledge-before-test.json')), JSON.stringify(read('knowledge-after-test.json')));
++    const pairs = compare(rows, 'raw', 'none');
++    const familyPositive = summary.closeout.families.filter(family => summary.byFamily[family].raw.correct > summary.byFamily[family].none.correct);
++    const valid = !failures && sourceModelConsistent && summary.knowledgeFrozen && summary.issuedCalls === summary.maxCalls;
++    const win = valid && pairs.netWins >= summary.closeout.winNetWinsAtLeast && familyPositive.length >= summary.closeout.winFamiliesPositiveAtLeast;
++    const recovered = fenceRecovery(rows);
++    const analysis = {
++      evidenceMode: 'DEVELOPMENT',
++      closeout: summary.closeout,
++      runValid: valid,
++      conclusion: !valid ? 'RUN_NOT_INTERPRETABLE' : win ? 'EPISODE_TRANSFER_SIGNAL' : 'INCONCLUSIVE_OR_NO_INCREMENT',
++      predeclaredWin: { netWinsAtLeast: summary.closeout.winNetWinsAtLeast, familiesPositiveAtLeast: summary.closeout.winFamiliesPositiveAtLeast, netWins: pairs.netWins, familiesPositive: familyPositive, met: win },
++      independentDomainCount: 1,
++      taskFamilyCount: summary.closeout.families.length,
++      heldoutCombinations: summary.closeout.families.length * 6,
++      databaseVariantsPerTask: 4,
++      uncertaintyBoundary: 'Intervals describe these closeout combinations only. Families share generator traps; four fixtures are not four independent worlds. Fence recovery is posthoc and does not replace format-valid SQL + 4 fixtures.',
++      scores: summary.scores,
++      comparisons: { rawVsNone: pairs },
++      byFamily: summary.byFamily,
++      fenceRecoveryPosthoc: {
++        n: recovered.length,
++        recoveredEnvelopes: recovered.filter(r => r.recovered).length,
++        passedAfterRecovery: recovered.filter(r => r.passed).length,
++        nonePassedAfterRecovery: recovered.filter(r => r.arm === 'none' && r.passed).length,
++        rawPassedAfterRecovery: recovered.filter(r => r.arm === 'raw' && r.passed).length,
++      },
++      costs: Object.fromEntries(['train/source', 'test/none', 'test/raw'].map(key => [key, costsFor(...key.split('/'))])),
++      infrastructureFailures: failures,
++      sourceModelConsistent,
++      knowledgeFrozen: summary.knowledgeFrozen,
++      memoryChars: Object.fromEntries(['none', 'raw'].map(arm => { const lengths = rows.filter(r => r.arm === arm).map(r => r.memory.length); return [arm, { min: Math.min(...lengths), max: Math.max(...lengths), mean: lengths.reduce((a, b) => a + b, 0) / lengths.length }]; })),
++      training: { decisions: all.filter(r => r.phase === 'train').length, correct: all.filter(r => r.phase === 'train' && r.outcome.passed).length, knowledgeRows: read('knowledge-before-test.json').length },
++    };
++    writeFileSync(resolve(out, 'analysis.json'), JSON.stringify(analysis, null, 2));
++    console.log(JSON.stringify(analysis, null, 2));
++  }
++}
+diff --git a/scripts/analyze-sql-repair.mjs b/scripts/analyze-sql-repair.mjs
+new file mode 100644
+--- /dev/null
++++ b/scripts/analyze-sql-repair.mjs
+@@ -0,0 +1,60 @@
++#!/usr/bin/env node
++import assert from 'node:assert/strict';
++import { readFileSync, writeFileSync } from 'node:fs';
++import { resolve } from 'node:path';
++
++function exactMcNemar(wins, losses) {
++  const n = wins + losses;
++  if (!n) return 1;
++  let term = 2 ** -n, sum = term;
++  for (let i = 1; i <= Math.min(wins, losses); i++) { term *= (n - i + 1) / i; sum += term; }
++  return Math.min(1, 2 * sum);
++}
++function interval(diffs) {
++  // Descriptive task-level paired bootstrap; these cases share three task families.
++  let seed = 20260909;
++  const rng = () => { seed = (Math.imul(1664525, seed) + 1013904223) >>> 0; return seed / 2 ** 32; };
++  const means = Array.from({ length: 10000 }, () => Array.from({ length: diffs.length }, () => diffs[Math.floor(rng() * diffs.length)]).reduce((a, b) => a + b, 0) / diffs.length).sort((a, b) => a - b);
++  return [means[249], means[9749]];
++}
++function compare(rows, arm) {
++  const pairs = rows.filter(r => r.arm === 'alaya').map(c => ({ c, b: rows.find(r => r.taskId === c.taskId && r.arm === arm) }));
++  assert.ok(pairs.length && pairs.every(p => p.b));
++  const diffs = pairs.map(({ c, b }) => Number(c.outcome.passed) - Number(b.outcome.passed));
++  const wins = diffs.filter(d => d === 1).length, losses = diffs.filter(d => d === -1).length;
++  return { nTaskPairs: pairs.length, wins, losses, ties: diffs.length - wins - losses, difference: (wins - losses) / diffs.length, descriptivePairedBootstrap95: interval(diffs), exactMcNemarTwoSidedP: exactMcNemar(wins, losses) };
++}
++if (process.argv.includes('--self-test')) {
++  assert.equal(exactMcNemar(0, 0), 1);
++  assert.equal(exactMcNemar(6, 0), 0.03125);
++  assert.deepEqual(interval([0, 0, 0]), [0, 0]);
++  const rows = [{ taskId: 'a', arm: 'alaya', outcome: { passed: true } }, { taskId: 'a', arm: 'raw', outcome: { passed: false } }];
++  assert.equal(compare(rows, 'raw').difference, 1);
++  console.log('paired analysis self-check passed');
++} else {
++  const out = resolve(process.argv[2] ?? '');
++  const read = name => JSON.parse(readFileSync(resolve(out, name), 'utf8'));
++  const lines = name => readFileSync(resolve(out, name), 'utf8').trim().split('\n').map(JSON.parse);
++  const summary = read('summary.json'), all = lines('results.jsonl'), wire = lines('requests.jsonl');
++  assert.equal(summary.devOnly, false);
++  const rows = all.filter(r => r.phase === 'test');
++  assert.equal(rows.length, 72);
++  assert.equal(new Set(rows.map(r => `${r.taskId}:${r.arm}`)).size, 72);
++  assert.equal(summary.knowledgeFrozen, true);
++  assert.equal(JSON.stringify(read('knowledge-before-test.json')), JSON.stringify(read('knowledge-after-test.json')));
++  const costs = {};
++  for (const phase of ['train', 'test']) for (const arm of ['none', 'raw', 'alaya']) {
++    const calls = wire.filter(w => w.phase === phase && w.arm === arm);
++    if (!calls.length) continue;
++    const latencies = calls.map(c => c.latencyMs).sort((a, b) => a - b);
++    costs[`${phase}/${arm}`] = { calls: calls.length, builderCalls: calls.filter(c => c.role === 'builder').length, distillerCalls: calls.filter(c => c.role === 'distiller').length, inputTokens: calls.reduce((s, c) => s + (c.response?.usage?.prompt_tokens ?? 0), 0), outputTokens: calls.reduce((s, c) => s + (c.response?.usage?.completion_tokens ?? 0), 0), cachedInputTokens: calls.reduce((s, c) => s + (c.response?.usage?.prompt_tokens_details?.cached_tokens ?? 0), 0), missingUsage: calls.filter(c => !c.response?.usage).length, medianMs: latencies[Math.floor(latencies.length / 2)], p95Ms: latencies[Math.ceil(latencies.length * .95) - 1] };
++  }
++  const pairs = { alayaVsRaw: compare(rows, 'raw'), alayaVsNone: compare(rows, 'none') };
++  const failures = wire.filter(w => w.httpStatus !== 200 || w.transportError).length;
++  const sourceModelConsistent = summary.observedModels.length === 1 && summary.observedModels[0] === summary.modelRequested;
++  const valid = !failures && sourceModelConsistent && summary.knowledgeFrozen && summary.issuedCalls === summary.maxCalls;
++  const positive = Object.values(pairs).every(p => p.difference > 0 && p.descriptivePairedBootstrap95[0] > 0 && p.exactMcNemarTwoSidedP < .05);
++  const analysis = { evidenceMode: 'DEVELOPMENT', runValid: valid, conclusion: !valid ? 'RUN_NOT_INTERPRETABLE' : positive ? 'DIRECTIONAL_TRANSFER_SIGNAL' : 'INCONCLUSIVE_OR_NO_INCREMENT', independentDomainCount: 1, taskFamilyCount: 3, heldoutCombinations: 24, databaseVariantsPerTask: 4, uncertaintyBoundary: 'Intervals describe variation across these task combinations. The three families share templates; they are not 24 independently sampled domains or a confirmatory population study.', scores: summary.scores, comparisons: pairs, byFamily: Object.fromEntries([...new Set(rows.map(r => r.family))].map(family => [family, Object.fromEntries(['none', 'raw', 'alaya'].map(arm => { const selected = rows.filter(r => r.family === family && r.arm === arm); return [arm, { n: selected.length, correct: selected.filter(r => r.outcome.passed).length }]; }))])), costs, infrastructureFailures: failures, sourceModelConsistent, knowledgeFrozen: summary.knowledgeFrozen, memoryChars: Object.fromEntries(['none', 'raw', 'alaya'].map(arm => { const lengths = rows.filter(r => r.arm === arm).map(r => r.memory.length); return [arm, { min: Math.min(...lengths), max: Math.max(...lengths), mean: lengths.reduce((a, b) => a + b, 0) / lengths.length }]; })), training: { decisions: all.filter(r => r.phase === 'train').length, correct: all.filter(r => r.phase === 'train' && r.outcome.passed).length, acceptedSourceRecipes: all.filter(r => r.phase === 'train' && r.lessonOutcome?.passed).length } };
++  writeFileSync(resolve(out, 'analysis.json'), JSON.stringify(analysis, null, 2));
++  console.log(JSON.stringify(analysis, null, 2));
++}
+diff --git a/scripts/lib/sql-repair-cases.py b/scripts/lib/sql-repair-cases.py
+new file mode 100644
+--- /dev/null
++++ b/scripts/lib/sql-repair-cases.py
+@@ -0,0 +1,1018 @@
++#!/usr/bin/env python3
++"""Deterministic SQLite query-repair cases and an independent evaluator.
++
++The generator has no model, network, or third-party dependency.  It emits
++small cases whose expected result is calculated by Python business logic.  A
++gold SQL query is retained as a secondary self-check, but is not the oracle.
++"""
++
++from __future__ import annotations
++
++import json
++from decimal import Decimal, ROUND_HALF_UP
++import math
++import random
++import re
++import sqlite3
++import sys
++import time
++from pathlib import Path
++from typing import Any, Callable, Dict, Iterable, List, Mapping, Sequence, Tuple
++
++
++SCHEMA_VERSION = "sql-repair-cases-v1"
++SPLIT_COUNTS = {"train": 8, "dev": 2, "test": 8}
++FAMILIES = ("aggregation", "latest_status", "funnel")
++FIXTURE_COUNT = 4
++QUERY_TIMEOUT_SECONDS = 0.35
++MAX_RESULT_ROWS = 5000
++
++
++def _json(value: Any) -> str:
++    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def _q(value: str) -> str:
++    return "'" + value.replace("'", "''") + "'"
++
++
++def _ident(value: str) -> str:
++    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
++        raise ValueError(f"unsafe identifier: {value}")
++    return value
++
++
++def _prefix(split: str) -> str:
++    return {"train": "tr", "dev": "dv", "test": "te"}[split]
++
++
++def _iso(day: int, hour: int = 0, minute: int = 0) -> str:
++    # 2025-01-01 plus a small deterministic offset.  All generated values are
++    # ISO text, which is a declared task rule rather than a hidden assumption.
++    base = 1735689600 + day * 86400 + hour * 3600 + minute * 60
++    return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(base))
++
++
++def _schema_text(table_defs: Mapping[str, Sequence[Tuple[str, str]]]) -> str:
++    statements: List[str] = []
++    for table, columns in table_defs.items():
++        cols = ", ".join(f"{_ident(name)} {ctype} NOT NULL" for name, ctype in columns)
++        statements.append(f"CREATE TABLE {_ident(table)} ({cols});")
++    return "\n".join(statements)
++
++
++def _setup_database(
++    table_defs: Mapping[str, Sequence[Tuple[str, str]]],
++    fixture_tables: Mapping[str, Sequence[Sequence[Any]]],
++) -> sqlite3.Connection:
++    conn = sqlite3.connect(":memory:")
++    conn.execute("PRAGMA query_only = OFF")
++    conn.executescript(_schema_text(table_defs))
++    for table, columns in table_defs.items():
++        rows = fixture_tables.get(table, ())
++        placeholders = ",".join("?" for _ in columns)
++        conn.executemany(
++            f"INSERT INTO {_ident(table)} VALUES ({placeholders})",
++            [tuple(row) for row in rows],
++        )
++    conn.commit()
++    return conn
++
++
++def _table_payload(
++    table_defs: Mapping[str, Sequence[Tuple[str, str]]],
++    fixture_tables: Mapping[str, Sequence[Sequence[Any]]],
++) -> Dict[str, Any]:
++    return {
++        table: {
++            "columns": [name for name, _ in columns],
++            "rows": [list(row) for row in fixture_tables.get(table, ())],
++        }
++        for table, columns in table_defs.items()
++    }
++
++
++def _numeric_equal(left: Any, right: Any) -> bool:
++    if isinstance(left, bool) or isinstance(right, bool):
++        return left == right
++    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
++        return math.isclose(float(left), float(right), rel_tol=1e-9, abs_tol=1e-7)
++    return False
++
++
++def _value_equal(left: Any, right: Any) -> bool:
++    if left is None or right is None:
++        return left is None and right is None
++    if _numeric_equal(left, right):
++        return True
++    return left == right
++
++
++def _rows_equal(
++    actual_columns: Sequence[str],
++    actual_rows: Sequence[Sequence[Any]],
++    expected_columns: Sequence[str],
++    expected_rows: Sequence[Sequence[Any]],
++) -> bool:
++    if list(actual_columns) != list(expected_columns):
++        return False
++    if len(actual_rows) != len(expected_rows):
++        return False
++    return all(
++        len(actual) == len(expected)
++        and all(_value_equal(a, e) for a, e in zip(actual, expected))
++        for actual, expected in zip(actual_rows, expected_rows)
++    )
++
++
++def _canonical_rows(rows: Iterable[Sequence[Any]]) -> List[List[Any]]:
++    result: List[List[Any]] = []
++    for row in rows:
++        result.append([value for value in row])
++    return result
++
++
++def _insert_fixture(
++    table_defs: Mapping[str, Sequence[Tuple[str, str]]],
++    fixture_tables: Mapping[str, Sequence[Sequence[Any]]],
++) -> sqlite3.Connection:
++    return _setup_database(table_defs, fixture_tables)
++
++
++_ALLOWED_READ_ACTIONS = {
++    sqlite3.SQLITE_SELECT,
++    sqlite3.SQLITE_READ,
++    sqlite3.SQLITE_FUNCTION,
++}
++if hasattr(sqlite3, "SQLITE_RECURSIVE"):
++    _ALLOWED_READ_ACTIONS.add(sqlite3.SQLITE_RECURSIVE)
++_BLOCKED_FUNCTIONS = {"load_extension", "readfile", "writefile"}
++
++
++def _query_only_authorizer(action: int, _p1: str | None, p2: str | None, _db: str | None, _trigger: str | None) -> int:
++    """Allow only read operations; unknown SQLite authorizer actions deny."""
++    if action not in _ALLOWED_READ_ACTIONS:
++        return sqlite3.SQLITE_DENY
++    if action == sqlite3.SQLITE_FUNCTION and (p2 or "").lower() in _BLOCKED_FUNCTIONS:
++        return sqlite3.SQLITE_DENY
++    return sqlite3.SQLITE_OK
++
++
++def _set_connection_limits(conn: sqlite3.Connection) -> None:
++    # Keep malicious scalar functions and giant SQL expressions bounded even
++    # when the caller wraps this script in a generous subprocess timeout.
++    limits = {
++        "SQLITE_LIMIT_LENGTH": 1_000_000,
++        "SQLITE_LIMIT_SQL_LENGTH": 20_000,
++        "SQLITE_LIMIT_COLUMN": 200,
++        "SQLITE_LIMIT_EXPR_DEPTH": 1_000,
++        "SQLITE_LIMIT_VDBE_OP": 200_000,
++    }
++    for name, value in limits.items():
++        category = getattr(sqlite3, name, None)
++        if category is not None and hasattr(conn, "setlimit"):
++            conn.setlimit(category, value)
++
++
++def _validate_select(sql: Any) -> str:
++    if not isinstance(sql, str) or not sql.strip():
++        raise ValueError("sql must be a non-empty string")
++    text = sql.strip()
++    if text.endswith(";"):
++        text = text[:-1].rstrip()
++    if ";" in text:
++        raise ValueError("multiple statements are not allowed")
++    first = re.match(r"(?is)^([a-z]+)", text)
++    if first is None or first.group(1).lower() not in {"select", "with"}:
++        raise ValueError("only SELECT or WITH queries are allowed")
++    if re.search(r"(?is)\b(load_extension|readfile|writefile|attach|detach|pragma|vacuum)\b", text):
++        raise ValueError("restricted SQLite operation")
++    return text
++
++
++def _execute_candidate(
++    table_defs: Mapping[str, Sequence[Tuple[str, str]]],
++    fixture_tables: Mapping[str, Sequence[Sequence[Any]]],
++    sql: str,
++) -> Tuple[List[str], List[List[Any]]]:
++    text = _validate_select(sql)
++    conn = _insert_fixture(table_defs, fixture_tables)
++    try:
++        _set_connection_limits(conn)
++        conn.execute("PRAGMA query_only = ON")
++        conn.set_authorizer(_query_only_authorizer)
++        deadline = time.monotonic() + QUERY_TIMEOUT_SECONDS
++        conn.set_progress_handler(
++            lambda: 1 if time.monotonic() > deadline else 0,
++            1000,
++        )
++        cursor = conn.execute(text)
++        description = cursor.description or ()
++        columns = [item[0] for item in description]
++        rows = cursor.fetchmany(MAX_RESULT_ROWS + 1)
++        if len(rows) > MAX_RESULT_ROWS:
++            raise RuntimeError("result row limit exceeded")
++        return columns, _canonical_rows(rows)
++    finally:
++        conn.close()
++
++
++def _fixture(table_payload: Mapping[str, Mapping[str, Any]], name: str) -> Dict[str, Any]:
++    return {"name": name, "tables": {table: data["rows"] for table, data in table_payload.items()}}
++
++
++def _rng_for(split: str, family_index: int, case_index: int, fixture_index: int) -> random.Random:
++    split_seed = {"train": 1100, "dev": 2200, "test": 3300}[split]
++    return random.Random(split_seed + family_index * 100_000 + case_index * 1_000 + fixture_index)
++
++
++def _variant_bits(split: str, index: int) -> Tuple[bool, bool, bool, bool]:
++    """Return one of 8 parity-held-out combinations of four public rules.
++
++    Train uses even parity and test uses odd parity.  Every atomic rule is
++    therefore seen in both splits, while no complete four-rule combination is
++    shared.  Dev uses the first two even combinations and remains separate by
++    schema names/seeds.
++    """
++    parity = 1 if split == "test" else 0
++    patterns = [
++        tuple(bool((mask >> bit) & 1) for bit in range(4))
++        for mask in range(16)
++        if (mask.bit_count() % 2) == parity
++    ]
++    return patterns[index % len(patterns)]  # type: ignore[return-value]
++
++
++def _agg_case(split: str, index: int) -> Dict[str, Any]:
++    token = f"{_prefix(split)}_agg_{index:02d}"
++    accounts = f"accounts_{token}"
++    orders = f"orders_{token}"
++    refunds = f"refunds_{token}"
++    table_defs = {
++        accounts: (("account_id", "INTEGER"), ("account_name", "TEXT"), ("region", "TEXT")),
++        orders: (
++            ("order_id", "INTEGER"),
++            ("account_id", "INTEGER"),
++            ("status", "TEXT"),
++            ("currency", "TEXT"),
++            ("gross_cents", "INTEGER"),
++        ),
++        refunds: (
++            ("refund_id", "INTEGER"),
++            ("order_id", "INTEGER"),
++            ("refund_status", "TEXT"),
++            ("refund_cents", "INTEGER"),
++        ),
++    }
++    qualifying_statuses = ("paid", "settled") if index % 2 else ("paid",)
++    currency = "USD" if index % 3 else "EUR"
++    include_zero_gross, refunded_only, cap_refund, include_empty = _variant_bits(split, index)
++    accepted_currencies = ("USD", "EUR") if split == "test" else (currency,)
++    region = ("east", "west", "north")[index % 3]
++    status_sql = ", ".join(_q(item) for item in qualifying_statuses)
++    currency_sql = ", ".join(_q(item) for item in accepted_currencies)
++    currency_condition = (
++        f"currency IN ({currency_sql})" if len(accepted_currencies) > 1 else f"currency = {_q(currency)}"
++    )
++    order_currency_condition = (
++        f"o.currency IN ({currency_sql})" if len(accepted_currencies) > 1 else f"o.currency = {_q(currency)}"
++    )
++    gross_condition = "" if include_zero_gross else " AND gross_cents <> 0"
++    gross_condition_o = "" if include_zero_gross else " AND o.gross_cents <> 0"
++    scenario = {
++        "qualifyingStatuses": list(qualifying_statuses),
++        "currencies": list(accepted_currencies),
++        "region": region,
++        "refundStatus": "posted",
++        "includeZeroGross": include_zero_gross,
++        "refundedOnly": refunded_only,
++        "capRefund": cap_refund,
++        "includeEmpty": include_empty,
++        "variantBits": [include_zero_gross, refunded_only, cap_refund, include_empty],
++    }
++
++    def make_fixture(fixture_index: int) -> Dict[str, Any]:
++        rng = _rng_for(split, 0, index, fixture_index)
++        accounts_rows = [
++            [1, f"acct-{token}-1", region],
++            [2, f"acct-{token}-2", "west" if region != "west" else "east"],
++            [3, f"acct-{token}-3", region],
++            [4, f"acct-{token}-4", "south"],
++            [5, f"acct-{token}-5", region],
++        ]
++        orders_rows: List[List[Any]] = [
++            [1001, 1, qualifying_statuses[0], currency, 1000],
++            [1002, 1, qualifying_statuses[0], currency, 0],
++            [1007, 1, qualifying_statuses[0], accepted_currencies[0], 400],
++            [1003, 1, "cancelled", currency, 999],
++            [1004, 2, qualifying_statuses[0], currency, 700],
++            [1005, 3, qualifying_statuses[-1], "USD" if currency != "USD" else "EUR", 500],
++            [1006, 4, qualifying_statuses[0], currency, 600],
++        ]
++        refunds_rows: List[List[Any]] = [
++            [5001, 1001, "posted", 100],
++            [5002, 1001, "posted", 50],
++            [5003, 1001, "reversed", 900],
++            [5004, 1004, "posted", 100],
++            [5005, 1002, "posted", 0],
++            [5006, 1001, "posted", 1200],
++        ]
++        next_order = 2000 + fixture_index * 100
++        next_refund = 6000 + fixture_index * 100
++        for _ in range(5 + fixture_index * 2):
++            account_id = rng.choice([1, 2, 3, 4, 5])
++            status = rng.choice([qualifying_statuses[0], "cancelled", "pending"])
++            if rng.random() < 0.75:
++                order_currency = rng.choice(list(accepted_currencies))
++            else:
++                order_currency = "JPY" if len(accepted_currencies) > 1 else ("EUR" if currency == "USD" else "USD")
++            gross = rng.choice([0, 125, 300, 875, 1500])
++            orders_rows.append([next_order, account_id, status, order_currency, gross])
++            if status in qualifying_statuses and order_currency in accepted_currencies and rng.random() < 0.75:
++                refunds_rows.append([next_refund, next_order, rng.choice(["posted", "reversed"]), rng.choice([0, 25, 90])])
++                next_refund += 1
++            next_order += 1
++        return {accounts: accounts_rows, orders: orders_rows, refunds: refunds_rows}
++
++    fixtures = [make_fixture(i) for i in range(FIXTURE_COUNT)]
++    gold = f"""WITH selected_accounts AS (
++  SELECT account_id FROM {accounts} WHERE region = {_q(region)}
++), paid_orders AS (
++  SELECT order_id, account_id, gross_cents
++  FROM {orders}
++  WHERE status IN ({status_sql}) AND {currency_condition}{gross_condition}
++), refund_totals AS (
++  SELECT order_id, SUM(refund_cents) AS refund_cents, COUNT(*) AS refund_rows
++  FROM {refunds}
++  WHERE refund_status = 'posted'
++  GROUP BY order_id
++), considered_orders AS (
++  SELECT p.order_id, p.account_id, p.gross_cents, COALESCE(r.refund_cents, 0) AS refund_cents,
++         COALESCE(r.refund_rows, 0) AS refund_rows
++  FROM paid_orders p
++  LEFT JOIN refund_totals r ON r.order_id = p.order_id
++  WHERE {"COALESCE(r.refund_rows, 0) > 0" if refunded_only else "1 = 1"}
++), per_account AS (
++  SELECT c.account_id,
++         COUNT(*) AS paid_order_count,
++         SUM(c.gross_cents) AS gross_cents,
++         SUM({"MIN(c.refund_cents, c.gross_cents)" if cap_refund else "c.refund_cents"}) AS refund_cents
++  FROM considered_orders c
++  GROUP BY c.account_id
++)
++SELECT a.account_id,
++       COALESCE(x.paid_order_count, 0) AS paid_order_count,
++       COALESCE(x.gross_cents, 0) AS gross_cents,
++       COALESCE(x.refund_cents, 0) AS refund_cents,
++       COALESCE(x.gross_cents, 0) - COALESCE(x.refund_cents, 0) AS net_cents,
++       CASE WHEN COALESCE(x.gross_cents, 0) = 0 THEN NULL
++            ELSE ROUND(COALESCE(x.refund_cents, 0) * 100.0 / x.gross_cents, 6) END AS refund_rate_pct
++FROM selected_accounts a
++{"LEFT JOIN" if include_empty else "JOIN"} per_account x ON x.account_id = a.account_id
++ORDER BY a.account_id"""
++    buggy = f"""SELECT a.account_id,
++       COUNT(o.order_id) AS paid_order_count,
++       COALESCE(SUM(o.gross_cents), 0) AS gross_cents,
++       COALESCE(SUM(r.refund_cents), 0) AS refund_cents,
++       COALESCE(SUM(o.gross_cents), 0) - COALESCE(SUM(r.refund_cents), 0) AS net_cents,
++       CASE WHEN COALESCE(SUM(o.gross_cents), 0) = 0 THEN NULL
++            ELSE ROUND(COALESCE(SUM(r.refund_cents), 0) * 100.0 / SUM(o.gross_cents), 6) END AS refund_rate_pct
++FROM {accounts} a
++LEFT JOIN {orders} o ON o.account_id = a.account_id
++  AND o.status IN ({status_sql}) AND {order_currency_condition}{gross_condition_o}
++LEFT JOIN {refunds} r ON r.order_id = o.order_id AND r.refund_status = 'posted'
++WHERE a.region = {_q(region)}
++GROUP BY a.account_id
++ORDER BY a.account_id"""
++    prompt = f"""Task: repair one read-only SQLite query.
++
++Schema:
++{_schema_text(table_defs)}
++
++Business contract:
++- Return one row for every account whose region is {_q(region)}.
++- An order qualifies only when status is one of {list(qualifying_statuses)!r}, currency is one of {list(accepted_currencies)!r}, and {"gross_cents may be zero" if include_zero_gross else "gross_cents must be non-zero"}.
++- {"Consider only qualifying orders with at least one posted refund" if refunded_only else "Consider all qualifying orders, whether or not they have a refund"}. All following counts and amounts use only considered orders.
++- Count each considered order once. Sum its gross_cents once.
++- Only refunds with refund_status = 'posted' and a considered order are included; multiple posted refunds for one order must be summed.
++- {"Cap each order's posted refund total at its gross_cents before summing" if cap_refund else "Do not cap an order's posted refund total"}.
++- Sort rows by account_id ascending. Return columns in this exact order: account_id, paid_order_count, gross_cents, refund_cents, net_cents, refund_rate_pct.
++- net_cents = gross_cents - refund_cents. When gross_cents is zero, refund_rate_pct must be NULL; otherwise it is refund_cents * 100.0 / gross_cents rounded to 6 decimal places (half away from zero, as SQLite ROUND).
++- {"Include" if include_empty else "Exclude"} an account with no considered order{", using zero counts/sums and NULL rate" if include_empty else ""}.
++
++Buggy SQL (it runs, but may violate the contract):
++```sql
++{buggy}
++```
++
++Return exactly one read-only SELECT or WITH query. Do not rely on fixture values; the evaluator uses hidden rows.
++"""
++    private = {
++        "schemaVersion": SCHEMA_VERSION,
++        "family": "aggregation",
++        "tableRoles": {"accounts": accounts, "orders": orders, "refunds": refunds},
++        "schemaSql": _schema_text(table_defs),
++        "tableDefs": {table: [[name, ctype] for name, ctype in cols] for table, cols in table_defs.items()},
++        "fixtures": [{"name": f"fixture-{i}", "tables": _table_payload(table_defs, tables)} for i, tables in enumerate(fixtures)],
++        "goldSql": gold,
++        "oracleSpec": scenario,
++    }
++    return {"id": f"{split}-aggregation-{index:02d}", "family": "aggregation", "prompt": prompt, "private": private}
++
++
++def _latest_case(split: str, index: int) -> Dict[str, Any]:
++    token = f"{_prefix(split)}_latest_{index:02d}"
++    entities = f"entities_{token}"
++    events = f"status_events_{token}"
++    table_defs = {
++        entities: (("entity_id", "INTEGER"), ("entity_name", "TEXT"), ("is_active", "INTEGER")),
++        events: (
++            ("event_id", "INTEGER"),
++            ("entity_id", "INTEGER"),
++            ("event_time", "TEXT"),
++            ("seq", "INTEGER"),
++            ("status", "TEXT"),
++        ),
++    }
++    cutoff_day = 12 + (index % 3)
++    cutoff = _iso(cutoff_day, 12, 0)
++    active_only, filter_statuses, include_equal, high_seq = _variant_bits(split, index)
++    eligible_statuses = ("draft", "ready", "approved", "queued", "running", "done", "paused")
++    cutoff_op = "<=" if include_equal else "<"
++    seq_order = "DESC" if high_seq else "ASC"
++    status_condition = (
++        f" AND s.status IN ({', '.join(_q(item) for item in eligible_statuses)})"
++        if filter_statuses else ""
++    )
++    scenario = {
++        "cutoff": cutoff,
++        "activeOnly": active_only,
++        "filterStatuses": filter_statuses,
++        "eligibleStatuses": list(eligible_statuses),
++        "includeEqualCutoff": include_equal,
++        "highSeqWins": high_seq,
++        "variantBits": [active_only, filter_statuses, include_equal, high_seq],
++    }
++
++    def make_fixture(fixture_index: int) -> Dict[str, Any]:
++        rng = _rng_for(split, 1, index, fixture_index)
++        entity_rows = [
++            [1, f"entity-{token}-1", 1],
++            [2, f"entity-{token}-2", 1],
++            [3, f"entity-{token}-3", 1],
++            [4, f"entity-{token}-4", 0],
++            [5, f"entity-{token}-5", 1],
++        ]
++        events_rows: List[List[Any]] = [
++            [7001, 1, _iso(cutoff_day - 2, 9), 1, "draft"],
++            [7002, 1, cutoff, 1, "ready"],
++            [7003, 1, cutoff, 2, "approved"],
++            [7008, 1, _iso(cutoff_day - 1, 10), 1, "ready"],
++            [7009, 1, _iso(cutoff_day - 1, 10), 2, "approved"],
++            [7010, 1, _iso(cutoff_day - 2, 10), 3, "deleted"],
++            [7004, 1, _iso(cutoff_day + 2, 9), 1, "future"],
++            [7005, 3, _iso(cutoff_day + 1, 9), 1, "future-only"],
++            [7006, 4, cutoff, 9, "inactive"],
++            [7007, 5, _iso(cutoff_day - 1, 8), 1, "old"],
++        ]
++        statuses = ["queued", "running", "done", "paused"]
++        next_event = 8000 + fixture_index * 100
++        for _ in range(7 + fixture_index):
++            entity_id = rng.choice([1, 2, 3, 4, 5])
++            day = rng.choice([cutoff_day - 3, cutoff_day - 1, cutoff_day, cutoff_day + 1, cutoff_day + 3])
++            hour = rng.choice([7, 11, 15, 20])
++            events_rows.append([next_event, entity_id, _iso(day, hour), rng.choice([1, 2, 3]), rng.choice(statuses)])
++            next_event += 1
++        return {entities: entity_rows, events: events_rows}
++
++    fixtures = [make_fixture(i) for i in range(FIXTURE_COUNT)]
++    entity_clause = "WHERE is_active = 1" if active_only else ""
++    ranked_active_clause = " AND e.is_active = 1" if active_only else ""
++    buggy_active_clause = " AND e.is_active = 1" if active_only else ""
++    buggy_entity_clause = "WHERE e.is_active = 1" if active_only else ""
++    gold = f"""WITH ranked AS (
++  SELECT s.entity_id, s.event_time, s.seq, s.status,
++         ROW_NUMBER() OVER (
++           PARTITION BY s.entity_id
++           ORDER BY s.event_time DESC, s.seq {seq_order}, s.event_id DESC
++         ) AS rn
++  FROM {events} s
++  JOIN {entities} e ON e.entity_id = s.entity_id
++  WHERE s.event_time {cutoff_op} {_q(cutoff)}
++    {ranked_active_clause}{status_condition}
++)
++SELECT e.entity_id, r.status, r.event_time, r.seq
++FROM {entities} e
++LEFT JOIN ranked r ON r.entity_id = e.entity_id AND r.rn = 1
++{entity_clause}
++ORDER BY e.entity_id"""
++    buggy = f"""WITH latest_time AS (
++  SELECT entity_id, MAX(event_time) AS event_time
++  FROM {events}
++  WHERE event_time {cutoff_op} {_q(cutoff)}
++  GROUP BY entity_id
++)
++SELECT e.entity_id, s.status, s.event_time, s.seq
++FROM {entities} e
++LEFT JOIN latest_time l ON l.entity_id = e.entity_id
++LEFT JOIN {events} s ON s.entity_id = l.entity_id AND s.event_time = l.event_time
++{buggy_entity_clause}
++ORDER BY e.entity_id"""
++    prompt = f"""Task: repair one read-only SQLite query.
++
++Schema:
++{_schema_text(table_defs)}
++
++Business contract:
++- The cutoff timestamp is {_q(cutoff)}. The cutoff is {"inclusive" if include_equal else "strict"}: eligible events satisfy event_time {cutoff_op} cutoff.
++- Return one row for every {"active (is_active = 1) " if active_only else ""}entity, including an entity with no eligible history.
++- {"Only statuses " + repr(list(eligible_statuses)) + " are eligible before choosing the latest event." if filter_statuses else "All status values are eligible before choosing the latest event."}
++- For each entity choose exactly one latest event by event_time descending, then seq {"descending (higher seq wins)" if high_seq else "ascending (lower seq wins)"}, then event_id descending as deterministic tie-breaks.
++- Sort rows by entity_id ascending. Return columns in this exact order: entity_id, status, event_time, seq. Missing history yields NULL in the last three columns.
++- event_time is ISO-8601 UTC text in the declared format; do not depend on hidden fixture values.
++
++Buggy SQL (it runs, but may violate the contract):
++```sql
++{buggy}
++```
++
++Return exactly one read-only SELECT or WITH query.
++"""
++    private = {
++        "schemaVersion": SCHEMA_VERSION,
++        "family": "latest_status",
++        "tableRoles": {"entities": entities, "events": events},
++        "schemaSql": _schema_text(table_defs),
++        "tableDefs": {table: [[name, ctype] for name, ctype in cols] for table, cols in table_defs.items()},
++        "fixtures": [{"name": f"fixture-{i}", "tables": _table_payload(table_defs, tables)} for i, tables in enumerate(fixtures)],
++        "goldSql": gold,
++        "oracleSpec": scenario,
++    }
++    return {"id": f"{split}-latest-status-{index:02d}", "family": "latest_status", "prompt": prompt, "private": private}
++
++
++def _funnel_case(split: str, index: int) -> Dict[str, Any]:
++    token = f"{_prefix(split)}_funnel_{index:02d}"
++    people = f"people_{token}"
++    events = f"funnel_events_{token}"
++    table_defs = {
++        people: (("person_id", "INTEGER"), ("person_name", "TEXT")),
++        events: (
++            ("event_id", "INTEGER"),
++            ("person_id", "INTEGER"),
++            ("event_type", "TEXT"),
++            ("event_time", "TEXT"),
++            ("channel", "TEXT"),
++        ),
++    }
++    start_day = 10 + (index % 3)
++    start = _iso(start_day, 0)
++    end = _iso(start_day + 2, 0)
++    require_channel, include_end, strict_order, purchase_requires_cart = _variant_bits(split, index)
++    end_op = "<=" if include_end else "<"
++    stage_op = ">" if strict_order else ">="
++    channel_clause = " AND channel = 'web'" if require_channel else ""
++    channel_clause_e = " AND e.channel = 'web'" if require_channel else ""
++    scenario = {
++        "start": start,
++        "end": end,
++        "requireWeb": require_channel,
++        "includeEnd": include_end,
++        "strictOrder": strict_order,
++        "purchaseRequiresCart": purchase_requires_cart,
++        "variantBits": [require_channel, include_end, strict_order, purchase_requires_cart],
++    }
++
++    def make_fixture(fixture_index: int) -> Dict[str, Any]:
++        rng = _rng_for(split, 2, index, fixture_index)
++        people_rows = [[i, f"person-{token}-{i}"] for i in range(1, 7)]
++        events_rows: List[List[Any]] = [
++            [9001, 1, "view", _iso(start_day, 8), "web"],
++            [9002, 1, "view", _iso(start_day, 8, 30), "web"],
++            [9003, 1, "add_to_cart", _iso(start_day, 9), "web"],
++            [9004, 1, "purchase", _iso(start_day, 10), "web"],
++            [9005, 2, "purchase", _iso(start_day, 8), "web"],
++            [9006, 2, "add_to_cart", _iso(start_day, 9), "web"],
++            [9007, 2, "view", _iso(start_day, 10), "web"],
++            [9008, 3, "view", _iso(start_day, 11, 59), "web"],
++            [9009, 3, "add_to_cart", end, "web"],
++            [9010, 3, "purchase", _iso(start_day + 2, 0), "web"],
++            [9011, 4, "view", _iso(start_day, 7), "web"],
++            [9012, 4, "add_to_cart", _iso(start_day, 8), "web"],
++            [9013, 4, "purchase", _iso(start_day, 8), "web"],
++            [9014, 4, "purchase", _iso(start_day, 8, 1), "web"],
++            [9015, 5, "view", _iso(start_day - 1, 23), "web"],
++            [9016, 5, "add_to_cart", _iso(start_day, 1), "web"],
++            [9017, 5, "purchase", _iso(start_day, 2), "web"],
++            [9018, 6, "view", _iso(start_day, 6), "app"],
++            [9019, 6, "add_to_cart", _iso(start_day, 7), "app"],
++            [9020, 6, "purchase", _iso(start_day, 8), "app"],
++        ]
++        event_types = ["view", "add_to_cart", "purchase", "other"]
++        next_event = 10000 + fixture_index * 100
++        for _ in range(8 + fixture_index):
++            person_id = rng.choice([1, 2, 3, 4, 5, 6])
++            day = rng.choice([start_day - 1, start_day, start_day + 1, start_day + 2, start_day + 3])
++            hour = rng.choice([0, 6, 12, 18, 23])
++            events_rows.append([next_event, person_id, rng.choice(event_types), _iso(day, hour), rng.choice(["web", "app"])])
++            next_event += 1
++        return {people: people_rows, events: events_rows}
++
++    fixtures = [make_fixture(i) for i in range(FIXTURE_COUNT)]
++    purchase_source = "first_cart c" if purchase_requires_cart else "first_view v"
++    purchase_alias = "c" if purchase_requires_cart else "v"
++    purchase_column = "c.cart_at" if purchase_requires_cart else "v.view_at"
++    gold = f"""WITH first_view AS (
++  SELECT person_id, MIN(event_time) AS view_at
++  FROM {events}
++  WHERE event_type = 'view' AND event_time >= {_q(start)} AND event_time {end_op} {_q(end)}{channel_clause}
++  GROUP BY person_id
++), first_cart AS (
++  SELECT e.person_id, MIN(e.event_time) AS cart_at
++  FROM {events} e JOIN first_view v ON v.person_id = e.person_id
++  WHERE e.event_type = 'add_to_cart' AND e.event_time {stage_op} v.view_at AND e.event_time {end_op} {_q(end)}{channel_clause_e}
++  GROUP BY e.person_id
++), first_purchase AS (
++  SELECT e.person_id, MIN(e.event_time) AS purchase_at
++  FROM {events} e JOIN {purchase_source} ON {purchase_alias}.person_id = e.person_id
++  WHERE e.event_type = 'purchase' AND e.event_time {stage_op} {purchase_column} AND e.event_time {end_op} {_q(end)}{channel_clause_e}
++  GROUP BY e.person_id
++)
++SELECT p.person_id, v.view_at, c.cart_at, x.purchase_at,
++       CASE WHEN x.person_id IS NULL THEN 0 ELSE 1 END AS converted
++FROM {people} p
++LEFT JOIN first_view v ON v.person_id = p.person_id
++LEFT JOIN first_cart c ON c.person_id = p.person_id
++LEFT JOIN first_purchase x ON x.person_id = p.person_id
++ORDER BY p.person_id"""
++    # The single seeded defect is selecting the last view instead of the first;
++    # all four public rule switches remain otherwise correctly represented.
++    buggy = gold.replace("MIN(event_time) AS view_at", "MAX(event_time) AS view_at", 1)
++    prompt = f"""Task: repair one read-only SQLite query.
++
++Schema:
++{_schema_text(table_defs)}
++
++Business contract:
++- The funnel window is {'closed at the end' if include_end else 'half-open'}: event_time >= {_q(start)} and event_time {end_op} {_q(end)}.
++- {"Only channel = 'web' events count." if require_channel else "Events from both channels count."}
++- For every person, return the first in-window view, then the first add_to_cart using event_time {stage_op} the view, then the first purchase using event_time {stage_op} {"the cart" if purchase_requires_cart else "the view"}. A stage is NULL when no qualifying event exists.
++- A person is converted {"only if all three stages exist" if purchase_requires_cart else "if a view and an admissible purchase exist; cart_at may be NULL"}. Duplicate events must not duplicate the person.
++- Return one row per person, in person_id order, with columns exactly: person_id, view_at, cart_at, purchase_at, converted.
++- event_time is ISO-8601 UTC text and all ordering/boundary rules above are public task rules.
++
++Buggy SQL (it runs, but may violate the contract):
++```sql
++{buggy}
++```
++
++Return exactly one read-only SELECT or WITH query. Do not rely on fixture values.
++"""
++    private = {
++        "schemaVersion": SCHEMA_VERSION,
++        "family": "funnel",
++        "tableRoles": {"people": people, "events": events},
++        "schemaSql": _schema_text(table_defs),
++        "tableDefs": {table: [[name, ctype] for name, ctype in cols] for table, cols in table_defs.items()},
++        "fixtures": [{"name": f"fixture-{i}", "tables": _table_payload(table_defs, tables)} for i, tables in enumerate(fixtures)],
++        "goldSql": gold,
++        "oracleSpec": scenario,
++    }
++    return {"id": f"{split}-funnel-{index:02d}", "family": "funnel", "prompt": prompt, "private": private}
++
++
++def generate_case(split: str, family: str, index: int) -> Dict[str, Any]:
++    if family == "aggregation":
++        return _agg_case(split, index)
++    if family == "latest_status":
++        return _latest_case(split, index)
++    if family == "funnel":
++        return _funnel_case(split, index)
++    raise ValueError(f"unknown family: {family}")
++
++
++def generate_dataset() -> Dict[str, List[Dict[str, Any]]]:
++    return {
++        split: [
++            generate_case(split, family, index)
++            for family in FAMILIES
++            for index in range(SPLIT_COUNTS[split])
++        ]
++        for split in ("dev", "train", "test")
++    }
++
++
++def _fixture_rows(private: Mapping[str, Any], fixture: Mapping[str, Any]) -> Mapping[str, Sequence[Sequence[Any]]]:
++    return {table: data["rows"] for table, data in fixture["tables"].items()}
++
++
++def _rows_from_table(private: Mapping[str, Any], fixture: Mapping[str, Any], table: str) -> List[List[Any]]:
++    return [list(row) for row in fixture["tables"][table]["rows"]]
++
++
++def _agg_reference(case: Mapping[str, Any], fixture: Mapping[str, Any]) -> Tuple[List[str], List[List[Any]]]:
++    private = case["private"]
++    spec = private["oracleSpec"]
++    roles = private["tableRoles"]
++    accounts, orders, refunds = roles["accounts"], roles["orders"], roles["refunds"]
++    account_rows = _rows_from_table(private, fixture, accounts)
++    order_rows = _rows_from_table(private, fixture, orders)
++    refund_rows = _rows_from_table(private, fixture, refunds)
++    status_set = set(spec["qualifyingStatuses"])
++    currency_set = set(spec["currencies"])
++    account_ids = [row[0] for row in account_rows if row[2] == spec["region"]]
++    result: List[List[Any]] = []
++    for account_id in account_ids:
++        qualifying = [
++            row for row in order_rows
++            if row[1] == account_id
++            and row[2] in status_set
++            and row[3] in currency_set
++            and (spec["includeZeroGross"] or int(row[4]) != 0)
++        ]
++        refunds_by_order: Dict[int, int] = {}
++        for row in refund_rows:
++            if row[2] == spec["refundStatus"]:
++                refunds_by_order[row[1]] = refunds_by_order.get(row[1], 0) + int(row[3])
++        if spec["refundedOnly"]:
++            qualifying = [
++                row for row in qualifying
++                if int(row[0]) in refunds_by_order
++            ]
++        if not spec["includeEmpty"] and not qualifying:
++            continue
++        gross = sum(int(row[4]) for row in qualifying)
++        refund = sum(
++            min(refunds_by_order.get(int(row[0]), 0), int(row[4])) if spec["capRefund"]
++            else refunds_by_order.get(int(row[0]), 0)
++            for row in qualifying
++        )
++        rate = None if gross == 0 else float((Decimal(refund) * 100 / Decimal(gross)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP))
++        result.append([account_id, len(qualifying), gross, refund, gross - refund, rate])
++    return ["account_id", "paid_order_count", "gross_cents", "refund_cents", "net_cents", "refund_rate_pct"], result
++
++
++def _latest_reference(case: Mapping[str, Any], fixture: Mapping[str, Any]) -> Tuple[List[str], List[List[Any]]]:
++    private = case["private"]
++    spec = private["oracleSpec"]
++    roles = private["tableRoles"]
++    entities, events = roles["entities"], roles["events"]
++    entity_rows = _rows_from_table(private, fixture, entities)
++    event_rows = _rows_from_table(private, fixture, events)
++    result: List[List[Any]] = []
++    for entity_id, _name, is_active in entity_rows:
++        if spec["activeOnly"] and int(is_active) != 1:
++            continue
++        eligible = [
++            row for row in event_rows
++            if row[1] == entity_id
++            and (row[2] <= spec["cutoff"] if spec["includeEqualCutoff"] else row[2] < spec["cutoff"])
++            and (not spec["filterStatuses"] or row[4] in set(spec["eligibleStatuses"]))
++        ]
++        if spec["highSeqWins"]:
++            eligible.sort(key=lambda row: (row[2], int(row[3]), int(row[0])), reverse=True)
++        else:
++            eligible.sort(key=lambda row: (row[2], -int(row[3]), int(row[0])), reverse=True)
++        if eligible:
++            row = eligible[0]
++            result.append([entity_id, row[4], row[2], row[3]])
++        else:
++            result.append([entity_id, None, None, None])
++    return ["entity_id", "status", "event_time", "seq"], result
++
++
++def _funnel_reference(case: Mapping[str, Any], fixture: Mapping[str, Any]) -> Tuple[List[str], List[List[Any]]]:
++    private = case["private"]
++    spec = private["oracleSpec"]
++    roles = private["tableRoles"]
++    people, events = roles["people"], roles["events"]
++    people_rows = _rows_from_table(private, fixture, people)
++    event_rows = _rows_from_table(private, fixture, events)
++
++    def first_after(person_id: int, event_type: str, lower: str | None) -> str | None:
++        def after_ok(value: str) -> bool:
++            if lower is None:
++                return True
++            return value > lower if spec["strictOrder"] else value >= lower
++
++        def end_ok(value: str) -> bool:
++            return value <= spec["end"] if spec["includeEnd"] else value < spec["end"]
++
++        candidates = [
++            row[3]
++            for row in event_rows
++            if row[1] == person_id
++            and row[2] == event_type
++            and row[3] >= spec["start"]
++            and end_ok(row[3])
++            and (not spec["requireWeb"] or row[4] == "web")
++            and after_ok(row[3])
++        ]
++        return min(candidates) if candidates else None
++
++    result: List[List[Any]] = []
++    for person_id, _name in people_rows:
++        view = first_after(person_id, "view", None)
++        cart = first_after(person_id, "add_to_cart", view) if view else None
++        purchase_lower = cart if spec["purchaseRequiresCart"] else view
++        purchase = (
++            first_after(person_id, "purchase", purchase_lower)
++            if purchase_lower is not None and (not spec["purchaseRequiresCart"] or cart is not None)
++            else None
++        )
++        result.append([person_id, view, cart, purchase, 1 if purchase else 0])
++    return ["person_id", "view_at", "cart_at", "purchase_at", "converted"], result
++
++
++REFERENCE_BY_FAMILY: Dict[str, Callable[[Mapping[str, Any], Mapping[str, Any]], Tuple[List[str], List[List[Any]]]]] = {
++    "aggregation": _agg_reference,
++    "latest_status": _latest_reference,
++    "funnel": _funnel_reference,
++}
++
++
++def reference_result(case: Mapping[str, Any], fixture: Mapping[str, Any]) -> Tuple[List[str], List[List[Any]]]:
++    family = case.get("family")
++    if family not in REFERENCE_BY_FAMILY:
++        raise ValueError(f"unknown case family: {family}")
++    return REFERENCE_BY_FAMILY[family](case, fixture)
++
++
++def evaluate_case(case: Mapping[str, Any], sql: Any) -> Dict[str, Any]:
++    private = case.get("private")
++    if not isinstance(private, Mapping):
++        return {"passed": False, "checks": 0, "passedChecks": 0, "error": "missing private case data"}
++    try:
++        text = _validate_select(sql)
++    except Exception as exc:  # noqa: BLE001 - CLI must return structured errors.
++        return {"passed": False, "checks": 0, "passedChecks": 0, "error": str(exc)}
++    table_defs = {
++        table: [(str(pair[0]), str(pair[1])) for pair in columns]
++        for table, columns in private["tableDefs"].items()
++    }
++    fixtures = private.get("fixtures", [])
++    checks = len(fixtures)
++    passed_checks = 0
++    first_counterexample: Dict[str, Any] | None = None
++    first_error: str | None = None
++    for fixture in fixtures:
++        name = fixture.get("name", f"fixture-{passed_checks}")
++        expected_columns, expected_rows = reference_result(case, fixture)
++        try:
++            actual_columns, actual_rows = _execute_candidate(table_defs, _fixture_rows(private, fixture), text)
++        except Exception as exc:  # noqa: BLE001 - returned as evaluator feedback.
++            if first_error is None:
++                first_error = str(exc)
++                first_counterexample = {"fixture": name, "reason": "execution_error"}
++            continue
++        if _rows_equal(actual_columns, actual_rows, expected_columns, expected_rows):
++            passed_checks += 1
++            continue
++        if first_counterexample is None:
++            first_counterexample = {
++                "fixture": name,
++                "reason": "result_mismatch",
++                "actualColumns": actual_columns,
++                "expectedColumns": expected_columns,
++                "actualRowCount": len(actual_rows),
++                "expectedRowCount": len(expected_rows),
++            }
++    output: Dict[str, Any] = {
++        "passed": passed_checks == checks and checks > 0,
++        "checks": checks,
++        "passedChecks": passed_checks,
++    }
++    if first_error is not None:
++        output["error"] = first_error
++    if first_counterexample is not None:
++        output["counterexample"] = first_counterexample
++    return output
++
++
++def _assert(condition: bool, message: str) -> None:
++    if not condition:
++        raise AssertionError(message)
++
++
++def self_test() -> Dict[str, Any]:
++    dataset = generate_dataset()
++    _assert(set(dataset) == {"dev", "train", "test"}, "split keys")
++    _assert([len(dataset[key]) for key in ("dev", "train", "test")] == [6, 24, 24], "split counts")
++    all_cases = [case for cases in dataset.values() for case in cases]
++    _assert(len({case["id"] for case in all_cases}) == len(all_cases), "unique IDs")
++
++    train_prompt = {case["prompt"] for case in dataset["train"]}
++    test_prompt = {case["prompt"] for case in dataset["test"]}
++    _assert(train_prompt.isdisjoint(test_prompt), "train/test prompt overlap")
++    train_tables = {
++        table
++        for case in dataset["train"]
++        for table in case["private"]["tableDefs"]
++    }
++    test_tables = {
++        table
++        for case in dataset["test"]
++        for table in case["private"]["tableDefs"]
++    }
++    _assert(train_tables.isdisjoint(test_tables), "train/test schema names overlap")
++
++    family_counts = {family: sum(case["family"] == family for case in dataset["test"]) for family in FAMILIES}
++    _assert(family_counts == {family: SPLIT_COUNTS["test"] for family in FAMILIES}, "family counts")
++    for family in FAMILIES:
++        train_bits = {
++            tuple(case["private"]["oracleSpec"]["variantBits"])
++            for case in dataset["train"]
++            if case["family"] == family
++        }
++        test_bits = {
++            tuple(case["private"]["oracleSpec"]["variantBits"])
++            for case in dataset["test"]
++            if case["family"] == family
++        }
++        _assert(train_bits.isdisjoint(test_bits), f"variant combination overlap: {family}")
++        for bit in range(4):
++            _assert(any(bits[bit] for bits in train_bits), f"train never sees bit {bit}: {family}")
++            _assert(any(not bits[bit] for bits in train_bits), f"train never sees false bit {bit}: {family}")
++            _assert(any(bits[bit] for bits in test_bits), f"test never sees bit {bit}: {family}")
++            _assert(any(not bits[bit] for bits in test_bits), f"test never sees false bit {bit}: {family}")
++
++    for case in all_cases:
++        private = case["private"]
++        table_defs = {
++            table: [(str(pair[0]), str(pair[1])) for pair in columns]
++            for table, columns in private["tableDefs"].items()
++        }
++        gold_result = evaluate_case(case, private["goldSql"])
++        _assert(gold_result["passed"], f"gold SQL failed: {case['id']} {gold_result}")
++        buggy = re.search(r"Buggy SQL \(it runs, but may violate the contract\):\n```sql\n(.*?)\n```", case["prompt"], re.S)
++        _assert(buggy is not None, f"buggy SQL missing: {case['id']}")
++        buggy_result = evaluate_case(case, buggy.group(1))
++        _assert(not buggy_result["passed"], f"buggy SQL unexpectedly passed: {case['id']}")
++        _assert(buggy_result["passedChecks"] < buggy_result["checks"], f"buggy SQL did not fail a check: {case['id']}")
++        _assert("correct" not in case["prompt"].lower().split("buggy sql", 1)[0], f"answer hint in prompt: {case['id']}")
++        _assert(private["goldSql"] not in case["prompt"], f"gold SQL leaked: {case['id']}")
++        _assert(table_defs, f"empty schema: {case['id']}")
++
++    # Exercise the actual JSON CLI representation: sort_keys changes table
++    # dictionary order, so references must use tableRoles rather than order.
++    roundtrip = json.loads(_json(dataset))
++    for split_cases in roundtrip.values():
++        for case in split_cases:
++            result = evaluate_case(case, case["private"]["goldSql"])
++            _assert(result["passed"], f"JSON roundtrip gold failed: {case['id']} {result}")
++
++    # Regression for an oracle disagreement found by independent review:
++    # Python round(0.1953125, 6) uses ties-to-even; SQLite ROUND uses away-from-zero.
++    rounding_case = json.loads(_json(dataset["train"][0]))
++    priv = rounding_case["private"]
++    a, o, r = [priv["tableRoles"][role] for role in ("accounts", "orders", "refunds")]
++    spec = priv["oracleSpec"]
++    tables = {a: [[1, "rounding-case", spec["region"]]],
++              o: [[1, 1, spec["qualifyingStatuses"][0], spec["currencies"][0], 512]],
++              r: [[1, 1, "posted", 1]]}
++    fixture = {"name": "round-half-away", "tables": _table_payload(priv["tableDefs"], tables)}
++    priv["fixtures"] = [fixture]
++    _assert(reference_result(rounding_case, fixture)[1][0][-1] == 0.195313, "rounding policy")
++    _assert(evaluate_case(rounding_case, priv["goldSql"])["passed"], "SQLite/Python rounding parity")
++
++    sample = dataset["test"][0]
++    write_result = evaluate_case(sample, "DROP TABLE anything")
++    _assert(write_result["passed"] is False and write_result["checks"] == 0, "write rejection")
++    for dangerous in (
++        "SELECT load_extension('x')",
++        "SELECT readfile('/tmp/nope')",
++        "SELECT writefile('/tmp/nope', 'x')",
++        "SELECT randomblob(2000000)",
++    ):
++        result = evaluate_case(sample, dangerous)
++        _assert(not result["passed"], f"dangerous query passed: {dangerous}")
++    return {"ok": True, "cases": len(all_cases), "splits": {key: len(value) for key, value in dataset.items()}}
++
++
++def _usage() -> str:
++    return "usage: sql-repair-cases.py generate | evaluate | --self-test"
++
++
++def main(argv: Sequence[str]) -> int:
++    if argv == ["--self-test"]:
++        print(_json(self_test()))
++        return 0
++    if len(argv) != 1 or argv[0] not in {"generate", "evaluate"}:
++        print(_usage(), file=sys.stderr)
++        return 2
++    if argv[0] == "generate":
++        print(_json(generate_dataset()))
++        return 0
++    try:
++        payload = json.load(sys.stdin)
++        case = payload["case"]
++        sql = payload.get("sql")
++        result = evaluate_case(case, sql)
++    except Exception as exc:  # noqa: BLE001 - CLI contract remains JSON.
++        result = {"passed": False, "checks": 0, "passedChecks": 0, "error": str(exc)}
++    print(_json(result))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main(sys.argv[1:]))
+diff --git a/scripts/lib/sql-repair-closeout.py b/scripts/lib/sql-repair-closeout.py
+new file mode 100644
+--- /dev/null
++++ b/scripts/lib/sql-repair-closeout.py
+@@ -0,0 +1,604 @@
++#!/usr/bin/env python3
++"""Closeout SQL families: new table topologies, independent of the legacy three templates."""
++from __future__ import annotations
++
++import importlib.util
++import json
++import re
++import sys
++from decimal import Decimal, ROUND_HALF_UP
++from pathlib import Path
++from typing import Any, Dict, List, Mapping, Sequence, Tuple
++
++_PARENT = Path(__file__).with_name("sql-repair-cases.py")
++_SPEC = importlib.util.spec_from_file_location("sql_repair_cases", _PARENT)
++_MOD = importlib.util.module_from_spec(_SPEC)
++assert _SPEC.loader is not None
++_SPEC.loader.exec_module(_MOD)
++
++_schema_text = _MOD._schema_text
++_table_payload = _MOD._table_payload
++_rng_for = _MOD._rng_for
++_prefix = _MOD._prefix
++_iso = _MOD._iso
++_q = _MOD._q
++_json = _MOD._json
++_rows_from_table = _MOD._rows_from_table
++_assert = _MOD._assert
++evaluate_case = _MOD.evaluate_case
++FIXTURE_COUNT = _MOD.FIXTURE_COUNT
++
++CLOSEOUT_FAMILIES = ("line_item_refund", "fx_as_of", "scd2_segment")
++CLOSEOUT_SCHEMA_VERSION = "sql-repair-closeout-v1"
++CLOSEOUT_SPLIT_COUNTS = {"probe": 4, "train": 6, "test": 6}
++
++def _parity_bits(split: str, index: int) -> Tuple[bool, bool, bool, bool]:
++    parity = 0 if split == "train" else 1
++    patterns = [
++        tuple(bool((mask >> bit) & 1) for bit in range(4))
++        for mask in range(16)
++        if (mask.bit_count() % 2) == parity
++    ]
++    if index >= len(patterns):
++        raise ValueError(f"no parity pattern for {split} index {index}")
++    return patterns[index]  # type: ignore[return-value]
++
++
++def _usd_cents(amount_cents: int, usd_micros: int) -> int:
++    return int((Decimal(amount_cents) * Decimal(usd_micros) / Decimal(1_000_000)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
++
++
++def _private(family: str, table_defs, fixtures, gold: str, scenario: dict, roles: dict) -> dict:
++    return {
++        "schemaVersion": CLOSEOUT_SCHEMA_VERSION,
++        "family": family,
++        "tableRoles": roles,
++        "schemaSql": _schema_text(table_defs),
++        "tableDefs": {table: [[name, ctype] for name, ctype in cols] for table, cols in table_defs.items()},
++        "fixtures": [{"name": f"fixture-{i}", "tables": _table_payload(table_defs, tables)} for i, tables in enumerate(fixtures)],
++        "goldSql": gold,
++        "oracleSpec": scenario,
++    }
++
++
++def _prompt(schema: str, contract: str, buggy: str) -> str:
++    return (
++        "Task: repair one read-only SQLite query.\n\n"
++        f"Schema:\n{schema}\n\n"
++        f"Business contract:\n{contract}\n\n"
++        "Buggy SQL (it runs, but may violate the contract):\n"
++        f"```sql\n{buggy}\n```\n\n"
++        "Return exactly one read-only SELECT or WITH query. Do not rely on hidden fixture values.\n"
++    )
++
++def _line_item_case(split: str, index: int) -> Dict[str, Any]:
++    token = f"{_prefix(split)}_lir_{index:02d}"
++    accounts, orders, lines, refunds = f"accounts_{token}", f"orders_{token}", f"order_lines_{token}", f"refunds_{token}"
++    table_defs = {
++        accounts: (("account_id", "INTEGER"), ("region", "TEXT")),
++        orders: (("order_id", "INTEGER"), ("account_id", "INTEGER"), ("status", "TEXT"), ("currency", "TEXT")),
++        lines: (("line_id", "INTEGER"), ("order_id", "INTEGER"), ("sku", "TEXT"), ("line_cents", "INTEGER")),
++        refunds: (("refund_id", "INTEGER"), ("line_id", "INTEGER"), ("refund_status", "TEXT"), ("refund_cents", "INTEGER")),
++    }
++    include_zero_line, refunded_only, cap_per_line, include_empty = _parity_bits(split, index)
++    qualifying_statuses = ("paid", "settled") if index % 2 else ("paid",)
++    region = ("east", "west", "north")[index % 3]
++    currencies = ("USD", "EUR")
++    status_sql = ", ".join(_q(item) for item in qualifying_statuses)
++    currency_sql = ", ".join(_q(item) for item in currencies)
++    zero_sql = "" if include_zero_line else " AND l.line_cents <> 0"
++    cap_sql = "MIN(COALESCE(p.refund_cents, 0), q.line_cents)" if cap_per_line else "COALESCE(p.refund_cents, 0)"
++    join_kind = "LEFT JOIN" if include_empty else "JOIN"
++    refund_filter = "WHERE COALESCE(m.refund_rows, 0) > 0" if refunded_only else ""
++    scenario = {
++        "region": region,
++        "qualifyingStatuses": list(qualifying_statuses),
++        "currencies": list(currencies),
++        "includeZeroLine": include_zero_line,
++        "refundedOnly": refunded_only,
++        "capPerLine": cap_per_line,
++        "includeEmpty": include_empty,
++        "variantBits": [include_zero_line, refunded_only, cap_per_line, include_empty],
++    }
++
++    def make_fixture(fixture_index: int) -> Dict[str, Any]:
++        rng = _rng_for(split, 3, index, fixture_index)
++        account_rows = [[1, region], [2, "south" if region != "south" else "west"], [3, region]]
++        order_rows = [
++            [101, 1, qualifying_statuses[0], "USD"],
++            [102, 1, qualifying_statuses[0], "EUR"],
++            [103, 1, "cancelled", "USD"],
++            [104, 2, qualifying_statuses[0], "USD"],
++            [105, 3, qualifying_statuses[-1], "USD"],
++            [106, 1, qualifying_statuses[0], "JPY"],
++            [107, 1, qualifying_statuses[0], "USD"],
++        ]
++        line_rows = [
++            [1001, 101, "sku-a", 1000], [1002, 101, "sku-b", 500],
++            [1003, 102, "sku-c", 800], [1004, 102, "sku-d", 0],
++            [1005, 103, "sku-e", 900], [1006, 104, "sku-f", 400],
++            [1007, 105, "sku-g", 250], [1008, 106, "sku-h", 300],
++        ]
++        refund_rows = [
++            [5001, 1001, "posted", 800], [5002, 1001, "posted", 400],
++            [5003, 1001, "reversed", 900], [5004, 1003, "posted", 100],
++            [5005, 1004, "posted", 50], [5006, 1005, "posted", 100],
++            [5007, 1002, "posted", 0],
++        ]
++        next_order = 2000 + fixture_index * 20
++        next_line = 3000 + fixture_index * 40
++        next_refund = 6000 + fixture_index * 40
++        for _ in range(4 + fixture_index):
++            account_id = rng.choice([1, 2, 3])
++            status = rng.choice([qualifying_statuses[0], "cancelled", "pending"])
++            currency = rng.choice(["USD", "EUR", "JPY"])
++            order_rows.append([next_order, account_id, status, currency])
++            for _line in range(rng.choice([1, 2])):
++                cents = rng.choice([0, 120, 350, 900])
++                line_rows.append([next_line, next_order, f"sku-{next_line}", cents])
++                if rng.random() < 0.7:
++                    refund_rows.append([next_refund, next_line, rng.choice(["posted", "reversed"]), rng.choice([0, 40, 200, 1200])])
++                    next_refund += 1
++                next_line += 1
++            next_order += 1
++        return {accounts: account_rows, orders: order_rows, lines: line_rows, refunds: refund_rows}
++
++    fixtures = [make_fixture(i) for i in range(FIXTURE_COUNT)]
++    gold = f"""WITH selected_orders AS (
++  SELECT o.order_id, o.account_id
++  FROM {orders} o
++  JOIN {accounts} a ON a.account_id = o.account_id
++  WHERE a.region = {_q(region)}
++    AND o.status IN ({status_sql})
++    AND o.currency IN ({currency_sql})
++), qualifying_lines AS (
++  SELECT l.line_id, l.order_id, l.line_cents
++  FROM {lines} l
++  JOIN selected_orders o ON o.order_id = l.order_id
++  WHERE 1 = 1{zero_sql}
++), posted_refunds AS (
++  SELECT line_id, SUM(refund_cents) AS refund_cents, COUNT(*) AS refund_rows
++  FROM {refunds}
++  WHERE refund_status = 'posted'
++  GROUP BY line_id
++), line_metrics AS (
++  SELECT q.order_id, q.line_id, q.line_cents,
++         {cap_sql} AS refund_cents,
++         COALESCE(p.refund_rows, 0) AS refund_rows
++  FROM qualifying_lines q
++  LEFT JOIN posted_refunds p ON p.line_id = q.line_id
++), order_metrics AS (
++  SELECT order_id,
++         COUNT(*) AS qualifying_line_count,
++         SUM(line_cents) AS gross_cents,
++         SUM(refund_cents) AS refund_cents,
++         SUM(refund_rows) AS refund_rows
++  FROM line_metrics
++  GROUP BY order_id
++)
++SELECT o.order_id, o.account_id,
++       COALESCE(m.qualifying_line_count, 0) AS qualifying_line_count,
++       COALESCE(m.gross_cents, 0) AS gross_cents,
++       COALESCE(m.refund_cents, 0) AS refund_cents,
++       COALESCE(m.gross_cents, 0) - COALESCE(m.refund_cents, 0) AS net_cents
++FROM selected_orders o
++{join_kind} order_metrics m ON m.order_id = o.order_id
++{refund_filter}
++ORDER BY o.order_id"""
++    buggy = f"""SELECT o.order_id, o.account_id,
++       COUNT(l.line_id) AS qualifying_line_count,
++       COALESCE(SUM(l.line_cents), 0) AS gross_cents,
++       COALESCE(SUM(r.refund_cents), 0) AS refund_cents,
++       COALESCE(SUM(l.line_cents), 0) - COALESCE(SUM(r.refund_cents), 0) AS net_cents
++FROM {orders} o
++JOIN {accounts} a ON a.account_id = o.account_id
++LEFT JOIN {lines} l ON l.order_id = o.order_id
++LEFT JOIN {refunds} r ON r.line_id = l.line_id AND r.refund_status = 'posted'
++WHERE a.region = {_q(region)}
++  AND o.status IN ({status_sql})
++  AND o.currency IN ({currency_sql})
++GROUP BY o.order_id, o.account_id
++ORDER BY o.order_id"""
++    contract = (
++        f"- Grain is order_line, not order. Refunds attach to line_id. Collapse each line before joining refunds to orders.\n"
++        f"- Return one row per qualifying order in region {_q(region)}. Status must be one of {list(qualifying_statuses)!r}; currency one of {list(currencies)!r}.\n"
++        f"- {'Include lines with line_cents = 0' if include_zero_line else 'Exclude lines with line_cents = 0 before any refund logic'}.\n"
++        "- Sum each qualifying line's line_cents once as gross_cents.\n"
++        "- Only refund_status = 'posted' counts. Multiple posted refunds on one line must be summed on that line first.\n"
++        f"- {'Cap each line posted refund total at that line_cents before summing to the order' if cap_per_line else 'Do not cap a line posted refund total'}.\n"
++        f"- {'Keep only orders that have at least one posted refund on a qualifying line' if refunded_only else 'Keep qualifying orders even when they have no posted refund'}.\n"
++        f"- {'Include qualifying orders that have no qualifying line, with zeros' if include_empty else 'Exclude orders that have no qualifying line'}.\n"
++        "- Sort by order_id. Columns exactly: order_id, account_id, qualifying_line_count, gross_cents, refund_cents, net_cents.\n"
++        "- net_cents = gross_cents - refund_cents."
++    )
++    return {
++        "id": f"{split}-line-item-refund-{index:02d}",
++        "family": "line_item_refund",
++        "prompt": _prompt(_schema_text(table_defs), contract, buggy),
++        "private": _private("line_item_refund", table_defs, fixtures, gold, scenario, {"accounts": accounts, "orders": orders, "lines": lines, "refunds": refunds}),
++    }
++
++def _fx_case(split: str, index: int) -> Dict[str, Any]:
++    token = f"{_prefix(split)}_fx_{index:02d}"
++    orders, rates = f"orders_{token}", f"fx_rates_{token}"
++    table_defs = {
++        orders: (("order_id", "INTEGER"), ("account_id", "INTEGER"), ("currency", "TEXT"), ("amount_cents", "INTEGER"), ("ordered_at", "TEXT")),
++        rates: (("rate_id", "INTEGER"), ("currency", "TEXT"), ("usd_micros", "INTEGER"), ("valid_from", "TEXT"), ("valid_to", "TEXT")),
++    }
++    include_end, require_positive, drop_unmatched, usd_must_join = _parity_bits(split, index)
++    end_op = "<=" if include_end else "<"
++    start_day = 8 + (index % 3)
++    scenario = {
++        "includeEnd": include_end,
++        "requirePositive": require_positive,
++        "dropUnmatched": drop_unmatched,
++        "usdMustJoin": usd_must_join,
++        "variantBits": [include_end, require_positive, drop_unmatched, usd_must_join],
++    }
++
++    def make_fixture(fixture_index: int) -> Dict[str, Any]:
++        rng = _rng_for(split, 4, index, fixture_index)
++        boundary = _iso(start_day + 2, 12)
++        order_rows = [
++            [1, 1, "EUR", 10000, _iso(start_day, 9)],
++            [2, 1, "EUR", 10000, boundary],
++            [3, 1, "EUR", 10000, _iso(start_day + 5, 9)],
++            [4, 2, "GBP", 5000, _iso(start_day + 1, 8)],
++            [5, 2, "USD", 8000, _iso(start_day + 1, 8)],
++            [6, 3, "JPY", 2000, _iso(start_day + 1, 8)],
++            [7, 1, "EUR", 0, _iso(start_day + 1, 10)],
++            [8, 1, "EUR", 2500, _iso(start_day - 3, 10)],
++        ]
++        rate_rows = [
++            [11, "EUR", 1100000, _iso(start_day - 1, 0), _iso(start_day + 2, 12)],
++            [12, "EUR", 1200000, _iso(start_day + 2, 12), _iso(start_day + 10, 0)],
++            [13, "EUR", 1500000, _iso(start_day + 2, 12), _iso(start_day + 10, 0)],
++            [14, "GBP", 1300000, _iso(start_day - 2, 0), _iso(start_day + 8, 0)],
++            [15, "GBP", 1400000, _iso(start_day + 8, 0), _iso(start_day + 20, 0)],
++            [16, "USD", 1000000, _iso(start_day - 5, 0), _iso(start_day + 20, 0)],
++            [17, "USD", 990000, _iso(start_day + 20, 0), _iso(start_day + 40, 0)],
++        ]
++        next_order = 100 + fixture_index * 10
++        for _ in range(3 + fixture_index):
++            day = rng.choice([start_day - 2, start_day, start_day + 2, start_day + 6, start_day + 12])
++            order_rows.append([next_order, rng.choice([1, 2, 3]), rng.choice(["EUR", "GBP", "USD", "JPY"]), rng.choice([0, 125, 4000, 9000]), _iso(day, rng.choice([0, 8, 12, 20]))])
++            next_order += 1
++        return {orders: order_rows, rates: rate_rows}
++
++    fixtures = [make_fixture(i) for i in range(FIXTURE_COUNT)]
++    amount_sql = " AND o.amount_cents > 0" if require_positive else ""
++    usd_sql = "" if usd_must_join else " AND o.currency <> 'USD'"
++    if drop_unmatched:
++        gold = f"""WITH matched AS (
++  SELECT o.order_id, o.currency, o.amount_cents, f.rate_id, f.usd_micros,
++         ROW_NUMBER() OVER (PARTITION BY o.order_id ORDER BY f.valid_from DESC, f.rate_id DESC) AS rn
++  FROM {orders} o
++  JOIN {rates} f ON f.currency = o.currency AND f.valid_from <= o.ordered_at AND o.ordered_at {end_op} f.valid_to
++  WHERE 1 = 1{amount_sql}{usd_sql}
++)
++SELECT order_id, currency, amount_cents, rate_id,
++       CAST(ROUND(amount_cents * usd_micros / 1000000.0, 0) AS INTEGER) AS usd_cents
++FROM matched
++WHERE rn = 1
++ORDER BY order_id"""
++    else:
++        gold = f"""WITH selected AS (
++  SELECT o.order_id, o.currency, o.amount_cents, o.ordered_at
++  FROM {orders} o
++  WHERE 1 = 1{amount_sql}{usd_sql}
++), matched AS (
++  SELECT o.order_id, o.currency, o.amount_cents, f.rate_id, f.usd_micros,
++         ROW_NUMBER() OVER (PARTITION BY o.order_id ORDER BY f.valid_from DESC, f.rate_id DESC) AS rn
++  FROM selected o
++  JOIN {rates} f ON f.currency = o.currency AND f.valid_from <= o.ordered_at AND o.ordered_at {end_op} f.valid_to
++)
++SELECT s.order_id, s.currency, s.amount_cents, m.rate_id,
++       CASE WHEN m.rate_id IS NULL THEN NULL
++            ELSE CAST(ROUND(s.amount_cents * m.usd_micros / 1000000.0, 0) AS INTEGER) END AS usd_cents
++FROM selected s
++LEFT JOIN matched m ON m.order_id = s.order_id AND m.rn = 1
++ORDER BY s.order_id"""
++    buggy = f"""WITH latest AS (
++  SELECT currency, MAX(valid_from) AS valid_from FROM {rates} GROUP BY currency
++)
++SELECT o.order_id, o.currency, o.amount_cents, f.rate_id,
++       CAST(ROUND(o.amount_cents * f.usd_micros / 1000000.0, 0) AS INTEGER) AS usd_cents
++FROM {orders} o
++JOIN latest l ON l.currency = o.currency
++JOIN {rates} f ON f.currency = l.currency AND f.valid_from = l.valid_from
++ORDER BY o.order_id"""
++    contract = (
++        "- Convert each qualifying order to USD using the fx_rates row valid at ordered_at.\n"
++        f"- A rate is valid when valid_from <= ordered_at and ordered_at {end_op} valid_to. End bound is {'inclusive' if include_end else 'strict / half-open'}.\n"
++        "- If several rates match, keep the latest valid_from, then the highest rate_id. Do not use the globally latest rate.\n"
++        f"- {'USD orders must still use fx_rates; do not assume usd_cents equals amount_cents.' if usd_must_join else 'Drop USD orders; they are out of scope.'}\n"
++        f"- {'Drop orders with amount_cents = 0.' if require_positive else 'Keep orders with amount_cents = 0.'}\n"
++        f"- {'Drop an order with no matching rate.' if drop_unmatched else 'Keep an unmatched order with rate_id and usd_cents as NULL.'}\n"
++        "- usd_cents = ROUND(amount_cents * usd_micros / 1000000.0, 0) using SQLite ROUND, then integer.\n"
++        "- Sort by order_id. Columns exactly: order_id, currency, amount_cents, rate_id, usd_cents."
++    )
++    return {"id": f"{split}-fx-as-of-{index:02d}", "family": "fx_as_of", "prompt": _prompt(_schema_text(table_defs), contract, buggy), "private": _private("fx_as_of", table_defs, fixtures, gold, scenario, {"orders": orders, "rates": rates})}
++
++def _scd_case(split: str, index: int) -> Dict[str, Any]:
++    token = f"{_prefix(split)}_scd_{index:02d}"
++    customers, segments, orders = f"customers_{token}", f"customer_segments_{token}", f"orders_{token}"
++    table_defs = {
++        customers: (("customer_id", "INTEGER"), ("region", "TEXT")),
++        segments: (("row_id", "INTEGER"), ("customer_id", "INTEGER"), ("segment", "TEXT"), ("valid_from", "TEXT"), ("valid_to", "TEXT")),
++        orders: (("order_id", "INTEGER"), ("customer_id", "INTEGER"), ("ordered_at", "TEXT"), ("amount_cents", "INTEGER"), ("status", "TEXT")),
++    }
++    include_end, paid_only, unknown_if_unmatched, region_filter = _parity_bits(split, index)
++    end_op = "<=" if include_end else "<"
++    region = ("east", "west", "north")[index % 3]
++    start_day = 6 + (index % 3)
++    boundary = _iso(start_day + 4, 0)
++    scenario = {
++        "includeEnd": include_end,
++        "paidOnly": paid_only,
++        "unknownIfUnmatched": unknown_if_unmatched,
++        "regionFilter": region_filter,
++        "region": region,
++        "variantBits": [include_end, paid_only, unknown_if_unmatched, region_filter],
++    }
++
++    def make_fixture(fixture_index: int) -> Dict[str, Any]:
++        rng = _rng_for(split, 5, index, fixture_index)
++        customer_rows = [[1, region], [2, region], [3, "south" if region != "south" else "east"], [4, region]]
++        segment_rows = [
++            [1, 1, "starter", _iso(start_day - 2, 0), boundary],
++            [2, 1, "growth", boundary, _iso(start_day + 20, 0)],
++            [3, 1, "growth-tie", boundary, _iso(start_day + 20, 0)],
++            [4, 2, "starter", _iso(start_day - 5, 0), _iso(start_day + 1, 0)],
++            [5, 2, "enterprise", _iso(start_day + 1, 0), _iso(start_day + 30, 0)],
++            [6, 3, "other-region", _iso(start_day - 1, 0), _iso(start_day + 30, 0)],
++        ]
++        order_rows = [
++            [201, 1, _iso(start_day, 10), 400, "paid"],
++            [202, 1, boundary, 500, "paid"],
++            [203, 1, _iso(start_day + 8, 10), 600, "paid"],
++            [204, 2, _iso(start_day, 12), 300, "paid"],
++            [205, 2, _iso(start_day + 2, 12), 700, "cancelled"],
++            [206, 3, _iso(start_day + 2, 12), 900, "paid"],
++            [207, 4, _iso(start_day + 2, 12), 150, "paid"],
++        ]
++        next_order = 400 + fixture_index * 10
++        for _ in range(3 + fixture_index):
++            order_rows.append([next_order, rng.choice([1, 2, 3, 4]), _iso(rng.choice([start_day - 1, start_day, start_day + 4, start_day + 9]), rng.choice([0, 11, 18])), rng.choice([80, 220, 640]), rng.choice(["paid", "cancelled", "pending"])])
++            next_order += 1
++        return {customers: customer_rows, segments: segment_rows, orders: order_rows}
++
++    fixtures = [make_fixture(i) for i in range(FIXTURE_COUNT)]
++    region_sql = f" JOIN {customers} c ON c.customer_id = o.customer_id AND c.region = {_q(region)}" if region_filter else ""
++    paid_sql = " AND o.status = 'paid'" if paid_only else ""
++    ranked = f"""WITH selected AS (
++  SELECT o.order_id, o.customer_id, o.amount_cents, o.ordered_at
++  FROM {orders} o{region_sql}
++  WHERE 1 = 1{paid_sql}
++), matched AS (
++  SELECT s.order_id, s.customer_id, s.amount_cents, g.segment,
++         ROW_NUMBER() OVER (PARTITION BY s.order_id ORDER BY g.valid_from DESC, g.row_id DESC) AS rn
++  FROM selected s
++  JOIN {segments} g ON g.customer_id = s.customer_id AND g.valid_from <= s.ordered_at AND s.ordered_at {end_op} g.valid_to
++)
++"""
++    gold = ranked + (f"""SELECT s.order_id, s.customer_id, COALESCE(m.segment, 'unknown') AS segment, s.amount_cents
++FROM selected s
++LEFT JOIN matched m ON m.order_id = s.order_id AND m.rn = 1
++ORDER BY s.order_id""" if unknown_if_unmatched else """SELECT order_id, customer_id, segment, amount_cents
++FROM matched
++WHERE rn = 1
++ORDER BY order_id""")
++    buggy = f"""WITH current_seg AS (
++  SELECT customer_id, MAX(valid_from) AS valid_from FROM {segments} GROUP BY customer_id
++)
++SELECT o.order_id, o.customer_id, g.segment, o.amount_cents
++FROM {orders} o
++JOIN current_seg c ON c.customer_id = o.customer_id
++JOIN {segments} g ON g.customer_id = c.customer_id AND g.valid_from = c.valid_from
++ORDER BY o.order_id"""
++    contract = (
++        "- Assign each qualifying order the customer segment valid at ordered_at. This is SCD2 / point-in-time, not the current segment.\n"
++        f"- A segment matches when valid_from <= ordered_at and ordered_at {end_op} valid_to. End bound is {'inclusive' if include_end else 'strict / half-open'}.\n"
++        "- If several rows match, keep the latest valid_from, then the highest row_id.\n"
++        f"- {'Only status = paid orders qualify.' if paid_only else 'Orders of every status qualify.'}\n"
++        f"- {'Only customers whose region is ' + repr(region) + '.' if region_filter else 'Customers in every region qualify.'}\n"
++        f"- {'If no segment matches, keep the order and set segment to the exact text unknown.' if unknown_if_unmatched else 'Drop an order with no matching segment.'}\n"
++        "- Sort by order_id. Columns exactly: order_id, customer_id, segment, amount_cents."
++    )
++    return {"id": f"{split}-scd2-segment-{index:02d}", "family": "scd2_segment", "prompt": _prompt(_schema_text(table_defs), contract, buggy), "private": _private("scd2_segment", table_defs, fixtures, gold, scenario, {"customers": customers, "segments": segments, "orders": orders})}
++
++def _line_item_reference(case: Mapping[str, Any], fixture: Mapping[str, Any]) -> Tuple[List[str], List[List[Any]]]:
++    private, spec, roles = case["private"], case["private"]["oracleSpec"], case["private"]["tableRoles"]
++    account_rows = _rows_from_table(private, fixture, roles["accounts"])
++    order_rows = _rows_from_table(private, fixture, roles["orders"])
++    line_rows = _rows_from_table(private, fixture, roles["lines"])
++    refund_rows = _rows_from_table(private, fixture, roles["refunds"])
++    region_accounts = {row[0] for row in account_rows if row[1] == spec["region"]}
++    posted, posted_n = {}, {}
++    for _rid, line_id, status, cents in refund_rows:
++        if status != "posted":
++            continue
++        posted[line_id] = posted.get(line_id, 0) + int(cents)
++        posted_n[line_id] = posted_n.get(line_id, 0) + 1
++    result: List[List[Any]] = []
++    for order_id, account_id, status, currency in order_rows:
++        if account_id not in region_accounts or status not in set(spec["qualifyingStatuses"]) or currency not in set(spec["currencies"]):
++            continue
++        lines = [row for row in line_rows if row[1] == order_id and (spec["includeZeroLine"] or int(row[3]) != 0)]
++        if not lines and not spec["includeEmpty"]:
++            continue
++        if spec["refundedOnly"] and sum(posted_n.get(row[0], 0) for row in lines) == 0:
++            continue
++        gross = sum(int(row[3]) for row in lines)
++        refund = 0
++        for line_id, _oid, _sku, line_cents in lines:
++            value = posted.get(line_id, 0)
++            refund += min(value, int(line_cents)) if spec["capPerLine"] else value
++        result.append([order_id, account_id, len(lines), gross, refund, gross - refund])
++    result.sort(key=lambda row: row[0])
++    return ["order_id", "account_id", "qualifying_line_count", "gross_cents", "refund_cents", "net_cents"], result
++
++
++def _fx_reference(case: Mapping[str, Any], fixture: Mapping[str, Any]) -> Tuple[List[str], List[List[Any]]]:
++    private, spec, roles = case["private"], case["private"]["oracleSpec"], case["private"]["tableRoles"]
++    order_rows = _rows_from_table(private, fixture, roles["orders"])
++    rate_rows = _rows_from_table(private, fixture, roles["rates"])
++    result: List[List[Any]] = []
++    for order_id, _account_id, currency, amount_cents, ordered_at in order_rows:
++        if spec["requirePositive"] and int(amount_cents) <= 0:
++            continue
++        if not spec["usdMustJoin"] and currency == "USD":
++            continue
++        matched = []
++        for rate_id, rate_ccy, usd_micros, valid_from, valid_to in rate_rows:
++            if rate_ccy != currency or valid_from > ordered_at:
++                continue
++            if spec["includeEnd"]:
++                if ordered_at > valid_to:
++                    continue
++            elif ordered_at >= valid_to:
++                continue
++            matched.append((valid_from, int(rate_id), int(usd_micros)))
++        if not matched:
++            if not spec["dropUnmatched"]:
++                result.append([order_id, currency, int(amount_cents), None, None])
++            continue
++        matched.sort(key=lambda row: (row[0], row[1]), reverse=True)
++        _vf, rate_id, usd_micros = matched[0]
++        result.append([order_id, currency, int(amount_cents), rate_id, _usd_cents(int(amount_cents), usd_micros)])
++    result.sort(key=lambda row: row[0])
++    return ["order_id", "currency", "amount_cents", "rate_id", "usd_cents"], result
++
++
++def _scd_reference(case: Mapping[str, Any], fixture: Mapping[str, Any]) -> Tuple[List[str], List[List[Any]]]:
++    private, spec, roles = case["private"], case["private"]["oracleSpec"], case["private"]["tableRoles"]
++    customer_rows = _rows_from_table(private, fixture, roles["customers"])
++    segment_rows = _rows_from_table(private, fixture, roles["segments"])
++    order_rows = _rows_from_table(private, fixture, roles["orders"])
++    region_ok = {row[0] for row in customer_rows if (not spec["regionFilter"] or row[1] == spec["region"])}
++    result: List[List[Any]] = []
++    for order_id, customer_id, ordered_at, amount_cents, status in order_rows:
++        if customer_id not in region_ok:
++            continue
++        if spec["paidOnly"] and status != "paid":
++            continue
++        matched = []
++        for row_id, seg_customer, segment, valid_from, valid_to in segment_rows:
++            if seg_customer != customer_id or valid_from > ordered_at:
++                continue
++            if spec["includeEnd"]:
++                if ordered_at > valid_to:
++                    continue
++            elif ordered_at >= valid_to:
++                continue
++            matched.append((valid_from, int(row_id), segment))
++        if not matched:
++            if spec["unknownIfUnmatched"]:
++                result.append([order_id, customer_id, "unknown", int(amount_cents)])
++            continue
++        matched.sort(key=lambda row: (row[0], row[1]), reverse=True)
++        result.append([order_id, customer_id, matched[0][2], int(amount_cents)])
++    result.sort(key=lambda row: row[0])
++    return ["order_id", "customer_id", "segment", "amount_cents"], result
++
++
++CASE_BUILDERS = {
++    "line_item_refund": _line_item_case,
++    "fx_as_of": _fx_case,
++    "scd2_segment": _scd_case,
++}
++REFERENCE_BY_FAMILY = {
++    "line_item_refund": _line_item_reference,
++    "fx_as_of": _fx_reference,
++    "scd2_segment": _scd_reference,
++}
++_MOD.REFERENCE_BY_FAMILY.update(REFERENCE_BY_FAMILY)
++
++
++def generate_case(split: str, family: str, index: int) -> Dict[str, Any]:
++    if family not in CASE_BUILDERS:
++        raise ValueError(f"unknown closeout family: {family}")
++    return CASE_BUILDERS[family](split, index)
++
++
++def generate_dataset(mode: str = "full", families: Sequence[str] | None = None) -> Dict[str, List[Dict[str, Any]]]:
++    selected = tuple(families) if families else CLOSEOUT_FAMILIES
++    unknown = [family for family in selected if family not in CLOSEOUT_FAMILIES]
++    if unknown:
++        raise ValueError(f"unknown closeout families: {unknown}")
++    if mode == "probe":
++        return {"dev": [generate_case("dev", family, index) for family in selected for index in range(CLOSEOUT_SPLIT_COUNTS["probe"])], "train": [], "test": []}
++    if mode != "full":
++        raise ValueError(f"unknown closeout mode: {mode}")
++    return {
++        "dev": [],
++        "train": [generate_case("train", family, index) for family in selected for index in range(CLOSEOUT_SPLIT_COUNTS["train"])],
++        "test": [generate_case("test", family, index) for family in selected for index in range(CLOSEOUT_SPLIT_COUNTS["test"])],
++    }
++
++
++def self_test() -> Dict[str, Any]:
++    full = generate_dataset("full")
++    probe = generate_dataset("probe")
++    _assert([len(full[key]) for key in ("dev", "train", "test")] == [0, 18, 18], "closeout split counts")
++    _assert(len(probe["dev"]) == 12, "probe count")
++    all_cases = full["train"] + full["test"] + probe["dev"]
++    _assert(len({case["id"] for case in all_cases}) == len(all_cases), "closeout unique IDs")
++    train_tables = {table for case in full["train"] for table in case["private"]["tableDefs"]}
++    test_tables = {table for case in full["test"] for table in case["private"]["tableDefs"]}
++    _assert(train_tables.isdisjoint(test_tables), "closeout train/test schema names overlap")
++    for family in CLOSEOUT_FAMILIES:
++        train_bits = {tuple(case["private"]["oracleSpec"]["variantBits"]) for case in full["train"] if case["family"] == family}
++        test_bits = {tuple(case["private"]["oracleSpec"]["variantBits"]) for case in full["test"] if case["family"] == family}
++        _assert(train_bits.isdisjoint(test_bits), f"closeout variant overlap: {family}")
++        for bit in range(4):
++            _assert(any(bits[bit] for bits in train_bits), f"closeout train never sees bit {bit}: {family}")
++            _assert(any(not bits[bit] for bits in train_bits), f"closeout train never sees false bit {bit}: {family}")
++            _assert(any(bits[bit] for bits in test_bits), f"closeout test never sees bit {bit}: {family}")
++            _assert(any(not bits[bit] for bits in test_bits), f"closeout test never sees false bit {bit}: {family}")
++    for case in all_cases:
++        gold_result = evaluate_case(case, case["private"]["goldSql"])
++        _assert(gold_result["passed"], f"closeout gold SQL failed: {case['id']} {gold_result}")
++        buggy = re.search(r"Buggy SQL \(it runs, but may violate the contract\):\n```sql\n(.*?)\n```", case["prompt"], re.S)
++        _assert(buggy is not None, f"closeout buggy SQL missing: {case['id']}")
++        buggy_result = evaluate_case(case, buggy.group(1))
++        _assert(not buggy_result["passed"], f"closeout buggy SQL unexpectedly passed: {case['id']} {buggy_result}")
++        _assert(case["private"]["goldSql"] not in case["prompt"], f"closeout gold leaked: {case['id']}")
++        _assert("correct" not in case["prompt"].lower().split("buggy sql", 1)[0], f"closeout answer hint: {case['id']}")
++    roundtrip = json.loads(_json(full))
++    for split_cases in roundtrip.values():
++        for case in split_cases:
++            result = evaluate_case(case, case["private"]["goldSql"])
++            _assert(result["passed"], f"closeout JSON roundtrip gold failed: {case['id']} {result}")
++    _assert(_usd_cents(10000, 1100000) == 11000, "fx conversion 1.1")
++    return {"ok": True, "train": len(full["train"]), "test": len(full["test"]), "probe": len(probe["dev"])}
++
++
++def main(argv: Sequence[str]) -> int:
++    if argv == ["--self-test"]:
++        print(_json(self_test()))
++        return 0
++    if not argv:
++        print("usage: sql-repair-closeout.py generate-probe|generate-full|evaluate| --self-test [--families a,b]", file=sys.stderr)
++        return 2
++    families = None
++    if "--families" in argv:
++        idx = argv.index("--families")
++        families = argv[idx + 1].split(",")
++        argv = argv[:idx] + argv[idx + 2:]
++    if argv == ["generate-probe"]:
++        print(_json(generate_dataset("probe", families)))
++        return 0
++    if argv == ["generate-full"]:
++        print(_json(generate_dataset("full", families)))
++        return 0
++    if argv == ["evaluate"]:
++        payload = json.load(sys.stdin)
++        print(_json(evaluate_case(payload["case"], payload.get("sql"))))
++        return 0
++    print("usage: sql-repair-closeout.py generate-probe|generate-full|evaluate| --self-test [--families a,b]", file=sys.stderr)
++    return 2
++
++
++if __name__ == "__main__":
++    raise SystemExit(main(sys.argv[1:]))
+diff --git a/scripts/sql-closeout-experiment.mjs b/scripts/sql-closeout-experiment.mjs
+new file mode 100644
+--- /dev/null
++++ b/scripts/sql-closeout-experiment.mjs
+@@ -0,0 +1,188 @@
++#!/usr/bin/env node
++import assert from 'node:assert/strict';
++import { AsyncLocalStorage } from 'node:async_hooks';
++import { createHash } from 'node:crypto';
++import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
++import { dirname, resolve } from 'node:path';
++import { fileURLToPath } from 'node:url';
++import { spawnSync } from 'node:child_process';
++import { parseArgs } from 'node:util';
++
++const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
++const script = resolve(root, 'scripts/lib/sql-repair-closeout.py');
++const { values } = parseArgs({ options: { out: { type: 'string' }, probe: { type: 'boolean', default: false }, families: { type: 'string' } } });
++if (!values.out) throw new Error('Usage: node --import tsx scripts/sql-closeout-experiment.mjs --out PATH [--probe] [--families a,b]');
++const out = resolve(values.out);
++if (existsSync(out)) throw new Error(`Refusing to overwrite run directory: ${out}`);
++mkdirSync(out, { recursive: true });
++const save = (name, data) => writeFileSync(resolve(out, name), JSON.stringify(data, null, 2));
++const append = (name, data) => appendFileSync(resolve(out, name), JSON.stringify(data) + '\n');
++const digest = data => createHash('sha256').update(typeof data === 'string' ? data : JSON.stringify(data)).digest('hex');
++const python = (args, payload) => {
++  const result = spawnSync('python3', [script, ...args], { encoding: 'utf8', input: payload ? JSON.stringify(payload) : undefined, timeout: 20000, maxBuffer: 40 * 1024 * 1024 });
++  if (result.status !== 0) throw new Error(`Independent evaluator process failed: ${result.error?.message ?? result.stderr}`);
++  return JSON.parse(result.stdout);
++};
++const familyArgs = values.families ? ['--families', values.families] : [];
++const startedAt = new Date().toISOString();
++const selfTest = python(['--self-test']);
++const cases = python(values.probe ? ['generate-probe', ...familyArgs] : ['generate-full', ...familyArgs]);
++const allCases = [...cases.dev, ...cases.train, ...cases.test];
++for (const c of allCases) assert.equal(python(['evaluate'], { case: c, sql: c.private.goldSql }).passed, true, `CLI oracle disagreement: ${c.id}`);
++save('cases.json', cases);
++process.env.ALAYA_DB_PATH = resolve(out, 'alaya.db');
++process.env.ALAYA_MODE = 'development';
++process.env.ALAYA_LLM_PROVIDER = 'openai';
++process.env.ALAYA_KNOWLEDGE_RANKING = 'static';
++process.env.ALAYA_INJECTION_EPSILON = '0';
++process.env.ALAYA_KNOWLEDGE_INJECTION = 'on';
++if (process.env.ALAYA_KNOWLEDGE_RETRIEVAL_CONTROL_PATH) throw new Error('Do not attach this independent DEVELOPMENT run to an old controller.');
++const { OpenAIProvider, resolveOpenAIApiKey } = await import('../alaya-core/src/llm/provider.ts');
++if (!resolveOpenAIApiKey()) throw new Error('Configure OPENAI_API_KEY_FILE or OPENAI_API_KEY.');
++const { storage } = await import('../alaya-app/server/storage.ts');
++const { createSqlProject, runSqlRepairTask, rawSqlMemory } = await import('../alaya-app/server/sqlRepair.ts');
++const model = process.env.OPENAI_MODEL ?? 'MiniMax-M3';
++process.env.OPENAI_MODEL = model;
++const baseUrl = process.env.OPENAI_BASE_URL ?? 'https://api.minimax.io/openai';
++const provider = new OpenAIProvider({ model, baseUrl, temperature: 0, maxOutputTokens: 2048, maxRetries: 0, allowSimplifiedFallback: false, timeoutMs: 30000 });
++const scope = new AsyncLocalStorage();
++const nativeFetch = globalThis.fetch;
++const wire = [];
++const maxCalls = values.probe ? cases.dev.length : cases.train.length + cases.test.length * 2;
++let issuedCalls = 0;
++globalThis.fetch = async (url, init) => {
++  if (++issuedCalls > maxCalls) throw new Error('Predeclared provider call cap exhausted');
++  const request = JSON.parse(String(init.body));
++  const metadata = scope.getStore();
++  const requestUser = JSON.parse(request.messages[1].content);
++  assert.ok(metadata);
++  assert.equal(requestUser.role, 'builder');
++  assert.deepEqual(Object.keys(requestUser.context), ['query']);
++  if (metadata.arm === 'none') assert.equal(requestUser.knowledge_summary, '');
++  assert.ok(!String(init.body).includes('"goldSql"'));
++  const receipt = { call: issuedCalls, ...metadata, role: requestUser.role, request, requestSha256: digest(String(init.body)), startedAt: new Date().toISOString() };
++  append('requests-started.jsonl', receipt);
++  const started = Date.now();
++  try {
++    const response = await nativeFetch(url, init);
++    receipt.httpStatus = response.status;
++    try { receipt.response = await response.clone().json(); } catch { receipt.responseParseFailed = true; }
++    return response;
++  } catch (error) {
++    receipt.transportError = error instanceof Error ? error.message : String(error);
++    throw error;
++  } finally {
++    receipt.latencyMs = Date.now() - started;
++    wire.push(receipt); append('requests.jsonl', receipt);
++  }
++};
++
++const families = [...new Set(allCases.map(c => c.family))];
++const arms = values.probe ? ['none'] : ['source', 'none', 'raw'];
++const projectId = (family, arm) => `sql_${family}_${arm}`;
++for (const family of families) for (const arm of arms) createSqlProject(projectId(family, arm));
++const knowledgeSnapshot = () => families.flatMap(family => arms.flatMap(arm => storage.listKnowledge(projectId(family, arm))));
++const initialKnowledge = knowledgeSnapshot();
++assert.equal(initialKnowledge.length, 0);
++const sourceFiles = ['scripts/lib/sql-repair-closeout.py', 'scripts/lib/sql-repair-cases.py', 'scripts/sql-closeout-experiment.mjs', 'scripts/analyze-sql-closeout.mjs', 'alaya-app/server/sqlRepair.ts', 'alaya-core/src/llm/provider.ts', 'alaya-app/server/storage.ts', 'alaya-app/server/trace.ts'];
++const sourceHashes = Object.fromEntries(sourceFiles.map(path => [path, digest(readFileSync(resolve(root, path), 'utf8'))]));
++const closeout = {
++  kind: values.probe ? 'probe' : 'full',
++  families,
++  schemaVersion: 'sql-repair-closeout-v1',
++  distiller: false,
++  testArms: values.probe ? ['none'] : ['none', 'raw'],
++  hardIfCorrectAtMost: 2,
++  easyIfCorrectAtLeast: 3,
++  probeItemsPerFamily: 4,
++  continueIfHardFamiliesAtLeast: 2,
++  winNetWinsAtLeast: 3,
++  winFamiliesPositiveAtLeast: 2,
++};
++const manifest = { evidenceMode: 'DEVELOPMENT', closeout, startedAt, baseCommit: 'b7090b11b41f358f4d82906c86be835a68c06e64', modelRequested: model, baseUrl, temperature: 0, maxOutputTokens: 2048, retries: 0, simplifiedFallback: false, maxCalls, testConcurrency: values.probe ? 1 : 2, memoryCharCeiling: 12000, rawMemoryK: 2, ranking: 'static', epsilon: 0, sourceHashes, casesSha256: digest(cases), initialKnowledgeSha256: digest(initialKnowledge), evaluator: selfTest, probe: Boolean(values.probe) };
++save('manifest.json', manifest);
++const results = [], episodes = [];
++let serial = 0;
++async function run(c, phase, arm) {
++  const idx = ++serial;
++  const result = await scope.run({ phase, arm, taskId: c.id }, () => runSqlRepairTask({
++    task: { id: c.id, family: c.family, prompt: c.prompt }, phase, arm,
++    projectId: projectId(c.family, arm), runId: startedAt, cycleId: `sql_cycle_${idx}_${arm}`, index: idx, provider, episodes,
++    ...(phase === 'train' ? { correctSql: c.private.goldSql } : {}),
++    evaluate: sql => python(['evaluate'], { case: c, sql }),
++  }));
++  const row = { ...result, responses: result.responses.map(r => ({ schemaValid: r.schemaValid, retryCount: r.retryCount, degradedToHumanGate: r.degradedToHumanGate, errorMessage: r.errorMessage, data: r.data, log: r.log })) };
++  results.push(row); append('results.jsonl', row);
++  console.log(JSON.stringify({ phase, task: c.id, arm, passed: row.outcome.passed, schemaValid: row.schemaValid, selected: row.refs.length, callsCompleted: wire.length }));
++  return row;
++}
++function scoreArm(phase, arm) {
++  const rows = results.filter(r => r.phase === phase && r.arm === arm);
++  return { n: rows.length, correct: rows.filter(r => r.outcome.passed).length, schemaFailures: rows.filter(r => !r.schemaValid).length };
++}
++function byFamily(phase, selectedArms) {
++  return Object.fromEntries(families.map(family => [family, Object.fromEntries(selectedArms.map(arm => {
++    const rows = results.filter(r => r.phase === phase && r.arm === arm && r.family === family);
++    return [arm, { n: rows.length, correct: rows.filter(r => r.outcome.passed).length, schemaFailures: rows.filter(r => !r.schemaValid).length }];
++  }))]));
++}
++function probeDecision(familyScores) {
++  const hardFamilies = [], easyFamilies = [];
++  for (const [family, scored] of Object.entries(familyScores)) {
++    assert.equal(scored.none.n, 4, `probe family size: ${family}`);
++    if (scored.none.correct <= 2) hardFamilies.push(family);
++    if (scored.none.correct >= 3) easyFamilies.push(family);
++  }
++  return { hardFamilies, easyFamilies, continueToAb: hardFamilies.length >= 2, rule: 'hard if A<=2/4; easy if A>=3/4; continue A/B iff >=2 hard families' };
++}
++function usage() {
++  return {
++    observedModels: [...new Set(wire.map(w => w.response?.model).filter(Boolean))],
++    providerTokens: wire.reduce((s, w) => ({ input: s.input + (w.response?.usage?.prompt_tokens ?? 0), output: s.output + (w.response?.usage?.completion_tokens ?? 0), cached: s.cached + (w.response?.usage?.prompt_tokens_details?.cached_tokens ?? 0) }), { input: 0, output: 0, cached: 0 }),
++    providerUsageMissing: wire.filter(w => !w.response?.usage).length,
++  };
++}
++let frozen;
++try {
++  if (values.probe) {
++    for (const c of cases.dev) await run(c, 'probe', 'none');
++    const familyScores = byFamily('probe', ['none']);
++    const decision = probeDecision(familyScores);
++    const receipt = { ...manifest, completedAt: new Date().toISOString(), issuedCalls, completedCalls: wire.length, scores: { none: scoreArm('probe', 'none') }, byFamily: familyScores, probeDecision: decision, knowledgeFrozen: true, ...usage() };
++    save('summary.json', receipt);
++    console.log(JSON.stringify({ done: true, probe: true, scores: receipt.scores, byFamily: familyScores, probeDecision: decision, requests: wire.length, out }));
++  } else {
++    const familyIds = [...new Set(cases.train.map(c => c.family))];
++    const perFamily = Math.max(...familyIds.map(f => cases.train.filter(c => c.family === f).length));
++    for (let i = 0; i < perFamily; i++) for (const family of familyIds) {
++      const c = cases.train.filter(c => c.family === family)[i];
++      if (!c) continue;
++      episodes.push((await run(c, 'train', 'source')).episode);
++    }
++    save('train-experiences.json', episodes);
++    assert.equal(knowledgeSnapshot().length, 0, 'source training must not write knowledge');
++    for (const c of cases.test) assert.ok(rawSqlMemory(c, episodes).ids.length > 0, `raw memory empty: ${c.id}`);
++    frozen = knowledgeSnapshot();
++    save('knowledge-before-test.json', frozen);
++    const freeze = { at: new Date().toISOString(), knowledgeSha256: digest(frozen), experiencesSha256: digest(episodes), sourceHashes, casesSha256: digest(cases) };
++    save('test-input-freeze.json', freeze);
++    const testArms = ['none', 'raw'];
++    const ordered = [...cases.test].sort((a, b) => digest(a.id).localeCompare(digest(b.id)));
++    for (const [i, c] of ordered.entries()) {
++      const order = testArms.map((_, j) => testArms[(i + j) % testArms.length]);
++      await Promise.all(order.map(arm => run(c, 'test', arm)));
++    }
++    const after = knowledgeSnapshot();
++    save('knowledge-after-test.json', after);
++    assert.equal(digest(after), digest(frozen), 'Heldout mutated knowledge state');
++    assert.equal(digest(episodes), freeze.experiencesSha256, 'Heldout mutated raw experiences');
++    for (const path of sourceFiles) assert.equal(digest(readFileSync(resolve(root, path), 'utf8')), sourceHashes[path], `Source changed during run: ${path}`);
++    const familyScores = byFamily('test', testArms);
++    const receipt = { ...manifest, completedAt: new Date().toISOString(), issuedCalls, completedCalls: wire.length, scores: { none: scoreArm('test', 'none'), raw: scoreArm('test', 'raw') }, byFamily: familyScores, knowledgeFrozen: digest(knowledgeSnapshot()) === digest(frozen), ...usage() };
++    save('summary.json', receipt);
++    console.log(JSON.stringify({ done: true, scores: receipt.scores, byFamily: familyScores, requests: wire.length, out }));
++  }
++} catch (error) {
++  save('failure.json', { failedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error), issuedCalls, completedCalls: wire.length, resultRows: results.length });
++  throw error;
++} finally { globalThis.fetch = nativeFetch; }
+diff --git a/scripts/sql-repair-experiment.mjs b/scripts/sql-repair-experiment.mjs
+new file mode 100644
+--- /dev/null
++++ b/scripts/sql-repair-experiment.mjs
+@@ -0,0 +1,142 @@
++#!/usr/bin/env node
++import assert from 'node:assert/strict';
++import { AsyncLocalStorage } from 'node:async_hooks';
++import { createHash } from 'node:crypto';
++import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
++import { dirname, resolve } from 'node:path';
++import { fileURLToPath } from 'node:url';
++import { spawnSync } from 'node:child_process';
++import { parseArgs } from 'node:util';
++
++const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
++const { values } = parseArgs({ options: { out: { type: 'string' }, 'dev-only': { type: 'boolean', default: false } } });
++if (!values.out) throw new Error('Usage: node --import tsx scripts/sql-repair-experiment.mjs --out PATH [--dev-only]');
++const out = resolve(values.out);
++if (existsSync(out)) throw new Error(`Refusing to overwrite run directory: ${out}`);
++mkdirSync(out, { recursive: true });
++const save = (name, data) => writeFileSync(resolve(out, name), JSON.stringify(data, null, 2));
++const append = (name, data) => appendFileSync(resolve(out, name), JSON.stringify(data) + '\n');
++const digest = data => createHash('sha256').update(typeof data === 'string' ? data : JSON.stringify(data)).digest('hex');
++const python = (mode, payload) => {
++  const result = spawnSync('python3', [resolve(root, 'scripts/lib/sql-repair-cases.py'), mode], { encoding: 'utf8', input: payload ? JSON.stringify(payload) : undefined, timeout: 15000, maxBuffer: 20 * 1024 * 1024 });
++  if (result.status !== 0) throw new Error(`Independent evaluator process failed: ${result.error?.message ?? result.stderr}`);
++  return JSON.parse(result.stdout);
++};
++const startedAt = new Date().toISOString();
++const cases = python('generate');
++const selfTest = python('--self-test');
++// Exercise serialization boundary for EVERY task; in-memory self-checks alone are insufficient.
++for (const c of [...cases.dev, ...cases.train, ...cases.test]) assert.equal(python('evaluate', { case: c, sql: c.private.goldSql }).passed, true, `CLI oracle disagreement: ${c.id}`);
++save('cases.json', cases);
++process.env.ALAYA_DB_PATH = resolve(out, 'alaya.db');
++process.env.ALAYA_MODE = 'development';
++process.env.ALAYA_LLM_PROVIDER = 'openai';
++process.env.ALAYA_KNOWLEDGE_RANKING = 'static';
++process.env.ALAYA_INJECTION_EPSILON = '0';
++process.env.ALAYA_KNOWLEDGE_INJECTION = 'on';
++if (process.env.ALAYA_KNOWLEDGE_RETRIEVAL_CONTROL_PATH) throw new Error('Do not attach this independent DEVELOPMENT run to an old controller.');
++const { OpenAIProvider, resolveOpenAIApiKey } = await import('../alaya-core/src/llm/provider.ts');
++if (!resolveOpenAIApiKey()) throw new Error('Configure OPENAI_API_KEY_FILE or OPENAI_API_KEY.');
++const { storage } = await import('../alaya-app/server/storage.ts');
++const { createSqlProject, runSqlRepairTask, rawSqlMemory } = await import('../alaya-app/server/sqlRepair.ts');
++const model = process.env.OPENAI_MODEL ?? 'MiniMax-M3';
++process.env.OPENAI_MODEL = model;
++const baseUrl = process.env.OPENAI_BASE_URL ?? 'https://api.minimax.io/openai';
++const provider = new OpenAIProvider({ model, baseUrl, temperature: 0, maxOutputTokens: 2048, maxRetries: 0, allowSimplifiedFallback: false, timeoutMs: 30000 });
++const scope = new AsyncLocalStorage();
++const nativeFetch = globalThis.fetch;
++const wire = [];
++const maxCalls = values['dev-only'] ? cases.dev.length : cases.train.length * 2 + cases.test.length * 3;
++let issuedCalls = 0;
++globalThis.fetch = async (url, init) => {
++  if (++issuedCalls > maxCalls) throw new Error('Predeclared provider call cap exhausted');
++  const request = JSON.parse(String(init.body));
++  const metadata = scope.getStore();
++  const requestUser = JSON.parse(request.messages[1].content);
++  assert.ok(metadata);
++  if (metadata.phase !== 'train') {
++    assert.equal(requestUser.role, 'builder');
++    assert.deepEqual(Object.keys(requestUser.context), ['query']);
++    if (metadata.arm === 'none') assert.equal(requestUser.knowledge_summary, '');
++    assert.ok(!String(init.body).includes('"goldSql"'));
++  }
++  const receipt = { call: issuedCalls, ...metadata, role: requestUser.role, request, requestSha256: digest(String(init.body)), startedAt: new Date().toISOString() };
++  append('requests-started.jsonl', receipt);
++  const started = Date.now();
++  try {
++    const response = await nativeFetch(url, init);
++    receipt.httpStatus = response.status;
++    try { receipt.response = await response.clone().json(); } catch { receipt.responseParseFailed = true; }
++    return response;
++  } catch (error) {
++    receipt.transportError = error instanceof Error ? error.message : String(error);
++    throw error;
++  } finally {
++    receipt.latencyMs = Date.now() - started;
++    wire.push(receipt); append('requests.jsonl', receipt);
++  }
++};
++
++const families = [...new Set(cases.train.map(c => c.family))];
++const arms = ['none', 'raw', 'alaya'];
++const projectId = (family, arm) => `sql_${family}_${arm}`;
++for (const family of families) for (const arm of arms) createSqlProject(projectId(family, arm));
++const knowledgeSnapshot = () => families.flatMap(family => arms.flatMap(arm => storage.listKnowledge(projectId(family, arm))));
++const initialKnowledge = knowledgeSnapshot();
++assert.equal(initialKnowledge.length, 0);
++const sourceFiles = ['scripts/lib/sql-repair-cases.py', 'scripts/sql-repair-experiment.mjs', 'alaya-app/server/sqlRepair.ts', 'alaya-app/server/knowledgeInjection.ts', 'alaya-app/server/knowledgeCredit.ts', 'alaya-core/src/llm/provider.ts', 'docs/validation/SQL_REPAIR_DEVELOPMENT_PLAN.md', 'scripts/analyze-sql-repair.mjs', 'alaya-core/src/core/transition_state.ts', 'alaya-core/src/core/update_confidence.ts', 'alaya-app/server/storage.ts', 'alaya-app/server/trace.ts'];
++const sourceHashes = Object.fromEntries(sourceFiles.map(path => [path, digest(readFileSync(resolve(root, path), 'utf8'))]));
++const manifest = { evidenceMode: 'DEVELOPMENT', startedAt, baseCommit: 'b7090b11b41f358f4d82906c86be835a68c06e64', modelRequested: model, baseUrl, temperature: 0, maxOutputTokens: 2048, retries: 0, simplifiedFallback: false, maxCalls, testConcurrency: 3, memoryCharCeiling: 12000, rawMemoryK: 2, ranking: 'static', epsilon: 0, sourceHashes, casesSha256: digest(cases), initialKnowledgeSha256: digest(initialKnowledge), evaluator: selfTest, devOnly: values['dev-only'] };
++save('manifest.json', manifest);
++const results = [], episodes = [];
++let serial = 0;
++async function run(c, phase, arm) {
++  const idx = ++serial;
++  const task = { id: c.id, family: c.family, prompt: c.prompt };
++  const result = await scope.run({ phase, arm, taskId: c.id }, () => runSqlRepairTask({ task, phase, arm, projectId: projectId(c.family, arm), runId: startedAt, cycleId: `sql_cycle_${idx}_${arm}`, index: idx, provider, episodes, ...(phase === 'train' ? { correctSql: c.private.goldSql } : {}), evaluate: sql => python('evaluate', { case: c, sql }) }));
++  const row = { ...result, responses: result.responses.map(r => ({ schemaValid: r.schemaValid, retryCount: r.retryCount, degradedToHumanGate: r.degradedToHumanGate, errorMessage: r.errorMessage, data: r.data, log: r.log })) };
++  results.push(row); append('results.jsonl', row);
++  console.log(JSON.stringify({ phase, task: c.id, arm, passed: row.outcome.passed, schemaValid: row.schemaValid, selected: row.refs.length, callsCompleted: wire.length }));
++  return row;
++}
++let frozen;
++try {
++  if (values['dev-only']) {
++    for (const c of cases.dev) await run(c, 'dev', 'none');
++  } else {
++    // Round-robin families: fixed source experience order, no result-based selection.
++    for (let i = 0; i < 8; i++) for (const family of families) {
++      const c = cases.train.filter(c => c.family === family)[i];
++      const row = await run(c, 'train', 'alaya');
++      episodes.push(row.episode);
++    }
++    save('train-experiences.json', episodes);
++    // Fail before heldout if a full raw record cannot be supplied, or the learner did not run.
++    for (const c of cases.test) assert.ok(rawSqlMemory(c, episodes).ids.length > 0);
++    frozen = knowledgeSnapshot();
++    save('knowledge-before-test.json', frozen);
++    const freeze = { at: new Date().toISOString(), knowledgeSha256: digest(frozen), experiencesSha256: digest(episodes), sourceHashes, casesSha256: digest(cases) };
++    save('test-input-freeze.json', freeze);
++    const ordered = [...cases.test].sort((a, b) => digest(a.id).localeCompare(digest(b.id)));
++    for (const [i, c] of ordered.entries()) {
++      const order = arms.map((_, j) => arms[(i + j) % 3]);
++      await Promise.all(order.map(arm => run(c, 'test', arm)));
++    }
++    const after = knowledgeSnapshot();
++    save('knowledge-after-test.json', after);
++    assert.equal(digest(after), digest(frozen), 'Heldout mutated knowledge state');
++    assert.equal(digest(episodes), freeze.experiencesSha256, 'Heldout mutated raw experiences');
++    for (const path of sourceFiles) assert.equal(digest(readFileSync(resolve(root, path), 'utf8')), sourceHashes[path], `Source changed during run: ${path}`);
++  }
++  const phase = values['dev-only'] ? 'dev' : 'test';
++  const scores = Object.fromEntries(arms.map(arm => {
++    const rows = results.filter(r => r.phase === phase && r.arm === arm);
++    return [arm, { n: rows.length, correct: rows.filter(r => r.outcome.passed).length, schemaFailures: rows.filter(r => !r.schemaValid).length }];
++  }));
++  const receipt = { ...manifest, completedAt: new Date().toISOString(), issuedCalls, completedCalls: wire.length, scores, knowledgeFrozen: frozen ? digest(knowledgeSnapshot()) === digest(frozen) : null, observedModels: [...new Set(wire.map(w => w.response?.model).filter(Boolean))], providerTokens: wire.reduce((s, w) => ({ input: s.input + (w.response?.usage?.prompt_tokens ?? 0), output: s.output + (w.response?.usage?.completion_tokens ?? 0), cached: s.cached + (w.response?.usage?.prompt_tokens_details?.cached_tokens ?? 0) }), { input: 0, output: 0, cached: 0 }), providerUsageMissing: wire.filter(w => !w.response?.usage).length };
++  save('summary.json', receipt);
++  console.log(JSON.stringify({ done: true, scores, requests: wire.length, out }));
++} catch (error) {
++  save('failure.json', { failedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error), issuedCalls, completedCalls: wire.length, resultRows: results.length });
++  throw error;
++} finally { globalThis.fetch = nativeFetch; }

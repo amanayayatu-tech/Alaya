@@ -1,0 +1,41 @@
+{
+  "projectId": "proj_mq3zabkw",
+  "projectName": "wonz-health-signal-decision",
+  "baseUrl": "http://127.0.0.1:5100",
+  "dbPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/wonz-health-30h_20260607_161016/wonz-health.db",
+  "logDir": "/Users/LOCAL_USER/Documents/alaya/validation-logs/wonz-health-30h_20260607_161016",
+  "startedAt": "2026-06-07T16:10:17.517Z",
+  "endedAt": "2026-06-07T16:10:20.568Z",
+  "sampleCount": 2,
+  "durationMs": 3051,
+  "llmProvider": "mock",
+  "model": "MiniMax-M3",
+  "decisionVia": "local_api_human_proxy",
+  "assessment": {
+    "criteria": {
+      "deltaReached8": false,
+      "conflictAtLeast5": false,
+      "conflictResolvedAtLeast3": true,
+      "humanGateDropAtLeast30pct": false,
+      "stallGuardUnder5pct": true
+    },
+    "observed": {
+      "firstDelta": 0,
+      "lastDelta": 0,
+      "maxConflictCount": 1,
+      "maxResolvedConflictReviews": 3,
+      "maxStallGuardCount": 0,
+      "cyclesClosed": 1,
+      "earlyPendingGateAverage": 0,
+      "latePendingGateAverage": 1,
+      "humanGatePendingDropRatio": null
+    }
+  },
+  "files": {
+    "monitorCsv": "/Users/LOCAL_USER/Documents/alaya/validation-logs/wonz-health-30h_20260607_161016/monitor_log.csv",
+    "eventsJsonl": "/Users/LOCAL_USER/Documents/alaya/validation-logs/wonz-health-30h_20260607_161016/events.jsonl",
+    "issuesMd": "/Users/LOCAL_USER/Documents/alaya/validation-logs/wonz-health-30h_20260607_161016/issues.md",
+    "appLogPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/wonz-health-30h_20260607_161016/app.log",
+    "runnerLogPath": "/Users/LOCAL_USER/Documents/alaya/validation-logs/wonz-health-30h_20260607_161016/runner.log"
+  }
+}

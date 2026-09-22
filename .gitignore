@@ -34,6 +34,9 @@ validation-logs/
 archive/
 flywheel-report.json
 quality_summary.json
+# The 2026-09-22 public stage archive intentionally includes selected historical
+# quality summaries; other validation output remains ignored.
+!docs/research/stage-2026-09-22/evidence/historical/**/quality_summary.json
 .codex-runtime/
 *.tar.gz
 *.patch

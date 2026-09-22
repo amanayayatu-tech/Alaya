@@ -1,0 +1,9 @@
+{
+  "K1": null,
+  "K2": null,
+  "k1Outcome": {
+    "status": "provider_failure",
+    "reason": "response failed JSON schema validation: $.items is required. Include every required key; use [] for empty arrays."
+  },
+  "k2Outcome": null
+}

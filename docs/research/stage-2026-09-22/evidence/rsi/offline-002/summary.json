@@ -1,0 +1,216 @@
+{
+  "evidence": "MOCK_ONLY",
+  "phases": [
+    {
+      "phase": 1,
+      "continue": false,
+      "status": "NO_PRACTICAL_FEEDBACK_GAIN",
+      "comparisons": [
+        {
+          "control": "independent",
+          "treatment": "v0",
+          "pairs": [
+            {
+              "world": "D-combined",
+              "repeat": 0,
+              "control": 127.25,
+              "treatment": 127.25,
+              "gainPercent": 0
+            },
+            {
+              "world": "D-combined",
+              "repeat": 2,
+              "control": 125.25,
+              "treatment": 125.25,
+              "gainPercent": 0
+            },
+            {
+              "world": "D-combined",
+              "repeat": 1,
+              "control": 126.75,
+              "treatment": 126.75,
+              "gainPercent": 0
+            }
+          ],
+          "gainPercent": 0,
+          "positivePairs": 0,
+          "byWorld": {
+            "D-combined": 0
+          },
+          "interval": null,
+          "practicalSignal": false,
+          "beatsBestFit": false,
+          "stableSupport": false
+        }
+      ]
+    }
+  ],
+  "completedTrials": 6,
+  "actualHttpRequests": 0,
+  "responseCount": 0,
+  "missingOrErrorResponses": 0,
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "missingUsageResponses": 0
+  },
+  "estimatedPaygUsdKnownUsage": 0,
+  "billingIsNotInvoice": true,
+  "priceSource": {
+    "inputPerMillionUsd": 0.3,
+    "outputPerMillionUsd": 1.2,
+    "cachedInputPerMillionUsd": 0.06,
+    "source": "https://platform.minimax.io/docs/guides/pricing-paygo",
+    "checkedDate": "2026-09-22",
+    "note": "Standard PAYG equivalent; not an account invoice. Unknown usage remains unknown, with a conservative allocation-based estimate."
+  },
+  "candidateAttempts": 6,
+  "legalCandidates": 6,
+  "uniqueCodeHashes": 1,
+  "perTrial": [
+    {
+      "phase": 1,
+      "trial": "p1-D-combined-r0-independent",
+      "arm": "independent",
+      "world": "D-combined",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 127.25,
+      "valid": true,
+      "bestFitMean": 127.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 124.16666666666667,
+          "trainValid": true,
+          "devMean": 122.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "trial": "p1-D-combined-r2-independent",
+      "arm": "independent",
+      "world": "D-combined",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 125.25,
+      "valid": true,
+      "bestFitMean": 125.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 123.33333333333333,
+          "trainValid": true,
+          "devMean": 127.83333333333333,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "trial": "p1-D-combined-r1-independent",
+      "arm": "independent",
+      "world": "D-combined",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 126.75,
+      "valid": true,
+      "bestFitMean": 126.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 129.16666666666666,
+          "trainValid": true,
+          "devMean": 125.33333333333333,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "trial": "p1-D-combined-r0-v0",
+      "arm": "v0",
+      "world": "D-combined",
+      "repeat": 0,
+      "selected": "best-fit",
+      "testMean": 127.25,
+      "valid": true,
+      "bestFitMean": 127.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 124.16666666666667,
+          "trainValid": true,
+          "devMean": 122.5,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "trial": "p1-D-combined-r2-v0",
+      "arm": "v0",
+      "world": "D-combined",
+      "repeat": 2,
+      "selected": "best-fit",
+      "testMean": 125.25,
+      "valid": true,
+      "bestFitMean": 125.25,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 123.33333333333333,
+          "trainValid": true,
+          "devMean": 127.83333333333333,
+          "devValid": true
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "trial": "p1-D-combined-r1-v0",
+      "arm": "v0",
+      "world": "D-combined",
+      "repeat": 1,
+      "selected": "best-fit",
+      "testMean": 126.75,
+      "valid": true,
+      "bestFitMean": 126.75,
+      "calls": 0,
+      "tokens": 0,
+      "legalCandidates": 1,
+      "uniqueCodeHashes": 1,
+      "curve": [
+        {
+          "attempt": 0,
+          "trainMean": 129.16666666666666,
+          "trainValid": true,
+          "devMean": 125.33333333333333,
+          "devValid": true
+        }
+      ]
+    }
+  ]
+}

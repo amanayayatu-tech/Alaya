@@ -1,0 +1,37 @@
+{
+  "protocolId": "ALAYA-M1-KNOWLEDGE-TRANSFER",
+  "runId": "2026-09-19T09-19-20-583Z",
+  "baseCommit": "7802ae20c3df5d3afd23d439291798d7796fca1e",
+  "datasetHashes": {
+    "rules": "f00c90f16b687c47b4a43e4e40ca0f76d9bc4af6622e3e7e131a39eaa1989cff",
+    "visible": "5da8ccc5c7f43bad3928bed43b31e54cbfe9a7b198ffa3f779998537a4d1072f",
+    "labels": "459786868ed646bc3b6c1dc97e01d72b2ffef28a0fe338a0de86a8953c3f5f1b",
+    "partitions": "819882b6147afe7f64268c4e2cbf072a99af14134acfb69581a63b3008cd36b4"
+  },
+  "components": {
+    "orchestrator_decision": "exercised",
+    "distiller": "exercised",
+    "sensor": "not_exercised",
+    "builder": "not_exercised",
+    "librarian": "not_exercised",
+    "knowledgeInjection": "not_exercised",
+    "product_db": "not_exercised"
+  },
+  "live": true,
+  "engineering": false,
+  "model": {
+    "name": "MiniMax-M3",
+    "baseUrl": "https://api.minimax.io/openai",
+    "promptVersionDecision": "alaya-m1-decision-v1",
+    "promptVersionDistill": "alaya-m1-distill-v1"
+  },
+  "status": "NO_SIGNAL_ON_DEV",
+  "reason": "B net gain on Dev was -1 < 2",
+  "budget": {
+    "requests": 85,
+    "tokens": 66654,
+    "maxRequests": 180,
+    "maxTokens": 500000
+  },
+  "k2Hash": "8e80132bf4fc5d86dd3a04095da2abcb813de8d9c9fe572f6a73dcb92bd44076"
+}

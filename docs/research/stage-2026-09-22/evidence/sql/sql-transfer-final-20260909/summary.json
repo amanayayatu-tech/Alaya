@@ -1,0 +1,73 @@
+{
+  "evidenceMode": "DEVELOPMENT",
+  "startedAt": "2026-09-08T17:00:28.111Z",
+  "baseCommit": "b7090b11b41f358f4d82906c86be835a68c06e64",
+  "modelRequested": "MiniMax-M3",
+  "baseUrl": "https://api.minimax.io/openai",
+  "temperature": 0,
+  "maxOutputTokens": 2048,
+  "retries": 0,
+  "simplifiedFallback": false,
+  "maxCalls": 120,
+  "testConcurrency": 3,
+  "memoryCharCeiling": 12000,
+  "rawMemoryK": 2,
+  "ranking": "static",
+  "epsilon": 0,
+  "sourceHashes": {
+    "scripts/lib/sql-repair-cases.py": "f59ab47c352edc9e8df08dc1319c0099bb159d7a2c027982319a9bbb3ab50ed4",
+    "scripts/sql-repair-experiment.mjs": "eb9b8a6834986c77debb7466491be84d732f0c0d72ac90f7dddf5cb6b7dda5c8",
+    "alaya-app/server/sqlRepair.ts": "0fcab7254faba2567c9f723aef3c4b54738020e2b69479f136b6d80f1d5ce97b",
+    "alaya-app/server/knowledgeInjection.ts": "54c087374456981eb0fb14843e69a6982b47bc19ecc34fb563a47c0f704708bf",
+    "alaya-app/server/knowledgeCredit.ts": "faf99374addb218d56a881c788ece2921b76b5f9775606b700efdb039ad03cf8",
+    "alaya-core/src/llm/provider.ts": "35e327174f159f883d9f0ead90dc9f759440f05ecd289adad12a0528d4d54878",
+    "docs/validation/SQL_REPAIR_DEVELOPMENT_PLAN.md": "8c0faf11c1298d9241f51ad168e2f25f32294ac777248b26760c0f8eea97b645",
+    "scripts/analyze-sql-repair.mjs": "2fb20a59de7fc3f749343193ca24f5c6148b853cffc42913012112157ee239c0",
+    "alaya-core/src/core/transition_state.ts": "dd88bd3c6205fb3f091d3392bbd580c36ab81b21687155719a463d263a26987b",
+    "alaya-core/src/core/update_confidence.ts": "a800faa90aba2e8eaa26dc9178134be564b25ef5a42ef8ff3bd913b05c635e4f",
+    "alaya-app/server/storage.ts": "60bdce80e838babbb89bb6fe90d2eed3d97cc8f3eac3b337bbafa679cbcbba50",
+    "alaya-app/server/trace.ts": "93323a89c9651d03394c91b362d0106fdc5b3f3b82949a5d9eb386f95b8637b2"
+  },
+  "casesSha256": "17f5df3d5f9cf3f6afbfb9318461fce4e10576fe40116730817bd5da599bb4d7",
+  "initialKnowledgeSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "evaluator": {
+    "cases": 54,
+    "ok": true,
+    "splits": {
+      "dev": 6,
+      "test": 24,
+      "train": 24
+    }
+  },
+  "devOnly": false,
+  "completedAt": "2026-09-08T17:06:10.911Z",
+  "issuedCalls": 120,
+  "completedCalls": 120,
+  "scores": {
+    "none": {
+      "n": 24,
+      "correct": 18,
+      "schemaFailures": 3
+    },
+    "raw": {
+      "n": 24,
+      "correct": 24,
+      "schemaFailures": 0
+    },
+    "alaya": {
+      "n": 24,
+      "correct": 22,
+      "schemaFailures": 0
+    }
+  },
+  "knowledgeFrozen": true,
+  "observedModels": [
+    "MiniMax-M3"
+  ],
+  "providerTokens": {
+    "input": 216271,
+    "output": 42546,
+    "cached": 20332
+  },
+  "providerUsageMissing": 0
+}

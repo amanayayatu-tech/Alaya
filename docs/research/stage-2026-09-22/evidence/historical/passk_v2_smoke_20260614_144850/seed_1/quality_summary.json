@@ -1,0 +1,947 @@
+{
+  "generatedAt": "2026-06-14T08:24:24.124Z",
+  "expectedDecision": "hybrid_layered",
+  "decisionTsr": {
+    "status": "pass",
+    "passed": true,
+    "interpretation": "single-scenario pass@1 check: verifies that the final active/strong card state matches the preset Health Signal oracle; it is not an independent reasoning benchmark",
+    "passK": {
+      "implemented": false,
+      "plannedVersion": "v2"
+    },
+    "expectedDecision": "hybrid_layered",
+    "eligibleKnowledgeCount": 8,
+    "hybridLayeredCount": 3,
+    "disallowedFinalCount": 0,
+    "decisions": {
+      "hybrid_layered": 3,
+      "unknown": 5
+    },
+    "disallowedFinalKnowledge": [],
+    "hybridLayeredKnowledge": [
+      {
+        "knowledgeId": "kb_seed_world_0tzs",
+        "title": "初始世界模型",
+        "oracleSide": null,
+        "decision": "hybrid_layered",
+        "status": "active"
+      },
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_dh0tzs_health_signal_contradiction_runner_sample_0003_ecg_risk",
+        "title": "外部反馈: ECG 反证：功耗/交互/成本压力",
+        "oracleSide": "ecg_risk",
+        "decision": "hybrid_layered",
+        "status": "strong"
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_029",
+        "title": "种子身份",
+        "oracleSide": null,
+        "decision": "hybrid_layered",
+        "status": "active"
+      }
+    ]
+  },
+  "resolutionAccuracy": {
+    "status": "pass",
+    "passed": true,
+    "threshold": 0.9,
+    "accuracy": 1,
+    "correct": 6,
+    "scored": 6,
+    "unscored": 2,
+    "totalReviewed": 8,
+    "scoreableCoverage": 0.75,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": true,
+    "dedupeMode": "exact",
+    "pairTypeCounts": {
+      "ecg_risk|hybrid_reject": 2,
+      "ecg_risk|ppg_risk": 2,
+      "ecg_risk|ecg_risk": 1,
+      "ecg_risk|ecg_support": 1,
+      "ecg_risk|ppg_support": 1,
+      "ppg_risk|ppg_support": 1
+    },
+    "scoredPairTypeCounts": {
+      "ecg_risk|hybrid_reject": 2,
+      "ecg_risk|ecg_risk": 1,
+      "ecg_risk|ecg_support": 1,
+      "ecg_risk|ppg_support": 1,
+      "ppg_risk|ppg_support": 1
+    },
+    "unscoredPairTypeCounts": {
+      "ecg_risk|ppg_risk": 2
+    },
+    "unscoredReasonCounts": {
+      "ambiguous_same_layer_t2_risk_pair": 2
+    },
+    "duplicatePairTypeCounts": {
+      "ecg_risk|ecg_risk": 1
+    },
+    "scoredEvents": [
+      {
+        "reviewId": "kr_0ad8b9a2",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_dh0tzs_health_signal_contradiction_runner_sample_0001_ppg_support",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_dh0tzs_health_signal_contradiction_runner_sample_0002_ppg_risk",
+        "action": "quarantine",
+        "oracleSide": "ppg_support",
+        "relatedOracleSide": "ppg_risk",
+        "primaryOracleSide": "ppg_support",
+        "resolutionPairType": "ppg_support|ppg_risk",
+        "resolutionUnorderedPairType": "ppg_risk|ppg_support",
+        "primaryResolutionTier": "T3_single_sensor_support",
+        "relatedResolutionTier": "T2_single_sensor_risk",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "superseded_or_quarantined_when_conflicted",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": "ppg_risk_beats_ppg_support",
+        "scoreableResolutionRationale": "T2 风险证据证伪单传感器优先主张，并推动系统走向 hybrid_layered，因此应胜过 T3 单传感器 support。",
+        "resolutionUnscoredReason": null,
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": true,
+        "resolutionExpectedWinnerSide": "ppg_risk",
+        "resolutionActualWinnerSide": "ppg_risk",
+        "resolutionCorrect": true
+      },
+      {
+        "reviewId": "kr_d9ede1dd",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_dh0tzs_health_signal_contradiction_runner_sample_0003_ecg_risk",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_dh0tzs_health_signal_contradiction_runner_sample_0004_hybrid_reject",
+        "action": "approve_as_current",
+        "oracleSide": "ecg_risk",
+        "relatedOracleSide": "hybrid_reject",
+        "primaryOracleSide": "ecg_risk",
+        "resolutionPairType": "ecg_risk|hybrid_reject",
+        "resolutionUnorderedPairType": "ecg_risk|hybrid_reject",
+        "primaryResolutionTier": "T2_single_sensor_risk",
+        "relatedResolutionTier": "T4_hybrid_reject",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "retained_over_ecg_support",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": "ecg_risk_beats_hybrid_reject",
+        "scoreableResolutionRationale": "T2 风险证据仍支持分层必要性，而 T4 hybrid_reject 反对分层；按 hybrid_layered 正解，T2 应胜过 T4。",
+        "resolutionUnscoredReason": null,
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": true,
+        "resolutionExpectedWinnerSide": "ecg_risk",
+        "resolutionActualWinnerSide": "ecg_risk",
+        "resolutionCorrect": true
+      },
+      {
+        "reviewId": "kr_ff422797",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_dh0tzs_health_signal_contradiction_runner_sample_0003_ecg_risk",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_dh0tzs_health_signal_contradiction_runner_sample_0005_ecg_support",
+        "action": "approve_as_current",
+        "oracleSide": "ecg_risk",
+        "relatedOracleSide": "ecg_support",
+        "primaryOracleSide": "ecg_risk",
+        "resolutionPairType": "ecg_risk|ecg_support",
+        "resolutionUnorderedPairType": "ecg_risk|ecg_support",
+        "primaryResolutionTier": "T2_single_sensor_risk",
+        "relatedResolutionTier": "T3_single_sensor_support",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "retained_over_ecg_support",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": "ecg_risk_beats_ecg_support",
+        "scoreableResolutionRationale": "T2 风险证据证伪单传感器优先主张，并推动系统走向 hybrid_layered，因此应胜过 T3 单传感器 support。",
+        "resolutionUnscoredReason": null,
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": true,
+        "resolutionExpectedWinnerSide": "ecg_risk",
+        "resolutionActualWinnerSide": "ecg_risk",
+        "resolutionCorrect": true
+      },
+      {
+        "reviewId": "kr_8f8e16ef",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_dh0tzs_health_signal_contradiction_runner_sample_0007_ppg_support",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_dh0tzs_health_signal_contradiction_runner_sample_0003_ecg_risk",
+        "action": "quarantine",
+        "oracleSide": "ppg_support",
+        "relatedOracleSide": "ecg_risk",
+        "primaryOracleSide": "ppg_support",
+        "resolutionPairType": "ppg_support|ecg_risk",
+        "resolutionUnorderedPairType": "ecg_risk|ppg_support",
+        "primaryResolutionTier": "T3_single_sensor_support",
+        "relatedResolutionTier": "T2_single_sensor_risk",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "superseded_or_quarantined_when_conflicted",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": "ecg_risk_beats_ppg_support",
+        "scoreableResolutionRationale": "T2 风险证据证伪单传感器优先主张，并推动系统走向 hybrid_layered，因此应胜过 T3 单传感器 support。",
+        "resolutionUnscoredReason": null,
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": true,
+        "resolutionExpectedWinnerSide": "ecg_risk",
+        "resolutionActualWinnerSide": "ecg_risk",
+        "resolutionCorrect": true
+      },
+      {
+        "reviewId": "kr_734d0107",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_dh0tzs_health_signal_contradiction_runner_sample_0009_ecg_risk",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_dh0tzs_health_signal_contradiction_runner_sample_0003_ecg_risk",
+        "action": "merge_supersede",
+        "oracleSide": "ecg_risk",
+        "relatedOracleSide": "ecg_risk",
+        "primaryOracleSide": "ecg_risk",
+        "resolutionPairType": "ecg_risk|ecg_risk",
+        "resolutionUnorderedPairType": "ecg_risk|ecg_risk",
+        "primaryResolutionTier": "T2_single_sensor_risk",
+        "relatedResolutionTier": "T2_single_sensor_risk",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "retained_over_ecg_support",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": "duplicate_ecg_risk_merge_supersede",
+        "scoreableResolutionRationale": "同侧 pair 是重复项而非真实业务冲突；期望通过 merge_supersede 去重，quarantine 同侧项会丢失有效证据。",
+        "resolutionUnscoredReason": null,
+        "resolutionDuplicatePair": true,
+        "resolutionExpectedAction": "merge_supersede",
+        "resolutionScoreable": true,
+        "resolutionExpectedWinnerSide": "ecg_risk",
+        "resolutionActualWinnerSide": "ecg_risk",
+        "resolutionCorrect": true
+      },
+      {
+        "reviewId": "kr_52525c10",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_dh0tzs_health_signal_contradiction_runner_sample_0010_hybrid_reject",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_dh0tzs_health_signal_contradiction_runner_sample_0003_ecg_risk",
+        "action": "quarantine",
+        "oracleSide": "hybrid_reject",
+        "relatedOracleSide": "ecg_risk",
+        "primaryOracleSide": "hybrid_reject",
+        "resolutionPairType": "hybrid_reject|ecg_risk",
+        "resolutionUnorderedPairType": "ecg_risk|hybrid_reject",
+        "primaryResolutionTier": "T4_hybrid_reject",
+        "relatedResolutionTier": "T2_single_sensor_risk",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "quarantined_or_deprecated",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": "ecg_risk_beats_hybrid_reject",
+        "scoreableResolutionRationale": "T2 风险证据仍支持分层必要性，而 T4 hybrid_reject 反对分层；按 hybrid_layered 正解，T2 应胜过 T4。",
+        "resolutionUnscoredReason": null,
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": true,
+        "resolutionExpectedWinnerSide": "ecg_risk",
+        "resolutionActualWinnerSide": "ecg_risk",
+        "resolutionCorrect": true
+      }
+    ],
+    "unscoredExamples": [
+      {
+        "reviewId": "kr_5daf28ae",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_dh0tzs_health_signal_contradiction_runner_sample_0002_ppg_risk",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_dh0tzs_health_signal_contradiction_runner_sample_0003_ecg_risk",
+        "action": "quarantine",
+        "oracleSide": "ppg_risk",
+        "relatedOracleSide": "ecg_risk",
+        "primaryOracleSide": "ppg_risk",
+        "resolutionPairType": "ppg_risk|ecg_risk",
+        "resolutionUnorderedPairType": "ecg_risk|ppg_risk",
+        "primaryResolutionTier": "T2_single_sensor_risk",
+        "relatedResolutionTier": "T2_single_sensor_risk",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "retained_over_ppg_support",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": null,
+        "scoreableResolutionRationale": null,
+        "resolutionUnscoredReason": "ambiguous_same_layer_t2_risk_pair",
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": false,
+        "resolutionExpectedWinnerSide": null,
+        "resolutionActualWinnerSide": "ecg_risk",
+        "resolutionCorrect": null
+      },
+      {
+        "reviewId": "kr_4c952cec",
+        "primaryKnowledgeId": "kb_gate_gate_ext_fb_form_dh0tzs_health_signal_contradiction_runner_sample_0008_ppg_risk",
+        "relatedKnowledgeId": "kb_gate_gate_ext_fb_form_dh0tzs_health_signal_contradiction_runner_sample_0003_ecg_risk",
+        "action": "quarantine",
+        "oracleSide": "ppg_risk",
+        "relatedOracleSide": "ecg_risk",
+        "primaryOracleSide": "ppg_risk",
+        "resolutionPairType": "ppg_risk|ecg_risk",
+        "resolutionUnorderedPairType": "ecg_risk|ppg_risk",
+        "primaryResolutionTier": "T2_single_sensor_risk",
+        "relatedResolutionTier": "T2_single_sensor_risk",
+        "expectedDecision": "hybrid_layered",
+        "expectedDisposition": "retained_over_ppg_support",
+        "dedupeMode": "exact",
+        "scoreableResolutionRule": null,
+        "scoreableResolutionRationale": null,
+        "resolutionUnscoredReason": "ambiguous_same_layer_t2_risk_pair",
+        "resolutionDuplicatePair": false,
+        "resolutionExpectedAction": null,
+        "resolutionScoreable": false,
+        "resolutionExpectedWinnerSide": null,
+        "resolutionActualWinnerSide": "ecg_risk",
+        "resolutionCorrect": null
+      }
+    ]
+  },
+  "confidenceCalibration": {
+    "status": "low_coverage",
+    "ece": 0.125,
+    "threshold": 0.05,
+    "warnThreshold": 0.1,
+    "bucketCount": 10,
+    "sampleSize": 1,
+    "scored": 1,
+    "unscored": 20,
+    "totalEligible": 21,
+    "scoreableCoverage": 0.047619,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": false,
+    "reliabilityTable": [
+      {
+        "bucket": 8,
+        "lowerBound": 0.8,
+        "upperBound": 0.9,
+        "confMean": 0.875,
+        "accuracy": 1,
+        "n": 1
+      }
+    ],
+    "unscoredReasonCounts": {
+      "unknown_oracle_side": 20
+    },
+    "scoredKnowledge": [
+      {
+        "knowledgeId": "kb_gate_gate_ext_fb_form_dh0tzs_health_signal_contradiction_runner_sample_0003_ecg_risk",
+        "oracleSide": "ecg_risk",
+        "status": "strong",
+        "supersededBy": null,
+        "confidence": 0.875,
+        "expectedDisposition": "retained_over_ecg_support",
+        "correct": true
+      }
+    ],
+    "unscoredExamples": [
+      {
+        "knowledgeId": "kb_seed_identity_0tzs",
+        "oracleSide": null,
+        "status": "strong",
+        "supersededBy": null,
+        "confidence": 0.9,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_seed_world_0tzs",
+        "oracleSide": null,
+        "status": "active",
+        "supersededBy": null,
+        "confidence": 0.8461538461538461,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_gate_gate_meaning_1_e_1_0tzs_f1",
+        "oracleSide": null,
+        "status": "active",
+        "supersededBy": null,
+        "confidence": 0.8332420761776415,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_004",
+        "oracleSide": null,
+        "status": "strong",
+        "supersededBy": null,
+        "confidence": 0.9605263157894737,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_006",
+        "oracleSide": null,
+        "status": "strong",
+        "supersededBy": null,
+        "confidence": 0.9622641509433962,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_009",
+        "oracleSide": null,
+        "status": "strong",
+        "supersededBy": null,
+        "confidence": 0.9230769230769231,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_011",
+        "oracleSide": null,
+        "status": "active",
+        "supersededBy": "kb_proj_mqdh0tzs_004",
+        "confidence": 0.6666666666666666,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_012",
+        "oracleSide": null,
+        "status": "active",
+        "supersededBy": "kb_proj_mqdh0tzs_004",
+        "confidence": 0.6666666666666666,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_014",
+        "oracleSide": null,
+        "status": "active",
+        "supersededBy": "kb_seed_identity_0tzs",
+        "confidence": 0.6666666666666666,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_015",
+        "oracleSide": null,
+        "status": "active",
+        "supersededBy": "kb_proj_mqdh0tzs_004",
+        "confidence": 0.6666666666666666,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_016",
+        "oracleSide": null,
+        "status": "active",
+        "supersededBy": "kb_seed_identity_0tzs",
+        "confidence": 0.6666666666666666,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_017",
+        "oracleSide": null,
+        "status": "active",
+        "supersededBy": "kb_proj_mqdh0tzs_004",
+        "confidence": 0.6666666666666666,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_019",
+        "oracleSide": null,
+        "status": "active",
+        "supersededBy": "kb_proj_mqdh0tzs_004",
+        "confidence": 0.6666666666666666,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_020",
+        "oracleSide": null,
+        "status": "active",
+        "supersededBy": "kb_proj_mqdh0tzs_004",
+        "confidence": 0.6666666666666666,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_022",
+        "oracleSide": null,
+        "status": "active",
+        "supersededBy": "kb_proj_mqdh0tzs_004",
+        "confidence": 0.6666666666666666,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_023",
+        "oracleSide": null,
+        "status": "active",
+        "supersededBy": "kb_proj_mqdh0tzs_004",
+        "confidence": 0.6666666666666666,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_025",
+        "oracleSide": null,
+        "status": "active",
+        "supersededBy": "kb_gate_gate_meaning_1_e_1_0tzs_f1",
+        "confidence": 0.6666666666666666,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_026",
+        "oracleSide": null,
+        "status": "active",
+        "supersededBy": "kb_proj_mqdh0tzs_004",
+        "confidence": 0.7777777777777778,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_028",
+        "oracleSide": null,
+        "status": "active",
+        "supersededBy": "kb_proj_mqdh0tzs_004",
+        "confidence": 0.6666666666666666,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_029",
+        "oracleSide": null,
+        "status": "active",
+        "supersededBy": null,
+        "confidence": 0.6666666666666666,
+        "expectedDisposition": null,
+        "unscoredReason": "unknown_oracle_side"
+      }
+    ]
+  },
+  "faithfulness": {
+    "status": "low_coverage",
+    "judgeMode": "lexical",
+    "faithfulness": 0.733333,
+    "hallucinationRate": 0.266667,
+    "threshold": 0.95,
+    "stretchMedicalTarget": 0.98,
+    "scored": 45,
+    "supported": 33,
+    "unsupported": 12,
+    "indeterminate": 86,
+    "totalClaims": 131,
+    "evidenceClaimCount": 50,
+    "scoreableCoverage": 0.343511,
+    "scoreableCoverageThreshold": 0.6,
+    "blockingEligible": false,
+    "unsupportedClaims": [
+      {
+        "knowledgeId": "kb_seed_identity_0tzs",
+        "oracleSide": null,
+        "claim": "目标用户:35-50 岁亚健康白领",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "35",
+          "50"
+        ],
+        "supportedAnchors": [
+          "35"
+        ],
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_014",
+        "oracleSide": null,
+        "claim": "目标用户:35-50 岁亚健康白领",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "35",
+          "50"
+        ],
+        "supportedAnchors": [
+          "35"
+        ],
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_016",
+        "oracleSide": null,
+        "claim": "目标用户:35-50 岁亚健康白领",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "35",
+          "50"
+        ],
+        "supportedAnchors": [
+          "35"
+        ],
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_017",
+        "oracleSide": null,
+        "claim": "本轮应用场景: 把高风险动作审计摘要接入每周复盘报告 自主第10轮把 kb_proj_mqdh0tzs_004 迁移到新场景,等待 Librarian 合并/去重",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "10"
+        ],
+        "supportedAnchors": [],
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_019",
+        "oracleSide": null,
+        "claim": "本轮应用场景: 为外部反馈建立自动风险标签和人工复核队列 自主第11轮把 kb_proj_mqdh0tzs_004 迁移到新场景,等待 Librarian 合并/去重",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "11"
+        ],
+        "supportedAnchors": [],
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_020",
+        "oracleSide": null,
+        "claim": "本轮应用场景: 为删除类动作增加可撤销保留期和审计导出 自主第12轮把 kb_proj_mqdh0tzs_004 迁移到新场景,等待 Librarian 合并/去重",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "12"
+        ],
+        "supportedAnchors": [],
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_022",
+        "oracleSide": null,
+        "claim": "本轮应用场景: 把 dry-run 预览迁移到权限变更流程 自主第13轮把 kb_proj_mqdh0tzs_004 迁移到新场景,等待 Librarian 合并/去重",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "13"
+        ],
+        "supportedAnchors": [],
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_023",
+        "oracleSide": null,
+        "claim": "本轮应用场景: 建立高风险任务的最小可执行审计模板 自主第14轮把 kb_proj_mqdh0tzs_004 迁移到新场景,等待 Librarian 合并/去重",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "14"
+        ],
+        "supportedAnchors": [],
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_025",
+        "oracleSide": null,
+        "claim": "本轮应用场景: 对重复低价值人工闸做合并建议 自主第15轮把 kb_proj_mqdh0tzs_004 迁移到新场景,等待 Librarian 合并/去重",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "15"
+        ],
+        "supportedAnchors": [],
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_026",
+        "oracleSide": null,
+        "claim": "本轮应用场景: 为高风险自动化输出用户可理解的影响摘要 自主第16轮把 kb_proj_mqdh0tzs_004 迁移到新场景,等待 Librarian 合并/去重",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "16"
+        ],
+        "supportedAnchors": [],
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_028",
+        "oracleSide": null,
+        "claim": "本轮应用场景: 为高风险 PPG/ECG 选型结论生成可被人工 Gate 复核的影响摘要 自主第17轮把 kb_proj_mqdh0tzs_004 迁移到新场景,等待 Librarian 合并/去重",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "17"
+        ],
+        "supportedAnchors": [],
+        "supported": false
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_029",
+        "oracleSide": null,
+        "claim": "目标用户:35-50 岁亚健康白领",
+        "reason": "unsupported_anchor",
+        "anchors": [
+          "35",
+          "50"
+        ],
+        "supportedAnchors": [
+          "35"
+        ],
+        "supported": false
+      }
+    ],
+    "indeterminateExamples": [
+      {
+        "knowledgeId": "kb_seed_identity_0tzs",
+        "oracleSide": null,
+        "claim": "kb_seed_identity_0tzs 种子身份 身份:wearable-health-signal-decision —— 你是某智能健康硬件的产品决策系统",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_seed_identity_0tzs",
+        "oracleSide": null,
+        "claim": "你需要对一个穿戴设备的核心传感器选型做出决策： 在用户静息心率监测场景下，应该优先选用 光学 PPG 传感器 还是 生物电阻抗 ECG 方案",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_seed_identity_0tzs",
+        "oracleSide": null,
+        "claim": "每轮必须复用当前知识库，不得只重算单轮结论",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_seed_identity_0tzs",
+        "oracleSide": null,
+        "claim": "最终需要观察知识熵变、Human Gate 收敛、冲突解决和 Stall Guard 触发率",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_seed_identity_0tzs",
+        "oracleSide": null,
+        "claim": "每轮任务：基于当前知识库，给出当前最优选型决策，并列明置信度与关键证据",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_seed_identity_0tzs",
+        "oracleSide": null,
+        "claim": "如果遇到矛盾证据，必须在知识库中记录冲突并等待人工审核",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_seed_identity_0tzs",
+        "oracleSide": null,
+        "claim": "绝不做:不得把互相矛盾的 PPG/ECG 结论同时作为 active 决策事实复用",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_seed_identity_0tzs",
+        "oracleSide": null,
+        "claim": "红线:遇到 PPG vs ECG 选型矛盾必须记录 conflict 并等待人工审核、低置信度或单轮 LLM 结论不得直接晋级 strong、所有传感器选型建议必须同时说明成本、续航、目标用户和认证约束 onboarding 生成 Librarian merge: absorbed kb_proj_mqdh0tzs_014",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_seed_identity_0tzs",
+        "oracleSide": null,
+        "claim": "preserved evidence and sourceRef=cycle_7. Librarian merge: absorbed kb_proj_mqdh0tzs_016",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_seed_identity_0tzs",
+        "oracleSide": null,
+        "claim": "preserved evidence and sourceRef=cycle_9. onboarding,cycle_7,cycle_9 approval|ecg|feedback|health_sensor|knowledge|ppg [\"identity\",\"seed\"]",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_seed_world_0tzs",
+        "oracleSide": null,
+        "claim": "系统必须复用历史知识、隔离矛盾知识并让 Human Gate 触发率逐步收敛",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_seed_world_0tzs",
+        "oracleSide": null,
+        "claim": "h 全程观察 delta、Human Gate、conflict resolution 和 Stall Guard",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_gate_gate_meaning_1_e_1_0tzs_f1",
+        "oracleSide": null,
+        "claim": "kb_gate_gate_meaning_1_e_1_0tzs_f1 外部反馈: 模糊反馈意义闸: 我不敢点发布,因为不知道... Human approved meaning gate gate_meaning_1_e_1_0tzs_f1. Source: meaning_gate gate_meaning_1_e_1_0tzs_f1. Summary: 模糊反馈意义闸: 我不敢点发布,因为不知道.... User quote: 我不敢点发布,因为不知道它到底会改动什么. approved via web Librarian merge: absorbed kb_proj_mqdh0tzs_025",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_gate_gate_meaning_1_e_1_0tzs_f1",
+        "oracleSide": null,
+        "claim": "preserved evidence and sourceRef=cycle_15. gate_meaning_1_e_1_0tzs_f1,cycle_15 approval|fear|feedback|risk [\"meaning_gate\",\"human_approved\",\"unclear_signal\",\"我不敢点发布,因为不知道它到底会改动\",\"user_fear\",\"adoption\"]",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_004",
+        "oracleSide": null,
+        "claim": "kb_proj_mqdh0tzs_004 用户对不可预期的自动操作有恐惧 早期用户不敢用一键发布,因为不知道会改动什么",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_004",
+        "oracleSide": null,
+        "claim": "恐惧而非能力是采用门槛",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_004",
+        "oracleSide": null,
+        "claim": "preserved evidence and sourceRef=cycle_5. Librarian merge: absorbed kb_proj_mqdh0tzs_012",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_004",
+        "oracleSide": null,
+        "claim": "preserved evidence and sourceRef=cycle_6. Librarian merge: absorbed kb_proj_mqdh0tzs_015",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_004",
+        "oracleSide": null,
+        "claim": "preserved evidence and sourceRef=cycle_8. Librarian merge: absorbed kb_proj_mqdh0tzs_017",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      },
+      {
+        "knowledgeId": "kb_proj_mqdh0tzs_004",
+        "oracleSide": null,
+        "claim": "preserved evidence and sourceRef=cycle_10. Librarian merge: absorbed kb_proj_mqdh0tzs_019",
+        "reason": "no_deterministic_anchor",
+        "anchors": [],
+        "supportedAnchors": []
+      }
+    ]
+  },
+  "latencyAndEfficiency": {
+    "measurementNote": "API request latency is runner/harness-observed latency under validation polling load, not an isolated production retrieval SLO.",
+    "apiRequest": {
+      "sampleSize": 406,
+      "p50Ms": 7,
+      "p95Ms": 19671,
+      "p99Ms": 39342
+    },
+    "apiRequestBySegment": {
+      "runner_control_api_request": {
+        "sampleSize": 92,
+        "p50Ms": 6,
+        "p95Ms": 3138,
+        "p99Ms": 9828
+      },
+      "harness_polling_api_request": {
+        "sampleSize": 244,
+        "p50Ms": 4,
+        "p95Ms": 53,
+        "p99Ms": 72
+      },
+      "scheduler_tick": {
+        "sampleSize": 60,
+        "p50Ms": 14327,
+        "p95Ms": 43145,
+        "p99Ms": 68250
+      },
+      "knowledge_retrieval": {
+        "sampleSize": 10,
+        "p50Ms": 17,
+        "p95Ms": 37,
+        "p99Ms": 37
+      }
+    },
+    "slo": {
+      "sloStatus": "fail",
+      "sloBlocking": false,
+      "enforceLatencySlo": false,
+      "thresholdsMs": {
+        "knowledge_retrieval": 2000,
+        "scheduler_tick": 30000
+      },
+      "includedSegments": [
+        {
+          "segment": "knowledge_retrieval",
+          "sampleSize": 10,
+          "p95Ms": 37,
+          "p95ThresholdMs": 2000,
+          "status": "pass"
+        },
+        {
+          "segment": "scheduler_tick",
+          "sampleSize": 60,
+          "p95Ms": 43145,
+          "p95ThresholdMs": 30000,
+          "status": "fail"
+        }
+      ],
+      "excludedSegments": [
+        "harness_polling_api_request"
+      ],
+      "measurementNote": "harness_polling_api_request is excluded: harness polling is not a production SLO; knowledge_retrieval and scheduler_tick are SLO-observed segments."
+    },
+    "llmOverall": {
+      "sampleSize": 145,
+      "p50Ms": 7248,
+      "p95Ms": 14604,
+      "p99Ms": 20179
+    },
+    "llmAgentP95Ms": {
+      "orchestrator": 14604,
+      "sensor": 11522,
+      "builder": 20179,
+      "distiller": 22706,
+      "librarian": 12634
+    },
+    "totals": {
+      "closedCycles": 18,
+      "resolvedConflicts": 8,
+      "netActiveKnowledge": 10,
+      "totalTokens": 394263,
+      "totalCostUsd": 0.788526
+    },
+    "ratios": {
+      "tokensPerClosedCycle": 21903.5,
+      "costPerClosedCycleUsd": 0.043807,
+      "tokensPerResolvedConflict": 49282.875,
+      "costPerResolvedConflictUsd": 0.098566,
+      "tokensPerNetActiveKnowledge": 39426.3,
+      "costPerNetActiveKnowledgeUsd": 0.078853
+    }
+  },
+  "rssSlopeMbPerHour": -32.49724,
+  "rssSlopeThresholdMbPerHour": 50,
+  "rssSlopeUnder50MbPerHour": true,
+  "notes": [
+    {
+      "type": "benchmark_mapping",
+      "decisionTsr": "task-success-rate style single-scenario oracle check, similar to tau-bench pass@1/pass^k reliability framing",
+      "resolutionAccuracy": "conflict resolution / implicit inference accuracy over deterministic oracle pair rules",
+      "faithfulness": "claim-level lexical NLI proxy for RAGAS/TruLens-style faithfulness; LLM judge interface is reserved but off by default",
+      "confidenceCalibration": "expected calibration error / reliability table over confidence_score or extracted confidence text"
+    },
+    "decisionTsr is a single-scenario pass@1 oracle-state check, not an independent reasoning benchmark.",
+    "pass^k multi-seed reliability is intentionally deferred to v2.",
+    "API latency is runner/harness-observed polling and control request latency under validation load, not an isolated production retrieval SLO.",
+    "Resolution accuracy is blocking only when scoreable coverage meets the configured threshold."
+  ],
+  "sources": {
+    "knowledge": "health-signal.db:knowledge_items",
+    "llmCalls": "health-signal.db:llm_calls",
+    "resolutionEvents": "events.jsonl:knowledge_review_resolved",
+    "apiRequestLatency": "events.jsonl:api_request_timing",
+    "rss": "monitor_log.csv:appRssMb"
+  }
+}
