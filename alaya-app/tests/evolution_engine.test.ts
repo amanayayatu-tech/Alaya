@@ -77,6 +77,8 @@ function createKnowledge(projectId: string, id: string, overrides: Record<string
     externalVerifiedCount: 1,
     validFrom: "2026-06-04",
     validUntil: null,
+    // Keep the generic fixture fresh; decay-specific tests provide an explicit old timestamp.
+    lastVerifiedAt: Date.now(),
     lastValidatedCycle: 4,
     createdByCycle: 4,
     createdBy: "test",
