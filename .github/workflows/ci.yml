@@ -57,6 +57,9 @@ jobs:
       - name: Root script tests
         run: npm run test:scripts
 
+      - name: M1 output provenance regression (offline)
+        run: python3 -B -m unittest discover -s experiments/evolution-mvp -p 'test_run_m1.py' -v
+
       - name: Benchmark smoke
         run: npm run benchmark:smoke
 

@@ -302,10 +302,13 @@ def main() -> None:
     parser.add_argument("--seed", choices=SEEDS, action="append")
     parser.add_argument("--skip-run", action="store_true")
     args = parser.parse_args()
+    output = args.output.resolve()
+    # Existing evidence is immutable, including when --skip-run is requested.
+    if output.exists() and any(output.iterdir()):
+        raise SystemExit(f"REFUSE_OVERWRITE_OUTPUT:{output}")
     if not os.environ.get("ALAYA_EVOLUTION_API_KEY", "").strip():
         raise SystemExit("ALAYA_EVOLUTION_API_KEY is required and is never written to the repo")
     provider_compat = install_provider_compat()
-    output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     seeds = tuple(args.seed or SEEDS)
     protocol = {
