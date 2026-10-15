@@ -1,9 +1,9 @@
 {
   "name": "alaya",
-  "version": "0.1.0",
+  "version": "0.1.0-research.1",
   "private": true,
-  "description": "Alaya cognitive-compounding flywheel: TypeScript core plus Express/React local MVP.",
-  "packageManager": "npm@10.9.4",
+  "description": "Auditable local agent workflow prototype and research evidence archive.",
+  "packageManager": "npm@11.12.1",
   "workspaces": [
     "alaya-core",
     "alaya-app"
@@ -52,10 +52,11 @@
     "start": "npm --prefix alaya-app run start"
   },
   "engines": {
-    "node": ">=20 <21",
-    "npm": ">=10 <11"
+    "node": ">=24 <25",
+    "npm": ">=11 <12"
   },
   "devDependencies": {
+    "better-sqlite3": "^12.11.1",
     "playwright": "^1.59.1"
   },
   "overrides": {

@@ -19,7 +19,7 @@ import NotFound from "@/pages/not-found";
 
 function FlywheelHealthRoute() {
   const { projectId } = useProject();
-  if (!projectId) return <EmptyState title="先选择项目" description="健康证明按项目聚合 flywheel 指标和 human gate 压力。" />;
+  if (!projectId) return <EmptyState title="先选择项目" description="飞轮状态按项目聚合知识记录、引用比例和人工闸门压力。" />;
   return <FlywheelHealth projectId={projectId} />;
 }
 

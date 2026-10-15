@@ -48,3 +48,5 @@ SHADOW_FINDINGS*.md
 SMOKE_FINDINGS*.md
 Alaya_*.md
 Alaya项目_*.md
+experiments/evolution-mvp/outputs/
+experiments/evolution-mvp/__pycache__/

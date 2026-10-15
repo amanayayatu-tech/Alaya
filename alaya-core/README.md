@@ -13,7 +13,7 @@ npm --prefix alaya-core run flywheel # 运行 4 轮飞轮数值模拟,打印验�
 npm --prefix alaya-core run typecheck
 ```
 
-要求 Node 20 LTS。依赖从仓库根目录安装，根 `package-lock.json` 是唯一 lockfile。
+要求 Node 24 LTS。依赖从仓库根目录安装，根 `package-lock.json` 是唯一 lockfile。
 
 ## 目录结构
 

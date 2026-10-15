@@ -28,22 +28,22 @@ import {
 const flywheelSteps = [
   { label: "想法", detail: "先说清楚你想把项目带到哪里", icon: Sparkles },
   { label: "预测", detail: "把判断写成能验证的说法", icon: ClipboardCheck },
-  { label: "执行", detail: "让系统生成任务或变更包", icon: Play },
-  { label: "反馈", detail: "收集用户、数据和外部信号", icon: MessageSquareText },
-  { label: "知识", detail: "把有用经验沉淀下来", icon: Library },
-  { label: "更聪明", detail: "下一轮带着旧经验继续跑", icon: BrainCircuit },
+  { label: "任务草稿", detail: "生成任务或变更包，交给人工执行", icon: Play },
+  { label: "反馈", detail: "演示使用模拟反馈，也可导入外部信号", icon: MessageSquareText },
+  { label: "知识", detail: "记录知识条目和来源", icon: Library },
+  { label: "引用", detail: "查看下一轮引用了哪些既有条目", icon: BrainCircuit },
 ];
 
 const abilities = [
   { title: "把目标拆成一轮轮行动", body: "不再只写一个大愿望，而是每轮都有目标、预测、动作和回看。", icon: GitBranch },
-  { title: "自动沉淀可复用经验", body: "跑过的反馈不会散掉，会进入 Knowledge Base（知识库），下一轮能继续用。", icon: DatabaseZap },
+  { title: "保存知识与来源", body: "反馈与误差可以形成知识候选；能否改善任务结果需要单独验证。", icon: DatabaseZap },
   { title: "高风险动作先停一下", body: "遇到危险、预算、意义不清的地方，会打开 Human Gate（人工闸门）请你确认。", icon: ShieldCheck },
   { title: "每一步都有账可查", body: "关键判断会进入 Audit Ledger（审计账本），方便追踪是谁、何时、为什么这么做。", icon: ScrollText },
 ];
 
 const strengths = [
   ["Flywheel", "飞轮", "不是问一次答一次，而是一轮接一轮，把反馈变成下一轮的燃料。"],
-  ["Knowledge Base", "知识库", "把经验存起来，让系统不要每次都从零开始想。"],
+  ["Knowledge Base", "知识库", "保存知识条目和来源，供后续任务检索与引用。"],
   ["Human Gate", "人工闸门", "危险决策前先让人确认，自动化不能绕过红线。"],
   ["Audit Ledger", "审计账本", "每次判断、变更、审批都有记录，事后能复盘。"],
   ["LLM", "大语言模型", "负责生成建议和草稿，但不能跳过规则直接乱来。"],
@@ -54,8 +54,8 @@ const operationSteps = [
   { title: "推进飞轮一轮", body: "回到飞轮总览，点击“推进飞轮一轮”，让系统开始生成预测、任务和下一步。", href: "/" },
   { title: "处理需要你确认的卡点", body: "去人类闸门，把方向、风险、意义不清的地方批掉、改掉或放行。", href: "/gates" },
   { title: "检查沉淀出的经验", body: "看知识库，确认哪些经验已经变成系统以后可以复用的信念。", href: "/knowledge" },
-  { title: "复盘每一轮准不准", body: "在周期评审里看预测、反馈、误差和 Agent（智能执行角色）运行记录。", href: "/review" },
-  { title: "看飞轮有没有变强", body: "健康证明会告诉你知识有没有增长、人工闸门压力大不大、复利是否出现。", href: "/health" },
+  { title: "复盘每一轮记录", body: "在周期评审里核对预测、反馈来源、误差和 Agent（智能执行角色）运行记录。", href: "/review" },
+  { title: "查看积累与引用", body: "飞轮状态展示知识条目、引用比例和人工闸门压力；这些指标不代表效果提升。", href: "/health" },
   { title: "追踪关键决策来源", body: "审计账本适合回看关键判断的前因后果，尤其适合团队复盘。", href: "/ledger" },
 ];
 
@@ -63,12 +63,12 @@ const glossary = [
   ["Agent", "智能执行角色", "系统里的分工角色，比如收集反馈、提炼知识、生成任务。"],
   ["LLM", "大语言模型", "负责理解文字和生成建议的模型。"],
   ["Cycle", "周期", "一轮从目标、预测、执行到反馈的闭环。"],
-  ["Flywheel", "飞轮", "越跑越积累、越积累越好用的循环。"],
+  ["Flywheel", "飞轮", "按轮次记录目标、预测、反馈和知识的工作流。"],
   ["Human Gate", "人工闸门", "需要人确认的卡点。"],
   ["Knowledge", "知识", "被系统保存下来的经验、原则或判断。"],
   ["Audit Ledger", "审计账本", "记录关键动作和决策的地方。"],
   ["Confidence", "置信度", "系统对某条知识有多相信。"],
-  ["Strong Knowledge", "强知识", "经过更严格验证、能更放心复用的知识。"],
+  ["Strong Knowledge", "强知识", "达到治理门槛并经人工批准的知识状态，不保证内容正确。"],
 ];
 
 function FlywheelDiagram() {
@@ -102,19 +102,19 @@ function PlainAiVsAlaya() {
       <div className="rounded-lg border border-warning/35 bg-warning/10 p-5">
         <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <HelpCircle className="h-4 w-4 text-warning" />
-          普通 AI（人工智能）工具
+          单次建议
         </div>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          你问一次，它答一次。答得好不好，下一次不一定记得；团队后来想复盘，也很难知道当时为什么这么判断。
+          一次建议给出一个判断；要复盘，还需要保存当时的目标、预测、依据和后续观察。
         </p>
       </div>
       <div className="rounded-lg border border-primary/35 bg-primary/10 p-5">
         <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <RotateCcw className="h-4 w-4 text-primary" />
-          Alaya
+          Alaya 研究版
         </div>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          每一轮都会留下预测、反馈、知识和审计记录。下一轮不是从零开始，而是带着上次学到的东西继续改。
+          按轮次保存预测、反馈、知识引用和人工决策，方便回看建议的依据。留下记录不代表建议已经变好。
         </p>
       </div>
     </div>
@@ -126,7 +126,7 @@ export default function Guide() {
     <PageShell
       title="使用说明"
       eyebrow="新手上手"
-      description="这页用大白话讲清楚 Alaya 是什么、怎么用、哪里厉害。你可以把它当成第一次打开产品时的地图。"
+      description="这页介绍研究版的本地演示路径、记录口径和使用边界。"
       testId="page-guide"
       className="pb-8"
     >
@@ -135,10 +135,10 @@ export default function Guide() {
           <div>
             <StatusBadge meta={{ label: "一句话解释", tone: "primary" }} />
             <h2 className="mt-4 text-2xl font-semibold leading-tight text-foreground md:text-4xl">
-              Alaya 把项目从一次性决策，变成会复盘、会学习、能被人控制的持续改进飞轮。
+              Alaya 研究版：记录预测、反馈、知识引用和人工决策的本地工作流。
             </h2>
             <p className="mt-4 text-sm leading-7 text-muted-foreground">
-              你可以把它理解成一个项目驾驶舱：它帮你提出下一步、预测结果、收集反馈、沉淀经验；遇到高风险动作时，它不会直接冲过去，而是停下来让人确认。
+              你可以查看一轮如何生成建议、记录反馈、形成知识条目和请求人工审批。默认 mock 演示用于检查流程；真实任务效果需要另行验证。
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
@@ -152,10 +152,10 @@ export default function Guide() {
             <div>
               <div className="text-sm font-semibold text-foreground">飞轮是怎么转起来的</div>
               <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                从想法出发，经过验证，再把经验带回下一轮。
+                从想法出发，记录预测与反馈，再查看下一轮的知识引用。
               </div>
             </div>
-            <StatusBadge meta={{ label: "闭环", tone: "success" }} />
+            <StatusBadge meta={{ label: "流程演示", tone: "muted" }} />
           </div>
           <FlywheelDiagram />
         </div>
@@ -177,8 +177,8 @@ export default function Guide() {
       </div>
 
       <SectionCard
-        title="厉害在哪里"
-        description="Alaya 的重点不是“替你拍脑袋”，而是让项目判断能持续变准。"
+        title="可以查看什么"
+        description="页面展示可回看的工作流记录；尚未证明认知增强或节省人工时间。"
       >
         <div className="grid gap-0 divide-y divide-card-border md:grid-cols-2 md:divide-x md:divide-y-0">
           <div className="p-4">
@@ -199,7 +199,7 @@ export default function Guide() {
 
       <SectionCard
         title="应该怎么操作"
-        description="按这个顺序走，基本就能把一个项目跑起来。"
+        description="按这个顺序检查一轮本地工作流；真实代码修改和发布仍由人工完成。"
       >
         <div className="divide-y divide-card-border">
           {operationSteps.map((step, index) => (
@@ -248,11 +248,11 @@ export default function Guide() {
 
         <SectionCard
           title="安全提醒"
-          description="Alaya 很适合加速项目，但不是让系统越权替你决定一切。"
+          description="研究版用于检查工作流；建议、审批记录和真实执行需要分别核对。"
         >
           <div className="space-y-3 p-4">
             {[
-              "Alaya 不是自动替你做所有决定，它更像一个会记笔记、会追问、会复盘的项目副驾驶。",
+              "接入真实模型只生成建议或草稿；Builder 变更包经审阅后仍需人工执行。",
               "红线、预算、Human Gate（人工闸门）是核心保护机制，尤其适合控制高风险自动化。",
               "高风险动作必须能预览、能回滚、能追溯；看不清后果的动作，不应该直接放行。",
             ].map((item) => (
@@ -262,7 +262,7 @@ export default function Guide() {
               </div>
             ))}
             <div className="rounded-md border border-border bg-muted/25 p-3 text-xs leading-5 text-muted-foreground">
-              实用建议：每次推进前先看项目设置里的红线；每次推进后看周期评审和健康证明。这样你能知道系统到底学到了什么，而不是只看它说了什么。
+              每次推进前先看项目红线，推进后核对周期评审和飞轮状态。区分模拟反馈、外部证据与模型建议；知识增长或引用不代表任务效果改善。
             </div>
           </div>
         </SectionCard>

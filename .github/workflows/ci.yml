@@ -15,7 +15,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: package-lock.json
 
@@ -67,45 +67,3 @@ jobs:
         run: npm --prefix alaya-core run flywheel
         env:
           CI: "true"
-
-  live-llm-validation:
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    needs: unit-and-integration
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: package-lock.json
-
-      - name: Install dependencies (workspaces)
-        run: npm ci
-
-      - name: Live validation prerequisites
-        env:
-          OPENAI_API_KEY: ${{ secrets.LLM_API_KEY }}
-          ALAYA_GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          if [ -z "${OPENAI_API_KEY:-}" ] || [ -z "${ALAYA_GITHUB_TOKEN:-}" ]; then
-            echo "Live validation skipped: configure Actions secrets LLM_API_KEY and GH_PAT."
-            echo "Use GH_PAT for personal tokens; GITHUB_TOKEN is a reserved Actions token name."
-            exit 0
-          fi
-
-      - name: Live Alaya upgrade validation
-        env:
-          OPENAI_API_KEY: ${{ secrets.LLM_API_KEY }}
-          ALAYA_GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL || 'https://api.minimax.io/openai' }}
-          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL || 'MiniMax-M3' }}
-          FLYWHEEL_ROUNDS: "4"
-          FLYWHEEL_VALIDATE_COMPOUNDING: "true"
-        run: |
-          if [ -z "${OPENAI_API_KEY:-}" ] || [ -z "${ALAYA_GITHUB_TOKEN:-}" ]; then
-            exit 0
-          fi
-          npm --prefix alaya-app run flywheel:live

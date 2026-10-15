@@ -6,6 +6,7 @@
  */
 import { storage, now } from "../storage";
 import { callLlm } from "../llm";
+import { assertScenarioDemoAllowed } from "../config/env";
 import { generateNextGoal, type NextGoalDraft, type NextGoalInput } from "../autonomousGoal";
 import { buildKnowledgeContext } from "../knowledgeInjection";
 import { computeSemanticKey, isContradiction, isSemanticDuplicate } from "../knowledgeSimilarity";
@@ -917,12 +918,13 @@ export async function runOrchestrator(projectId: string, cycleId: string, sc: Sc
   return { goal, belief, prediction, action, refs, reasoning, gate };
 }
 
-export function humanResolveDirectionGate(projectId: string, cycleId: string, gateId: string, sc: ScenarioRound) {
+function approveScenarioDirectionGate(projectId: string, cycleId: string, gateId: string, sc: ScenarioRound) {
+  assertScenarioDemoAllowed();
   const rationale = sc.index === 4
-    ? "批准第4轮可回滚变更包: 方向来自前轮 preview/user_fear 知识,新增 rollbackPlan 与 auditSummary 作为执行约束。"
-    : "推荐目标与已验证知识一致";
+    ? "场景模拟审批（非人工决定）：第4轮变更包演示 preview/user_fear 知识、rollbackPlan 与 auditSummary 约束。"
+    : "场景模拟审批（非人工决定）：推荐目标与演示知识一致";
   new HumanGateService(storage).systemResolve(gateId, "approve_recommended", {
-    actor: "human",
+    actor: "scenario",
     status: "approved",
     via: "scenario",
     reason: rationale,
@@ -933,8 +935,8 @@ export function humanResolveDirectionGate(projectId: string, cycleId: string, ga
     cycleIdx: sc.index,
     kind: "approval",
     name: "direction_gate_approved",
-    agent: "human",
-    attributes: { gateId, decision: "approve_recommended" },
+    agent: "scenario",
+    attributes: { gateId, decision: "approve_recommended", simulated: true },
   });
 }
 
@@ -1088,7 +1090,7 @@ export async function runBuilder(cycleId: string, sc: ScenarioRound, plannedActi
       { cycleIdx: sc.index, cycleId, agent: "builder" },
     ) : "",
     prohibited: [
-      "Do not claim tests passed unless the tool-reported build result says so.",
+      "This is a scenario simulation; no real build or tests were executed. Label the supplied build result as simulated.",
       "Do not remove rollback or audit fields from a high-risk cycle 4 task.",
       "Do not execute external irreversible actions.",
       "Return only one JSON object for emit_task_spec with exact keys: summary, buildSuccess, diffSummary, testReport.",
@@ -1108,7 +1110,7 @@ export async function runBuilder(cycleId: string, sc: ScenarioRound, plannedActi
     action: plannedAction,
     diffSummary,
     testReport,
-    toolReportedBuildSuccess: sc.buildSuccess,
+    simulatedBuildSuccess: sc.buildSuccess,
     llmReportedBuildSuccess: typeof llmData.buildSuccess === "boolean" ? llmData.buildSuccess : null,
     ...(rollbackPlan ? {
       rollbackReadyChangePackage: rollbackPlan,
@@ -1134,7 +1136,7 @@ export async function runBuilder(cycleId: string, sc: ScenarioRound, plannedActi
   logEvent(sc.index, "builder", "tasks", "insert", { taskId: task.id, success: sc.buildSuccess });
   storage.recordAgentRun({
     cycleId, cycleIdx: sc.index, agent: "builder", action: "emit_task_spec + receive_mock_build_report",
-    outputSummary: `build=${sc.buildSuccess ? "成功" : "失败"} | ${diffSummary}`,
+    outputSummary: `模拟 build=${sc.buildSuccess ? "成功" : "失败"} | ${diffSummary}`,
     knowledgeRefsUsed: "[]", ts: now(),
   });
   if (projectId) traceAgentRun(projectId, cycleId, sc.index, "builder", "emit_task_spec + receive_mock_build_report", []);
@@ -1205,7 +1207,7 @@ export function evaluatePrediction(
     cycleId,
     belief: plan.belief, prediction: plan.prediction, action: plan.action,
     claims: JSON.stringify([claim]),
-    observation: `${config.metric} = ${config.observed}`,
+    observation: `[模拟情景，非真实用户测量] ${config.metric} = ${config.observed}`,
     predictionError: cycleErr.eCycle, worstClaimError: cycleErr.worstClaimError,
     errorType: errorType, updateTarget: attribution.route, status: "resolved",
     knowledgeRefs: JSON.stringify(plan.refs),
@@ -1214,7 +1216,7 @@ export function evaluatePrediction(
   if (!storage.listObservations(cycleId).some((observation) => observation.id === observationId)) {
     storage.createObservation({
       id: observationId, cycleId, predictionId: pred.id,
-      metric: config.metric, value: config.observed, source: "mock_analytics",
+      metric: config.metric, value: config.observed, source: "scenario_simulation",
     });
   }
   storage.updateCycle(cycleId, { eCycle: cycleErr.eCycle, worstClaimError: cycleErr.worstClaimError });
@@ -1772,6 +1774,7 @@ export async function runOperationalStagesAfterApprovedDirection(projectId: stri
 
 // ---------------- run-full: one complete flywheel turn ----------------
 export async function runFullCycle(projectId: string, cycleId: string) {
+  assertScenarioDemoAllowed();
   const cycle = storage.getCycle(cycleId);
   if (!cycle) throw new Error("cycle not found");
   const sc = await resolveCycleStimulus(projectId, cycle.idx, cycleId);
@@ -1786,6 +1789,6 @@ export async function runFullCycle(projectId: string, cycleId: string) {
   });
 
   const plan = await runOrchestrator(projectId, cycleId, sc);
-  humanResolveDirectionGate(projectId, cycleId, plan.gate.id, sc);
+  approveScenarioDirectionGate(projectId, cycleId, plan.gate.id, sc);
   return runOperationalStagesAfterApprovedDirection(projectId, cycleId);
 }

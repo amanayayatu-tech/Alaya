@@ -1,7 +1,7 @@
 import "dotenv/config";
 import express, { Response, NextFunction } from 'express';
 import type { Request } from 'express';
-import { assertEnvValid } from "./config/env";
+import { assertEnvValid, isScenarioDemoAllowed } from "./config/env";
 import { checkCapability, CapabilityDeniedError } from "./security/capabilities";
 import { corsMiddleware, securityHeadersMiddleware } from "./security/http";
 import { redactError, redactSensitiveData, redactSensitiveText } from "./security/redact";
@@ -112,7 +112,7 @@ app.use((req, res, next) => {
   // Serve both the API and client on PORT. reusePort is opt-in because some
   // local macOS/Node combinations return ENOTSUP when it is enabled.
   const port = parseInt(process.env.PORT || "5000", 10);
-  const host = process.env.HOST || "0.0.0.0";
+  const host = process.env.HOST || "127.0.0.1";
   const listenOptions =
     process.env.REUSE_PORT === "true"
       ? { port, host, reusePort: true }
@@ -126,16 +126,18 @@ app.use((req, res, next) => {
   // seed is disabled so real LLM validation does not block readiness. Keep the
   // scheduler off until seeding finishes so it cannot consume half-seeded demo
   // cycles.
-  if (process.env.ALAYA_AUTO_SEED_DEMO !== "false") {
+  if (process.env.ALAYA_AUTO_SEED_DEMO !== "false" && isScenarioDemoAllowed()) {
     try {
       const { seedDemo, demoExists } = await import("./seed");
       if (!demoExists()) {
         await seedDemo();
-        log("seeded demo project (3 flywheel cycles)");
+        log("seeded scenario demo project (simulated approvals and observations)");
       }
     } catch (e) {
       console.error("demo seed failed", e);
     }
+  } else if (process.env.ALAYA_AUTO_SEED_DEMO !== "false") {
+    log("demo seed skipped: automatic scenario approvals require development mode and mock providers");
   }
 
   if (process.env.ALAYA_SCHEDULER !== "false") {

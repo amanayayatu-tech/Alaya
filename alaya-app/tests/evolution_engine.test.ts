@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 process.env.ALAYA_DB_PATH = join(mkdtempSync(join(tmpdir(), "alaya-evolution-test-")), "test.db");
+process.env.ALAYA_MODE = "development";
 process.env.ALAYA_LLM_PROVIDER = "mock";
 
 const { storage, now } = await import("../server/storage.ts");
@@ -77,6 +78,8 @@ function createKnowledge(projectId: string, id: string, overrides: Record<string
     externalVerifiedCount: 1,
     validFrom: "2026-06-04",
     validUntil: null,
+    // Keep the generic fixture fresh; decay-specific tests provide an explicit old timestamp.
+    lastVerifiedAt: Date.now(),
     lastValidatedCycle: 4,
     createdByCycle: 4,
     createdBy: "test",

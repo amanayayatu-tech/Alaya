@@ -1,5 +1,11 @@
 # Configuration and Operations
 
+> **研究版当前支持范围（2026-10-15）**：Node.js 24 LTS + npm 11、本机单人、确定性 mock 演示。安装与启动从根目录 `npm ci` → `npm run dev`，无须模型凭证。维护仅处理安装、依赖安全与既有路径直接回归；完整边界见[研究版结项记录](./research/RESEARCH_RELEASE_2026-10-15.zh-CN.md)。
+
+本文件保留历史功能与配置资料。shadow/staging/production 是代码中的模式名，不代表研究版支持生产托管或多用户。真实 provider、外部通知/写入和长跑不属于默认演示或验收；历史命令不构成执行授权。Builder 只准备人工应用的变更包，不自动执行补丁；mock/部分 scheduler 观察来自合成场景，知识数和指标增长不证明认知增强。
+
+默认开发路径请只在本机访问。不要将未做生产验收的开发服务暴露公网；启用真实集成前须按具体动作另行确认配置与授权。
+
 This file preserves the detailed runtime, configuration, operations, API, and feature notes that used to live in the root README. The README now stays focused on orientation and quick start.
 
 Related entry points:
@@ -19,7 +25,7 @@ Related entry points:
 预测 -> 行动 -> 观察 -> 误差归因 -> 知识沉淀 -> 下一轮引用
 ```
 
-第 3 轮必须被前两轮知识真实改变，而不是形式上引用。第 4 轮继续要求产出 rollback-ready change package 和 audit summary。第 5 轮起，如果脚本化场景已经用尽，Scheduler 会生成新的自主目标，而不是复用最后一轮模板或停止在场景耗尽状态。
+历史场景会检查第 3 轮是否引用前两轮知识并改变方向，第 4 轮是否形成 rollback-ready change package 和 audit summary；第 5 轮起可由 Scheduler 生成新目标。这些是流程与回归检查，合成观察不构成独立业务反馈，不能据此宣称认知复利或真实任务改进。
 
 ### 2. Five Agents
 
@@ -79,13 +85,15 @@ Scheduler 会用这些字段判断预测是否能成为可靠学习信号。New 
 
 知识不是普通笔记。每条知识都有置信度、状态、来源、引用记录、有效期和治理字段。过期、冲突或未经验证的知识不能无条件支撑下一轮决策。
 
-Librarian 会对近义知识做熵减合并：保留主条目，给被合并条目写入 `supersededBy`，不做物理删除。检索和高风险证据集默认排除 stale、quarantined、conflict 和 superseded 条目。
+Librarian 会对近义知识做合并：保留主条目，给被合并条目写入 `supersededBy`，不做物理删除。检索和高风险证据集默认排除 stale、quarantined、conflict 和 superseded 条目。
 
 任务前知识注入由 `alaya-app/server/knowledgeInjection.ts` 负责：系统根据当前任务文本从 FTS5 检索 active/strong 且未被 supersede 的知识，构造有上限的 `[PRIOR KNOWLEDGE]` 上下文并写回 `usageCount`、`lastInjectedAt` 和审计事件。显式 schema migration 会执行 FTS5 `rebuild`，确保旧库已有知识也能被新建索引检索到；shadow/staging/production 的常态启动只校验 schema readiness。
 
 时间衰减由 `applyTimeDecay` 和 Scheduler 共同执行。`lastVerifiedAt` 保留真实验证时间，`lastDecayedAt` 记录最近一次自动衰减时间，避免周期性 tick 对同一历史区间重复衰减。被衰减到阈值以下的知识会降级为 stale，并通过 `time_decay_scheduler` 写入审计日志。
 
-## 自主进化与长期验证
+## 历史自主循环与离线回归
+
+以下保留既有实现的说明，不是追加长跑或实验的计划。mock 循环只验证流程、边界与审计，不验证能力增长。
 
 Alaya 的默认 4 轮场景仍然作为治理回归基线保留。超过第 4 轮后，系统会基于当前项目身份、世界模型、已验证知识、上轮误差和近期反馈生成下一轮目标。
 
@@ -96,7 +104,7 @@ Alaya 的默认 4 轮场景仍然作为治理回归基线保留。超过第 4 �
 - `maturation_stall`：决策知识增长但 strong 知识不成熟。
 - `knowledge_explosion`：可决策知识规模异常增长。
 
-长程离线验证：
+固定 20 轮 mock 离线回归（不调用真实模型）：
 
 ```bash
 npm run e2e:long-evolution
@@ -108,9 +116,9 @@ npm run e2e:long-evolution
 npm run e2e:review-window
 ```
 
-该脚本使用 mock 时钟和临时 SQLite 库，覆盖窗口 digest、manual/scheduled session、原因码否决、grace 撤销、错峰 apply、假设偏差级联作废和收口消息。
+`e2e:review-window` 使用 mock 时钟和临时 SQLite 库，覆盖窗口 digest、manual/scheduled session、原因码否决、grace 撤销、错峰 apply、假设偏差级联作废和收口消息。
 
-该脚本会跑 20 轮 mock LLM 飞轮，检查不再出现 `scenario_exhausted`、目标不重复、知识规模有界、合并事件有审计记录、blocking gate 不膨胀。
+`e2e:long-evolution` 会跑 20 轮 mock LLM 飞轮，检查 `scenario_exhausted`、目标重复、知识规模、合并事件审计和 blocking gate 数量。二者均是工程回归。
 
 ## Web 功能地图
 
@@ -120,8 +128,8 @@ npm run e2e:review-window
 | Human Gates | 批准、修改或否决方向闸、意义闸、风险闸 |
 | Prediction Ledger | 查看预测、观察、误差和归因 |
 | Knowledge Base | 搜索知识、查看置信度、来源和 Agent 引用 |
-| Cycle Review | 复盘单轮 cycle、Agent 输出、复利证据和本轮高风险 action ledger 时间线 |
-| Flywheel Health | 查看每轮新增知识、晋级、纠错、知识注入、知识状态和复利证明 |
+| Cycle Review | 复盘单轮 cycle、Agent 输出、知识引用记录和本轮高风险 action ledger 时间线 |
+| Flywheel Health | 查看每轮新增知识、晋级、纠错、知识注入与状态；历史复利标签仅是流程代理指标 |
 | New Project | Onboarding Interview，创建新项目 |
 | Project Setup | 修正 seed identity、world model、redlines 和第一轮 claim |
 
@@ -243,37 +251,38 @@ help - 查看使用帮助
 
 ## 常用命令
 
-从仓库根目录运行：
+从仓库根目录运行。以下列表是既有命令索引，不是一次性全部执行的验收清单。默认研究版只运行 README 中的本地 mock 和工程检查；其中 GitHub/live、真实 LLM 长测及外部动作须另行明确授权：
 
 ```bash
-npm run test:all       # core + app + scripts 测试
+npm run test:all       # core + app + scripts 工程测试
 npm run guard          # 治理底线守卫
 npm run typecheck      # core + app 类型检查
-npm run build          # Web app 生产构建
-npm run flywheel            # 4 轮飞轮模拟
-npm run e2e:long-evolution  # 20 轮自主进化离线验收
-npm run e2e:github          # GitHub Issue Sensor 完整链路，建议指向 sandbox repo
-npm run e2e:github-autonomous # 自主调度 + GitHub Sensor 完整链路
-npm run benchmark:smoke      # P0/P1 deterministic benchmark
-npm run provider:canary -- --projectId <projectId> --provider mock  # provider/model/role canary
-npm run trace:export -- --cycle <cycleId>  # 导出 cycle trace JSONL
-npm run audit:upgrade       # 升级 readiness 审计
-npm run validation:summary  # 汇总 validation-logs 下最新 SUMMARY.csv
-npm run validation:health-signal  # 匿名健康硬件选型 36h 真实 LLM 长测 runner
-npm run validation:health-signal:timeseries -- --log-dir validation-logs/<run>  # 生成 timeseries_summary.json
-npm run validation:health-signal:conflicts -- --log-dir validation-logs/<run>    # 生成 conflict_lifecycle_summary.json
-npm run secret:scan         # 高置信 secret 扫描
-npm run ops:pre-upgrade     # 升级前状态检查
-npm run ops:backup          # SQLite state 备份
-npm run ops:migrate         # 显式 schema migration
-npm run ops:restore -- --backup tmp/alaya-backups/<backup>  # 默认 dry-run 恢复
-npm run ops:post-upgrade    # 升级后 guard/core/probe 验证
-npm run shadow:report -- --out tmp/shadow-report.md
+npm run build          # 构建检查，不代表生产验收
+npm run flywheel       # 4 轮 mock 模拟
+npm run benchmark:smoke  # 确定性 mock benchmark
+npm run secret:scan    # 高置信 secret 扫描
 ```
+
+其他保留命令按用途查阅，不要将下表当作批量执行清单：
+
+| 命令 | 类型与授权边界 |
+| --- | --- |
+| `e2e:long-evolution`、`e2e:review-window` | 固定 mock 工程回归，见上文；不构成真实学习实验 |
+| `provider:canary -- --projectId <projectId> --provider mock` | 本地 mock canary；真实 provider 另需授权 |
+| `trace:export -- --cycle <cycleId>` | 导出本地 trace，分享前检查脱敏 |
+| `audit:upgrade`、`validation:summary`、`shadow:report` | 既有本地报告入口，不能据此升级效果结论 |
+| `validation:health-signal:timeseries`、`validation:health-signal:conflicts` | 读取既有 run 生成分析；先确认源目录与输出位置 |
+| `e2e:github`、`e2e:github-autonomous` | 历史真实 GitHub 路径，非默认检查，须另有具体授权 |
+| `validation:health-signal` | 历史 36h 真实 LLM runner，不在维护验收中启动，须另行授权 |
+| `ops:pre-upgrade`、`ops:post-upgrade` | 既有升级检查；按具体维护任务使用 |
+| `ops:backup` | 本地 SQLite 备份，先核对 DB 路径 |
+| `ops:migrate`、`ops:restore` | 改变已有数据，仅按获授权的迁移/恢复任务使用；恢复默认 dry-run |
 
 TypeScript 运行入口统一使用 `node --import tsx`。这避免在受限环境里直接调用 `tsx` CLI 时创建 IPC pipe 失败，同时保留同样的 TS/ESM 加载能力。核心入口包括 app dev/build、core flywheel、真实 LLM E2E 和长程自主进化 E2E。
 
 ## 运行模式与安全模型
+
+以下是历史实现的配置语义；研究版支持范围仍仅为本机单人 development/mock，不由运行模式名扩大。
 
 Alaya 现在有明确的运行模式。模式由 `ALAYA_MODE` 控制；如果未设置，`NODE_ENV=test` 映射到 `test`，`NODE_ENV=production` 映射到 `production`，其他情况默认为 `development`。
 
@@ -442,7 +451,7 @@ ALAYA_SHADOW_PORT=5055 docker compose -f deploy/docker-compose.shadow.yml down
 
 容器安全属性：
 
-- Dockerfile 使用 `node:20-bookworm-slim`，没有 `latest`。
+- Dockerfile 使用 `node:24-bookworm-slim`，没有 `latest`。
 - build/runtime 分阶段，runtime 运行用户是 `alaya`，不是 root。
 - `.dockerignore` 排除 `.env`、数据库、日志、缓存、tmp、coverage、node_modules 和 `.git`。
 - compose 使用 read-only root filesystem。
@@ -536,7 +545,7 @@ npm run e2e:ui-freeze
 ALAYA_E2E_BASE_URL=http://127.0.0.1:5000 npm run e2e:ui-freeze
 ```
 
-完整 live 验收会调用真实 LLM 和 GitHub，需要本机 secret：
+历史 live 验证会调用真实 LLM 和 GitHub，不属于研究版默认检查；仅在另有具体授权与本机 secret 时使用：
 
 ```bash
 npm run e2e:live
@@ -550,7 +559,7 @@ npm --prefix alaya-app run flywheel:live
 
 ## 真实 LLM 与 Secret
 
-默认不调用真实模型。启用 OpenAI-compatible provider：
+以下为保留的历史集成说明，不属于研究版默认路径，也不是本次新实验授权。默认不调用真实模型；另获授权后可配置 OpenAI-compatible provider：
 
 ```bash
 ALAYA_LLM_PROVIDER=openai \
@@ -608,7 +617,7 @@ npm run e2e:llm-flywheel
 
 ```text
 PORT=5000
-HOST=0.0.0.0
+HOST=127.0.0.1
 REUSE_PORT=false
 ALAYA_BASE_URL=http://localhost:5000
 ALAYA_CAP_EXTERNAL_NOTIFICATION=false
@@ -631,7 +640,20 @@ alaya-app/data.db-shm
 alaya-app/data.db-wal
 ```
 
-这些文件不会提交到仓库。需要重置演示数据时，停止服务后删除 `alaya-app/data.db*`，再重新启动。
+这些文件不会提交到仓库。实际位置受 `ALAYA_DB_PATH` 与启动目录影响；不要假定某个 `data.db` 只含演示数据。
+
+### 独立演示与安全重置
+
+先停止当前服务，保留旧数据库。要重新演示，创建新的独立目录并切换数据库路径：
+
+~~~bash
+mkdir -p tmp
+ALAYA_DEMO_DIR="$(mktemp -d "$PWD/tmp/alaya-demo.XXXXXX")"
+ALAYA_DB_PATH="$ALAYA_DEMO_DIR/data.db" ALAYA_LLM_PROVIDER=mock \
+  ALAYA_CAP_EXTERNAL_NOTIFICATION=false npm run dev
+~~~
+
+该命令不会删除或覆盖旧数据库。关闭服务后保留这次目录，便于审计。需要清理时先确认它是本次创建、没有真实工作记录的演示目录，并单独处理；不要使用 `rm data.db*` 一类通配操作。若要操作已有真实记录，先用 `npm run ops:backup` 保存备份，再按对应恢复流程处理。
 
 ## API 概览
 
@@ -721,7 +743,9 @@ POST /api/builder/codex/apply
 - Builder Codex apply 默认 dry-run；`dryRun:false` 在 long-run mode 下归类为 `shell_execution`，默认拒绝，且即使审批通过也只记录 manual apply path。
 - Provider canary 在 long-run mode 下归类为 `llm_call`，真实 provider 需要显式 capability 与 secret；mock canary 可用于本地和 CI。
 
-## 路线图
+## 历史功能清单
+
+以下状态描述既有实现，保留供源码定位；不是未来路线图、生产验收或继续建设的承诺。当前维护仅限安装、安全与直接回归。
 
 | 项目 | 状态 | 入口 |
 | --- | --- | --- |

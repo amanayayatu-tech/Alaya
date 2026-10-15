@@ -1,228 +1,81 @@
-> 迭代前必读：[PRINCIPLES.md](./PRINCIPLES.md)。违反 Part 1 任何一条，等于破坏 Alaya 的产品根基。
+# Alaya · Research Release
 
-# Alaya
+Alaya 是一个本地单人使用的研究原型，用来观察 AI 工作流中的预测、人工审批、知识状态与审计记录。本次研究版为 **v0.1.0-research.1**，进入维护模式。
 
-Alaya 是一个本地优先的 AI-native「认知复利飞轮」系统。它把每一轮产品或运营动作沉淀为可审计资产：预测、观察、误差归因、知识、人工闸门和下一轮决策。每一轮都可回放、可核验，下一轮可以引用上一轮的知识——这就是「认知复利」。
+**现有实验尚未证明 Alaya 的记忆、蒸馏或反馈循环带来稳定认知增强。** 2026-09-23 的固定搜索 M1 已完成，三个 seed 的 test 均有正改善，平均为 **+0.573%**，未达到预设 **≥1%** 门槛，`go=false`；没有进入 M2/M3。本次收尾不再追加架构、算法、新实验或长跑。完整时间轴、证据边界和维护范围见[研究版结项记录](./docs/research/RESEARCH_RELEASE_2026-10-15.zh-CN.md)。
 
-默认运行使用 deterministic mock LLM，不调用外部模型；只有显式配置 OpenAI-compatible provider 和 capability 后才会走真实 LLM。
+## 本地运行
 
-**项目当前态（2026-09-23 阶段收口）**：产品 MVP、确定性 mock 飞轮和既有 24h 影子基线仍可运行；但历史实验没有证明“知识治理/反馈循环带来认知增强”，最新 RSI 装箱 P1 也没有达到继续条件。因此本仓库把失败证据冻结为可审计阶段档案，并把后续工作重心从“继续补齐大脑平台”改为“先在客观评分任务上验证固定搜索，再测 Alaya 的额外增量”。详见[阶段档案与重构方案](./docs/research/stage-2026-09-22/)。
+支持 **Node.js 24 LTS + npm 11**，从仓库根目录安装依赖：
 
-阶段档案中已复现一个校准事实：在官方 FunSearch OR3 装箱数据上，Best Fit 平均 212 箱，公开启发式平均 207.45 箱，改善 2.146%，全部装箱合法，且没有模型调用。这是评测环境可测出优势的 DEVELOPMENT 参照，不是 Alaya 或 RSI 成功证明；[复现回执](./docs/research/stage-2026-09-22/funsearch-reproduction.json)。
-
-> 历史 README、旧实验和产品代码没有被删除。阶段档案明确区分 local checks、smoke、正式验收和 science/public claim；“测试通过”或“工具成功”均不自动等于认知增强。
-
----
-
-## 快速开始
-
-要求：Node.js 20 LTS 和 npm 10。仓库使用 npm workspaces，依赖只从根目录安装。
-
-```bash
+~~~bash
 npm ci
 npm run dev
-```
+~~~
 
-默认地址 `http://localhost:5000`（端口被占用时用 `PORT=5001 npm run dev`）。首次启动会在 `alaya-app/` 下创建本地 SQLite 数据库并写入演示项目。重置本地演示数据：停止服务后删除 `alaya-app/data.db*`，再重新启动。
+打开 [http://localhost:5000](http://localhost:5000)。端口被占用时使用 `PORT=5001 npm run dev`。默认使用确定性 mock LLM，不需要 API key，也不调用外部模型。首次启动会创建本地 SQLite 数据和演示项目。
 
-更多脚本和运行模式见 [docs/configuration.md](./docs/configuration.md)；贡献流程见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+建议先用一个全新的 checkout。若当前 shell 或本地 env 已配置真实 provider，先移除这些配置（包括角色覆盖和 `ALAYA_MODEL_ROUTING_JSON`）；以下命令只覆盖全局 provider：
 
----
+~~~bash
+ALAYA_LLM_PROVIDER=mock ALAYA_CAP_EXTERNAL_NOTIFICATION=false npm run dev
+~~~
 
-## 当前状态
+这是本机单人演示路径。请勿直接暴露到公网；远程访问、多用户、SaaS 和生产运行不属于研究版支持范围。
 
-| 部分 | 状态 | 说明 |
-| --- | --- | --- |
-| Core | 可运行 | TypeScript 纯内核，验证 4 轮认知复利飞轮 |
-| Web App | 可运行 | Express + React + SQLite 本地 MVP |
-| LLM | mock / OpenAI-compatible | 默认 mock，可切 OpenAI / MiniMax 等兼容端点 |
-| Scheduler | 可运行 | 自动推进 cycle；第 5 轮起可由自主目标生成器接管 |
-| Sensor | 可运行 | GitHub Issues、表单反馈、本地 CSV/JSON 业务信号导入 |
-| Human Gates | 可运行 | Direction / Meaning / Risk gate；支持 Web 和 Telegram 审批 |
-| Knowledge | 可运行 | SQLite FTS5、任务前知识注入、合并、冲突复核、时间衰减 |
-| Ops | 可运行 | health/ready/metrics、action ledger、secret scan、Docker shadow、备份恢复 |
-| Validation | 可运行 | health-signal 长测 runner、shadow analyzer、质量评分与趋势报告 |
-| **认知质量验证** | **阶段收口 / 未证明增强** | 24h 稳定配置基线和历史预注册仍可复核；adaptive treatment 失败不构成增强结论；本阶段没有认知增强正结果 |
+## 看一次完整路径
 
----
+1. 在 Dashboard 选择演示项目，查看当前 cycle 与预测。
+2. 打开“人类闸门”，查看依据并批准或否决一项待审决策；Distiller 知识提案获批后才会写入知识库。
+3. 到“知识库”查看来源、引用、状态与冲突复核记录。
+4. 在 Cycle Review 查看 Agent 输出、预测/观察和 action ledger，核对这次操作留下的记录。
 
-## 架构概览
+本地演示说明：
 
-```mermaid
-flowchart LR
-  UI["React Web UI"] --> API["Express REST API"]
-  API --> DB["SQLite + FTS5"]
-  API --> Scheduler["Scheduler"]
-  API --> Sensor["External Sensor"]
-  Scheduler --> Agents["5 Agents"]
-  Scheduler --> Notify["NotificationBus"]
-  Notify --> Telegram["Telegram"]
-  Sensor --> Gates["Human Gates"]
-  Agents --> LLM["Mock or OpenAI-compatible LLM"]
-  Agents --> Core["Pure Core Functions"]
-  Core --> KB["Knowledge Base"]
-  KB --> Agents
-  Gates --> Scheduler
-  DB --> UI
-```
-
-运行链路：`React/Vite -> Express API -> SQLite/FTS5 -> Scheduler -> 5 Agents -> LLM Provider`。所有高风险自动化都必须经过预测账簿、知识状态机、审计日志、capability gate 和人工闸门。
-
----
-
-## 核心模型
-
-每个 cycle 遵循：
-
-```text
-预测 -> 行动 -> 观察 -> 误差归因 -> 知识沉淀 -> 下一轮引用
-```
-
-五个 Agent 分工：
-
-| Agent | 作用 |
+| 可以查看或操作 | 解释边界 |
 | --- | --- |
-| Orchestrator | 选择目标、引用知识、提出预测与动作 |
-| Sensor | 收集反馈和外部信号 |
-| Builder | 形成任务或变更包 |
-| Distiller | 把观察与误差提炼成知识 |
-| Librarian | 管理知识状态、晋级、过期、冲突和隔离 |
+| 人工审批、知识检索与状态、预测和审计 | 展示工作流与记录机制；知识数量、引用次数和置信度增长不等于效果提升 |
+| 五角色与 scheduler 的 mock cycle | 观察可以来自合成场景，不能作为真实业务结果或独立世界反馈 |
+| Builder 变更包、dry-run、审批记录 | 变更仍需人工应用；adapter 不会自动执行补丁、完成交付或证明代码有效 |
+| 历史实验和分析入口 | 作为研究材料保留；旧计划不构成启动新实验的授权 |
 
-详细概念、Telegram、API、运行模式、Docker、观测和 secret 说明见 [docs/configuration.md](./docs/configuration.md)。
+更多配置、数据保护和旧功能入口见 [configuration](./docs/configuration.md)。需要重新演示时使用[独立演示数据库](./docs/configuration.md#独立演示与安全重置)，不要通配删除可能装有真实工作记录的数据库。
 
----
+## 已有证据
 
-## 项目结构
-
-```text
-.
-├── alaya-core/       # 纯 TypeScript 内核：飞轮、状态机、LLM provider、单元测试
-├── alaya-app/        # Express + React + SQLite 本地 Web MVP
-├── scripts/          # 守卫、E2E、validation、本地 secret 和运维脚本
-├── analysis/         # 认知质量实验的统计与指标抽取脚本（power analysis、配对检验）
-├── docs/             # PRD、架构、配置、验证、运维和归档文档
-├── PRINCIPLES.md     # 项目底线：纯函数、人工闸门、审计写路径、LLM 边界等
-├── CONTRIBUTING.md   # 本地开发、PR 和验证规范
-├── LICENSE           # MIT license
-└── README.md         # 当前入口文档
-```
-
-两个主要包：
-
-- `alaya-core`：回答「飞轮逻辑是否成立」，不依赖 Web 或数据库。
-- `alaya-app`：把 core 接入 SQLite、页面、Scheduler、Human Gates、Sensor 和 API。
-
----
-
-## 验证与长跑
-
-默认 PR 门禁只跑 mock / 本地检查，不连接真实 LLM，不执行长测。历史长跑、真实 LLM 验证、health-signal clean retest 说明和逐次验证记录见 [docs/validation/validation-history.md](./docs/validation/validation-history.md)。这些本地检查不能替代 24h analyzer、发布级统计实验或公开科学结论。
-
-### Health-signal 质量评分
-
-`scripts/health-signal-36h-validation.mjs` 提供匿名健康场景长测 runner；`scripts/shadow-analyze.mjs` 会在 run dir 下生成 `quality_summary.json` 和报告中的 `Quality Metrics` 区块。质量层只读取本地日志/SQLite，不改变产品 API，也不把 `validation-logs/` 产物纳入 git。
-
-质量指标当前覆盖：
-
-| 指标 | 口径 |
+| 路线 | 保存的结果 |
 | --- | --- |
-| `decisionTsr` | 单场景 pass@1 oracle-state check：最终 active/strong 知识必须收敛到预期决策，且不能残留未 supersede 的错误侧 |
-| `resolutionAccuracy` | 只评分确定性复核 pair；报告 scored/unscored 计数、pair 分布和低覆盖状态，避免少量样本造成假 100% |
-| `confidenceCalibration` | 用 10 桶 binned ECE 衡量声明置信度与实际正确性的偏差；calibration 用事件 truth 判定，同侧 dedupe/supersede 不计为错（见下） |
-| `faithfulness` | 知识陈述与证据的词面一致性；为次指标，不可抵消主指标 |
-| `latencyAndEfficiency` | 报告 runner/harness 观测到的 API、scheduler、knowledge retrieval、LLM agent 延迟以及 token/cost 比值；不是生产检索 SLO |
-| `rssSlopeMbPerHour` | 用 `monitor_log.csv.appRssMb` 计算 RSS 线性斜率，报告 `<50 MB/h` 阈值 |
+| 24h 影子运行 | 稳定配置基线通过；不证明认知增强，认知样本覆盖不足 |
+| SQL 经验迁移 | 原始经验 24/24，Alaya 蒸馏 22/24；未证明蒸馏增量 |
+| 知识迁移 M1/M1.1 | 前者比较知识为空且有契约缺口；后者阻塞在 K1，Dev 未执行 |
+| RSI P1 | 反馈对独立提案平均改善 +0.002754%，未过继续门；P2/P3 仅 mock |
+| FunSearch M0 | 已知公开算法离线复现 +2.146%，0 模型调用；用于校准 |
+| 固定搜索 M1 | 3 个 seed 平均 +0.573%，`go=false`；未启用 Alaya memory |
 
-真实 provider smoke 建议使用独立 fresh DB 和 run dir：
+[阶段档案](./docs/research/stage-2026-09-22/)保存失败、受阻和作废记录；[固定搜索 M1](./experiments/evolution-mvp/)提供已保存分数的离线复算方法。它的 `requests.jsonl` 是候选索引，不能当逐 HTTP 账本；runner 自产 `readback.json` 也不能单独证明独立复现。测试通过、工具成功与长期运行都不自动升级为能力结论。
 
-```bash
-ALAYA_SCHEDULER=false \
-ALAYA_AUTO_SEED_DEMO=false \
-ALAYA_LLM_PROVIDER=openai \
-OPENAI_API_KEY_FILE="$HOME/.config/alaya/openai-api-key" \
-OPENAI_BASE_URL=https://api.minimax.io/openai \
-OPENAI_MODEL=MiniMax-M3 \
-PORT=5300 \
-ALAYA_DB_PATH="$PWD/validation-logs/health-signal-smoke/health-signal.db" \
-npm run validation:health-signal -- \
-  --duration-minutes=30 \
-  --sample-minutes=1 \
-  --max-samples=10 \
-  --scenario=cognition-coverage \
-  --log-dir="$PWD/validation-logs/health-signal-smoke"
+## 项目与维护
 
-node scripts/shadow-analyze.mjs validation-logs/health-signal-smoke
-```
+~~~text
+alaya-core/    纯 TypeScript 内核、状态机、LLM provider
+alaya-app/     Express + React + SQLite 本地演示
+experiments/   已结束的开发实验、评测与保存分数
+docs/research/ 结项说明与阶段证据
+docs/validation/ 历史验收、预注册和测量记录
+~~~
 
-当前关键本地验收口径：
+维护仅处理安装、依赖安全和既有路径的直接回归问题。提交方法见 [CONTRIBUTING.md](./CONTRIBUTING.md)，治理约束见 [PRINCIPLES.md](./PRINCIPLES.md)。[原 PRD](./docs/PRD.md)、重构方案和 AI mission 保留作历史材料，不能当作当前路线图。原作者审阅论文包保持未发布状态，本仓库不声明已投稿。
 
-| 命令 | 期望 |
-| --- | --- |
-| `npm --prefix alaya-app run check` | TypeScript 0 error |
-| `npm --prefix alaya-app test` | App tests 全绿 |
-| `npm run test:scripts` | Script tests 全绿 |
-| `npm run guard` | Principles guard 全部通过 |
-| `npm run test:all` | Core、App、Scripts 全套测试通过 |
-| `npm run secret:scan` | 无高置信 secret |
+本地基本检查：
 
----
+~~~bash
+npm run typecheck
+npm run test:all
+npm run guard
+npm run secret:scan
+npm run build
+~~~
 
-## 认知质量验证 (Cognition Quality)
+[本次工程验收记录](./docs/validation/RESEARCH_RELEASE_2026-10-15.md)包含安装、测试、UI、重启和备份恢复结果。以上是工程检查，不是认知增强实验。真实 provider、GitHub 写入、通知、部署、长跑和新实验需分别明确授权。
 
-Alaya 把「模型的置信度是否可信」当作一等公民来验证。这条线的核心纪律是：**永不只看汇总指标下结论，必须下钻 reliabilityTable / 原始 events 验证样本有效性。** 项目曾两次因此避免错误结论。
-
-### 已冻结的成果
-
-| 项 | 标识 | 状态 |
-| --- | --- | --- |
-| 可冻结 24h 基线 | tag `baseline/shadow-24h-base-20260616` | 8 门全绿，前提 `MINIMAX_THINKING=disabled` |
-| ECE/calibration 度量修复 | commit `c0319d15` | calibration 改用事件 truth 判定，同侧 dedupe/supersede 不计为错；消除 bucket-level artifact |
-| 发布级实验预注册 | commit `00a60d75` | adaptive-vs-disabled 配对重复实验，优越性主判据 + TOST 等效回退 |
-
-### ECE 度量为何可信
-
-早期一次结果曾因 bucket-level truth 归因错误，把注入样本系统性误判为全错，使 ECE 虚高到 0.7。修复后（`c0319d15`）：
-
-- `scripts/lib/cognition-coverage-scenario.mjs`：为注入样本写入显式 `calibrationTruth`（`decision_matches_expected`）。
-- `scripts/lib/health-signal-quality.mjs`：calibration 优先用事件 truth，同侧 dedupe/supersede 不算错；ECE 保持 10 桶 binned 形式 `Σ (n_bucket/N)·|accuracy - confMean|`。
-
-### 当前结论：诚实的 Null Result
-
-Phase2 度量修复后的单次双臂对照：ECE_disabled = 0.2012，ECE_adaptive = 0.2067（差 0.0055）。这是**单次观测、无 p 值**，处于噪声量级，不足以断言任一方向。结论是诚实的 null result：**无证据支持开启 adaptive 提升认知质量，默认 `disabled` 合理且更简单。** 完整论证、power analysis 与发布级设计见白皮书。
-
-### 发布级实验工具链
-
-`analysis/` 下的脚本支撑配对重复实验：
-
-| 脚本 | 作用 |
-| --- | --- |
-| `analysis/phase3_pilot_decision.py` | 从 pilot run 估计 run 间标准差 σ_d，反推达 80% 功效所需样本量 N |
-| `analysis/phase3_stats.py` | 冻结的统计分析：单侧配对 t（优越性）+ TOST 等效 + 正态性/稳健性检验 + 预注册判定 |
-| `analysis/extract_phase3_metrics.py` | 从每个 run 的 `quality_summary.json` 抽取指标到 CSV（含 bucket 级下钻字段） |
-
-发布级 run 必须通过 7 道有效性硬门：scored≥30、coverage≥0.6、correctnessMode 全 truth、providerRatio=1.0、错误门全 0、注入样本所在桶 accuracy 不得系统性≈0、watchdog 绿且 finalDrain complete。
-
----
-
-## 关键文档
-
-| 文件 | 内容 |
-| --- | --- |
-| [PRINCIPLES.md](./PRINCIPLES.md) | 项目底线和治理约束 |
-| [CONTRIBUTING.md](./CONTRIBUTING.md) | 本地开发、PR、提交和验证规范 |
-| [docs/configuration.md](./docs/configuration.md) | 运行模式、配置、API、Telegram、Docker、观测、secret 和功能细节 |
-| [docs/PRD.md](./docs/PRD.md) | 原始产品需求文档 |
-| [docs/architecture-review.md](./docs/architecture-review.md) | 实现方案、架构评审和 PRD 漏洞分析 |
-| [docs/validation/validation-history.md](./docs/validation/validation-history.md) | CI、长程验证和历史验证记录 |
-| [docs/validation/VALIDATION_REPORT.md](./docs/validation/VALIDATION_REPORT.md) | 历史验证报告入口 |
-| [docs/validation/2026-06-17-alaya-shadow-24h-baseline-freeze.md](./docs/validation/2026-06-17-alaya-shadow-24h-baseline-freeze.md) | 24h 影子基线冻结记录 |
-| [docs/validation/WHITEPAPER_cognition_adaptive_null_result.md](./docs/validation/WHITEPAPER_cognition_adaptive_null_result.md) | 认知质量 null-result 白皮书（方法论 + power analysis） |
-| [docs/validation/EXPERIMENT_PREREG_phase3_publication.md](./docs/validation/EXPERIMENT_PREREG_phase3_publication.md) | 发布级实验预注册（判据冻结） |
-| [docs/validation/RUN_PLAYBOOK_phase3.md](./docs/validation/RUN_PLAYBOOK_phase3.md) | 发布级配对重复 run 执行手册 |
-| [docs/ai/CODEX_MISSION.md](./docs/ai/CODEX_MISSION.md) | 历史 AI 工作指令 |
-
----
-
-## License
-
-MIT. See [LICENSE](./LICENSE).
+MIT，见 [LICENSE](./LICENSE)。

@@ -15,7 +15,7 @@
 
 ## Backup
 
-Run:
+Stop Alaya first; the copy script is not a hot-backup mechanism. Run:
 
 ```bash
 npm run ops:backup
@@ -39,7 +39,7 @@ npm run ops:restore -- --backup tmp/alaya-backups/<backup-dir> --confirm
 
 The restore script requires `--confirm` to copy files.
 
-This pass verified:
+The earlier hardening pass verified:
 
 ```bash
 rm -rf tmp/alaya-backups/verify-goal
@@ -48,6 +48,8 @@ npm run ops:restore -- --backup tmp/alaya-backups/verify-goal
 ```
 
 Result: backup succeeded and restore stayed dry-run.
+
+The [2026-10-15 research release check](../validation/RESEARCH_RELEASE_2026-10-15.md) additionally restored a stopped-service backup into a fresh directory with the same database filename. All 30 tables matched and SQLite integrity checks passed. Use a fresh destination for this recovery path; this does not verify overwriting a running database or renaming the database during restore.
 
 ## Migration Policy
 

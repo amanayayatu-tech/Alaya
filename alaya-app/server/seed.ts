@@ -1,11 +1,12 @@
 /**
- * One-click demo seed: a "一键发布" product project run through 3 flywheel turns,
+ * One-click demo seed: a "一键发布" product project run through four simulated turns,
  * reusing the deterministic scenario. Opening the app shows knowledge K1/K2,
- * prediction errors, promotion to strong, and gate records.
+ * prediction errors and scenario approval records; strong promotion still requires human approval.
  */
 import { storage } from "./storage";
 import { createProjectFromOnboarding } from "./onboarding";
 import { runFullCycle, SCENARIO } from "./flywheel";
+import { assertScenarioDemoAllowed } from "./config/env";
 
 export const DEMO_NAME = "一键发布演示项目";
 
@@ -14,6 +15,7 @@ export function demoExists(): boolean {
 }
 
 export async function seedDemo(): Promise<{ projectId: string }> {
+  assertScenarioDemoAllowed();
   // idempotent: if exists, return it
   const existing = storage.listProjects().find((p) => p.name === DEMO_NAME);
   if (existing) return { projectId: existing.id };
@@ -38,7 +40,7 @@ export async function seedDemo(): Promise<{ projectId: string }> {
 
   const projectId = project.id;
 
-  // cycle 1 already exists from onboarding (idx=1). Run it, then create + run 2 & 3.
+  // Cycle 1 already exists from onboarding; then run the remaining explicit scenarios.
   const cycles = storage.listCycles(projectId);
   const c1 = cycles.find((c) => c.idx === 1)!;
   await runFullCycle(projectId, c1.id);
