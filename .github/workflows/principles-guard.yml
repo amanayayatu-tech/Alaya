@@ -1,6 +1,6 @@
 # Alaya 宪法守卫 + 结构验收 — GitHub Actions
 # 每次 push / PR 时静态检查 PRINCIPLES.md 的可机检底线，并跑 core/app/scripts
-# 测试、类型检查、构建和四层升级结构审计。真实 live E2E 仍只在本机凭据存在时运行。
+# 测试、类型检查、构建和四层升级结构审计。研究版 CI 仅运行离线/mock 检查，不调用真实模型。
 name: Principles Guard
 
 on:
@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       # workspaces 仓库：根目录单次 npm ci 安装全部依赖（子包内 npm ci 会操作根项目并清空 node_modules，禁止使用）
       - name: Install dependencies (workspaces)

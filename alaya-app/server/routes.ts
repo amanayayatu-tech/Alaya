@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Server } from "node:http";
 import { buildHealthz, buildReadyz } from "./observability/health";
 import { buildMetricsSnapshot, renderPrometheusMetrics } from "./observability/metrics";
-import { isLongRunMode, runModeFromEnv } from "./config/env";
+import { assertScenarioDemoAllowed, isLongRunMode, runModeFromEnv } from "./config/env";
 import { apiAuthMiddleware, metricsAccessMiddleware } from "./security/auth";
 import { auditCapabilityDecision, evaluateCapability, type CapabilityName } from "./security/capabilities";
 import { costEndpointRateLimit } from "./security/http";
@@ -248,6 +248,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.use("/api", apiAuthMiddleware);
+
+  app.post(["/api/seed-demo", "/api/cycles/:id/run-full"], (_req, _res, next) => {
+    assertScenarioDemoAllowed();
+    next();
+  });
 
   app.use("/api", (req, res, next) => {
     const mode = runModeFromEnv();

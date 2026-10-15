@@ -456,7 +456,7 @@ function GateCard({ gate, selected, onAction }: { gate: HumanGate; selected: boo
               推测链
             </div>
             草稿 {payload.draftCycleId ?? "未知"} 建立在 {dependsOn.length || (payload.parentCycleId ? 1 : 0)} 层未验证假设上；
-            显式假设 {assumptionCount} 条。批准后进入 grace apply 队列，观察回流前不会晋级知识。
+            显式假设 {assumptionCount} 条。批准后进入内部 apply 状态队列；Builder 变更包仍需人工执行，观察回流前不会晋级知识。
           </div>
         )}
         {gate.deferUntil && (

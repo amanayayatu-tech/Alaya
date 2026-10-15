@@ -1,5 +1,7 @@
 # Alaya 重构方案：从“大脑平台”退回“可证伪的改进实验器”
 
+> **历史设计，停止追加执行（2026-10-15）**：正文保留原方案，包含当时的本机路径与“下一步、未执行”等时间表述。固定搜索 M1 随后已完成，平均 test 改善 +0.573%，`go=false`；M2/M3 未启动。当前按[研究版结项记录](../RESEARCH_RELEASE_2026-10-15.zh-CN.md)收尾与维护，不再发起该路线的新实验。可移植上游获取及保存分数复算见[固定搜索 README](../../../experiments/evolution-mvp/README.md)和[M0 README](../../../experiments/reconstruction/README.md)。
+
 日期：2026-09-23<br>
 状态：DEVELOPMENT 设计，未授权正式实验、生产替换或 RSI 公共结论。
 

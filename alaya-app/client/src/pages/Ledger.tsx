@@ -101,13 +101,13 @@ export default function Ledger() {
     >
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <MetricTile label="预测总数" value={orderedPredictions.length} sub={`${resolvedPredictions.length} 条已结算`} icon={<ClipboardList className="h-4 w-4" />} />
-        <MetricTile label="平均准确率" value={fmtPct(avgAccuracy)} sub="1 - predictionError" icon={<Activity className="h-4 w-4" />} />
+        <MetricTile label="平均误差换算分" value={fmtPct(avgAccuracy)} sub="1 − predictionError · 非正确率" icon={<Activity className="h-4 w-4" />} />
         <MetricTile label="人类决策" value={decisions.length} sub="来自闸门处理" icon={<ReceiptText className="h-4 w-4" />} />
         <MetricTile label="全局事件" value={events.length} sub="storage diagnostics" icon={<History className="h-4 w-4" />} />
         <MetricTile label="项目 LLM 成本" value={`$${totalCost.toFixed(4)}`} sub={`${totalTokens} tokens · in ${totalInputTokens} / out ${totalOutputTokens}`} icon={<Brain className="h-4 w-4" />} />
       </div>
 
-      <SectionCard title="预测准确率趋势" description="每个点来自已结算 predictionError；70% 参考线用于快速判断趋势。">
+      <SectionCard title="预测误差换算分趋势" description="每个点为已结算记录的 1 − predictionError；70% 只是参考线，不是效果验收标准。">
         <div className="h-72 p-4">
           {chartData.length === 0 ? (
             <EmptyState title="暂无已结算预测" description="预测需要观察和误差写入后才会进入趋势图。" illustrated />
@@ -122,7 +122,7 @@ export default function Ledger() {
                   labelStyle={{ color: "hsl(var(--foreground))" }}
                 />
                 <ReferenceLine y={70} stroke="hsl(var(--warning))" strokeDasharray="4 4" label={{ value: "70%", fill: "hsl(var(--warning))", fontSize: 11, position: "insideTopRight" }} />
-                <Line type="monotone" dataKey="accuracy" name="准确率" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={{ r: 4, fill: "hsl(var(--primary))" }} activeDot={{ r: 6 }} />
+                <Line type="monotone" dataKey="accuracy" name="误差换算分" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={{ r: 4, fill: "hsl(var(--primary))" }} activeDot={{ r: 6 }} />
               </LineChart>
             </ResponsiveContainer>
           )}

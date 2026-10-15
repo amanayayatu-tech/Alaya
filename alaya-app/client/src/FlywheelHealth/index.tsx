@@ -99,8 +99,8 @@ export default function FlywheelHealth({ projectId }: FlywheelHealthProps) {
     <main className="space-y-5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-normal text-foreground">Flywheel Health</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Compounding, knowledge maturity, and human gate pressure.</p>
+          <h1 className="text-2xl font-semibold tracking-normal text-foreground">飞轮状态</h1>
+          <p className="mt-1 text-sm text-muted-foreground">查看知识积累、引用和人工闸门压力；过程记录不代表任务效果改善。</p>
         </div>
         <div className="inline-flex items-center rounded-md border border-border px-3 py-2 text-sm text-muted-foreground">
           <Activity className="mr-2 h-4 w-4 text-primary" />

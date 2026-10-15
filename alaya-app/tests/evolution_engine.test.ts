@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 process.env.ALAYA_DB_PATH = join(mkdtempSync(join(tmpdir(), "alaya-evolution-test-")), "test.db");
+process.env.ALAYA_MODE = "development";
 process.env.ALAYA_LLM_PROVIDER = "mock";
 
 const { storage, now } = await import("../server/storage.ts");

@@ -212,7 +212,7 @@ async function main() {
     const cycle1 = cycles.find((cycle) => cycle.idx === 1);
     assert(cycle1?.status === "closed", "cycle 1 did not close");
 
-    const review = await requestJson(`/api/cycles/${cycle1.id}/review`);
+    let review = await requestJson(`/api/cycles/${cycle1.id}/review`);
     const agents = new Set(review.agentRuns.map((run) => run.agent));
     for (const agent of ["orchestrator", "sensor", "builder", "distiller", "librarian"]) {
       assert(agents.has(agent), `missing agent run: ${agent}`);
@@ -224,6 +224,19 @@ async function main() {
     assert(firstClaim?.target === 1, "cycle 1 prediction did not use onboarding claim target");
     assert(firstClaim?.expectedObservation === "approved_review_gate_count >= 1", "cycle 1 prediction did not write expected observation");
     assert(review.feedback.length >= 1, "cycle 1 did not preserve feedback input");
+    const proposalGate = (await requestJson(`/api/human-gates?projectId=${project.id}`))
+      .find((gate) => gate.cycleId === cycle1.id && gate.status === "pending" && gate.payload?.source === "distiller_proposal");
+    assert(proposalGate, "distilled knowledge must wait for a proposal approval");
+    const proposedId = proposalGate.payload.proposedContent.id;
+    assert(!review.knowledgeUpdated.some((item) => item.id === proposedId), "unapproved proposal was written as knowledge");
+    await page.goto(`${baseUrl}/#/gates`, { waitUntil: "domcontentloaded" });
+    await page.getByTestId("select-project").selectOption({ label: projectName });
+    await page.getByTestId(`button-approve-${proposalGate.id}`).click();
+    await page.getByTestId("button-confirm-gate-action").click();
+    review = await waitUntil(async () => {
+      const updated = await requestJson(`/api/cycles/${cycle1.id}/review`);
+      return updated.knowledgeUpdated.some((item) => item.id === proposedId) ? updated : null;
+    }, "approved knowledge proposal was not persisted");
     assert(review.knowledgeUpdated.length >= 1, "cycle 1 did not update knowledge");
     const dashboard = await requestJson(`/api/projects/${project.id}/dashboard`);
     assert(dashboard.gateBudget.pendingBlocking <= 1, "pending blocking gates exceeded first-cycle expectation");

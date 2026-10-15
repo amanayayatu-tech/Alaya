@@ -1,5 +1,7 @@
 # Deployment
 
+> Historical deployment reference. The research release supports local single-user use; a successful image build is not production acceptance. Do not launch a shadow run as part of release checks.
+
 This hardening pass adds two long-run deployment paths: Docker shadow compose and a systemd unit for a prebuilt app.
 
 ## Docker Shadow Run
@@ -62,7 +64,7 @@ ALAYA_SHADOW_PORT=5055 docker compose -f deploy/docker-compose.shadow.yml down
 
 ## Container Safety Properties
 
-- Base image pins Node major version: `node:20-bookworm-slim`.
+- Base image pins Node major version: `node:24-bookworm-slim`.
 - Build and runtime stages are separated.
 - Runtime uses non-root user `alaya`.
 - `.env`, database files, logs, backups and node_modules are excluded by `.dockerignore`.

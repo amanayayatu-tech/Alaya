@@ -878,7 +878,7 @@ export interface IStorage {
   createNotificationDigest(d: NotificationDigestItem): NotificationDigestItem;
   getNotificationDigest(projectId: string, windowDate: string, windowLabel: string): NotificationDigestItem | undefined;
   // decision log
-  createDecision(d: DecisionLogItem): DecisionLogItem;
+  createDecision(d: DecisionLogItem, actor?: string): DecisionLogItem;
   listDecisions(projectId?: string): DecisionLogItem[];
   // event log
   recordEvent(e: Omit<EventLogItem, "id">): void;
@@ -1403,9 +1403,9 @@ export class DatabaseStorage implements IStorage {
     return r ? rowToNotificationDigest(r) : undefined;
   }
   // ---- decision log ----
-  createDecision(d: DecisionLogItem): DecisionLogItem {
+  createDecision(d: DecisionLogItem, actor = "human"): DecisionLogItem {
     rawDb.prepare(`INSERT INTO decision_log (id,cycle_id,gate_type,decision,rationale,ts) VALUES (?,?,?,?,?,?)`).run(d.id, d.cycleId, d.gateType, d.decision, d.rationale, d.ts);
-    this.auditWrite("human", "decision_log", "insert", null, d, this.cycleIdxFor(d.cycleId));
+    this.auditWrite(actor, "decision_log", "insert", null, d, this.cycleIdxFor(d.cycleId));
     return d;
   }
   listDecisions(projectId?: string): DecisionLogItem[] {

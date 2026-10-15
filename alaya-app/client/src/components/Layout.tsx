@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "./Logo";
+import { InlineNotice } from "./AppPrimitives";
 import type { Project } from "@/lib/alaya";
 import { useLocationParam } from "@/lib/hashLocation";
 import { apiRequest, hasApiKey, onApiKeyChange, queryClient, setApiKey } from "@/lib/queryClient";
@@ -33,8 +34,8 @@ const NAV = [
   { href: "/gates", label: "人类闸门", sub: "审批卡点", icon: ShieldCheck, testId: "link-nav-human-gates" },
   { href: "/ledger", label: "审计账本", sub: "追溯记录", icon: LineChart, testId: "link-nav-prediction-ledger" },
   { href: "/knowledge", label: "知识库", sub: "信念治理", icon: Library, testId: "link-nav-knowledge-base" },
-  { href: "/review", label: "周期评审", sub: "复利证据", icon: ListChecks, testId: "link-nav-cycle-review" },
-  { href: "/health", label: "健康证明", sub: "复利指标", icon: Activity, testId: "link-nav-flywheel-health" },
+  { href: "/review", label: "周期评审", sub: "知识引用", icon: ListChecks, testId: "link-nav-cycle-review" },
+  { href: "/health", label: "飞轮状态", sub: "积累与引用", icon: Activity, testId: "link-nav-flywheel-health" },
   { href: "/guide", label: "使用说明", sub: "新手上手", icon: BookOpenText, testId: "link-nav-guide" },
   { href: "/project", label: "项目设置", sub: "红线预算", icon: Settings, testId: "link-nav-project-setup" },
 ];
@@ -87,7 +88,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <Logo className="h-6 w-6 text-primary shrink-0" />
         <div className="min-w-0">
           <div className="text-sm font-semibold leading-none text-sidebar-foreground">Alaya</div>
-          <div className="mt-1 truncate text-[11px] text-muted-foreground">自进化治理引擎</div>
+          <div className="mt-1 truncate text-[11px] text-muted-foreground">研究版工作流原型</div>
         </div>
       </div>
 
@@ -232,13 +233,20 @@ export function Layout({ children }: { children: ReactNode }) {
                 <div className="truncate text-[11px] text-muted-foreground">{current.direction}</div>
               )}
             </div>
-            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-mono text-muted-foreground">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" /> 本地优先
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-mono text-muted-foreground">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary" /> 研究版 · 本地
             </span>
           </header>
 
           <main className="flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-7xl px-4 py-6 md:px-6 md:py-8">{children}</div>
+            <div className="mx-auto max-w-7xl px-4 py-6 md:px-6 md:py-8">
+              <div className="mb-5">
+                <InlineNotice>
+                  默认使用 mock；内置场景的反馈与执行结果为模拟数据。真实模型只生成建议，Builder 变更包需人工执行。知识增长和引用不等于认知增强。
+                </InlineNotice>
+              </div>
+              {children}
+            </div>
           </main>
         </div>
       </div>

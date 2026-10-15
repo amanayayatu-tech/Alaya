@@ -100,7 +100,7 @@ export default function Dashboard() {
       description={
         <>
           {stageMeta.label}。当前第 {data.currentCycle?.idx ?? "—"} 轮，
-          累计 {data.cycleCount} 轮；系统只在方向、意义和风险卡点请求人类介入。
+          累计 {data.cycleCount} 轮工作流记录；方向、意义和风险闸门供人工审阅。
         </>
       }
       action={
@@ -139,13 +139,13 @@ export default function Dashboard() {
         <MetricTile label="待审批" value={data.pendingHuman} tone={data.pendingHuman > 0 ? "warning" : "default"} sub="人类闸门" icon={<ShieldCheck className="h-4 w-4" />} />
         <MetricTile label="阻塞风险" value={data.blockingRisks} tone={data.blockingRisks > 0 ? "danger" : "default"} sub="必须先处理" icon={<AlertTriangle className="h-4 w-4" />} />
         <MetricTile label="开放预测" value={data.openPredictions} sub="等待观察闭环" icon={<CheckCircle2 className="h-4 w-4" />} />
-        <MetricTile label="知识 / strong" value={`${data.knowledgeCount}/${data.strongCount}`} sub="可复用信念" icon={<Brain className="h-4 w-4" />} />
+        <MetricTile label="知识 / strong" value={`${data.knowledgeCount}/${data.strongCount}`} sub="条目数，不代表效果" icon={<Brain className="h-4 w-4" />} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.4fr_0.8fr]">
         <SectionCard
           title="飞轮正在做什么"
-          description="高亮的是最近一次 Agent 运行阶段；每一轮都会留下预测、观察、知识和审计记录。"
+          description="高亮的是最近一次 Agent 运行阶段；内置场景使用模拟反馈与执行结果，Builder 变更包需人工执行。"
         >
           <div className="space-y-4 p-4">
             <FlywheelStageMap stage={data.flywheelStage} />
@@ -183,7 +183,7 @@ export default function Dashboard() {
 
       <SectionCard
         title="最近沉淀的知识"
-        description="这些信念会影响下一轮方向；过期、隔离、冲突或被合并的知识不会默认进入高风险证据集。"
+        description="这些条目可供下一轮引用；引用不证明决策改善。过期、隔离、冲突或被合并的知识不会默认进入高风险证据集。"
         action={
           <Link href="/knowledge" className="inline-flex items-center gap-1 text-sm font-medium text-primary" data-testid="link-view-knowledge">
             查看知识库 <ArrowUpRight className="h-4 w-4" />

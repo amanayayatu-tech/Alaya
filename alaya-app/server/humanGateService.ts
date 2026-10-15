@@ -362,7 +362,7 @@ export class HumanGateService {
         decision: "defer",
         rationale: input.rationale ?? "",
         ts: now(),
-      });
+      }, input.actor ?? "human");
       this.store.recordEvent({
         cycleIdx: this.store.getCycle(gate.cycleId)?.idx ?? 0,
         actor: input.actor ?? "human",
@@ -450,7 +450,7 @@ export class HumanGateService {
         decision: "revoked",
         rationale: input.rationale ?? "",
         ts: timestamp,
-      });
+      }, input.actor ?? "human");
       this.store.recordEvent({
         cycleIdx: draft.idx,
         actor: input.actor ?? "human",
@@ -533,7 +533,7 @@ export class HumanGateService {
         decision: action,
         rationale: input.rationale ?? "",
         ts: now(),
-      });
+      }, input.actor ?? "human");
       this.store.recordEvent({
         cycleIdx: this.store.getCycle(gate.cycleId)?.idx ?? 0,
         actor: input.actor ?? "human",
@@ -613,7 +613,7 @@ export class HumanGateService {
       decision,
       rationale: input.reason ?? "",
       ts: now(),
-    });
+    }, actor);
     this.store.recordEvent({
       cycleIdx: cycle?.idx ?? 0,
       actor,

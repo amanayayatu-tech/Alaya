@@ -87,19 +87,24 @@ test("security headers and CORS whitelist are applied", async () => {
 });
 
 test("high-cost endpoints are rate limited without affecting health", async () => {
-  const firstRunFull = await fetch(url("/api/cycles/cycle_missing/run-full"), {
-    method: "POST",
-    headers: authHeaders({ "Content-Type": "application/json" }),
-    body: "{}",
-  });
-  assert.equal(firstRunFull.status, 404);
+  process.env.ALAYA_MODE = "development";
+  try {
+    const firstRunFull = await fetch(url("/api/cycles/cycle_missing/run-full"), {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: "{}",
+    });
+    assert.equal(firstRunFull.status, 404);
 
-  const secondRunFull = await fetch(url("/api/cycles/cycle_missing/run-full"), {
-    method: "POST",
-    headers: authHeaders({ "Content-Type": "application/json" }),
-    body: "{}",
-  });
-  assert.equal(secondRunFull.status, 429);
+    const secondRunFull = await fetch(url("/api/cycles/cycle_missing/run-full"), {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: "{}",
+    });
+    assert.equal(secondRunFull.status, 429);
+  } finally {
+    process.env.ALAYA_MODE = "shadow";
+  }
 
   const firstScheduler = await fetch(url("/api/scheduler/tick"), {
     method: "POST",

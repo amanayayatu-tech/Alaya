@@ -1,0 +1,22 @@
+{
+  "valid": true,
+  "legal_rate": 1.0,
+  "mean_bins": 209.6,
+  "bins": [
+    211,
+    211,
+    207,
+    213,
+    206
+  ],
+  "error": null,
+  "candidate_sha256": "9cb93305a8d0e41a8881fbebc0aaf02aa81641006e9255e20e4157c924b01e89",
+  "elapsed_ms": 190,
+  "stderr": "",
+  "split": "test",
+  "search_seed": "m1-03",
+  "dataset_sha256": "bfcb3868e8a94ff436db8f1f2dcead003f10b0593b58460ed4b217a29bb15859",
+  "evaluator_sha256": "a3eb24b0d2744a190e8ae9ac30abdb540a9ea7e93dcff754ed46c2db0c8ebb47",
+  "worker_sha256": "55443b7b2e650a72c1afd637ef274d5da0338ff2594038d6f4640f50e8ba5325",
+  "container_image": "python:3.12-alpine@sha256:4c47124a8391cb7a9f571164147d154777cf012a4ece5f86097130d7a4478111"
+}

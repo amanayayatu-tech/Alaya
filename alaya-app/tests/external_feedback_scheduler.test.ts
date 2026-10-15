@@ -2420,12 +2420,13 @@ test("flywheel plan and task spec consume LLM output while preserving audit guar
   await runBuilder(cycle.id, scenario, plan.action, plan.refs, fakeLlm);
   const task = storage.listTasks(cycle.id).find((item) => item.agent === "builder");
   assert.ok(task);
-  assert.equal(task.status, "done", "tool-reported build result remains authoritative");
+  assert.equal(task.status, "done", "scenario build result remains a simulation");
   const spec = JSON.parse(task.spec);
   assert.equal(spec.action, plan.action);
   assert.equal(spec.diffSummary, "LLM diff: create gated review checklist task");
   assert.equal(spec.testReport, "LLM test report: checklist scenario reviewed");
-  assert.equal(spec.toolReportedBuildSuccess, true);
+  assert.equal(spec.simulatedBuildSuccess, true);
+  assert.equal(spec.toolReportedBuildSuccess, undefined);
   assert.equal(spec.llmReportedBuildSuccess, false);
 
   const { claimError } = evaluatePrediction(projectId, cycle.id, scenario, plan);

@@ -72,7 +72,7 @@ export default function Review() {
     <PageShell
       title="周期评审"
       eyebrow="Cycle Review"
-      description="按单轮查看反馈、预测、Agent 运行、知识引用和人工决策，确认飞轮是否真的产生复利证据。"
+      description="按单轮查看反馈、预测、Agent 运行、知识引用和人工决策；引用记录不证明任务效果改善。"
       action={
         <select
           data-testid="select-cycle"
@@ -115,7 +115,7 @@ function ReviewContent({ review }: { review: CycleReview }) {
         <MetricTile label="周期" value={`C${review.cycle.idx}`} sub={<StatusBadge meta={cycleStatus} />} icon={<GitBranch className="h-4 w-4" />} />
         <MetricTile label="反馈" value={review.feedback.length} sub={`${review.bugs.length} 个 bug 信号`} icon={<MessageSquare className="h-4 w-4" />} />
         <MetricTile label="预测" value={review.predictions.length} sub={`${resolved.length} 条已结算`} icon={<ScrollText className="h-4 w-4" />} />
-        <MetricTile label="准确率" value={fmtPct(avgAccuracy)} sub={`E_cycle ${fmtNum(review.cycle.eCycle)}`} icon={<Sparkles className="h-4 w-4" />} />
+        <MetricTile label="误差换算分" value={fmtPct(avgAccuracy)} sub={`E_cycle ${fmtNum(review.cycle.eCycle)}`} icon={<Sparkles className="h-4 w-4" />} />
         <MetricTile label="引用知识" value={review.referencedKnowledge.length} sub={`${review.knowledgeUpdated.length} 条本轮更新`} icon={<BookOpenCheck className="h-4 w-4" />} />
       </div>
 
@@ -132,7 +132,7 @@ function ReviewContent({ review }: { review: CycleReview }) {
 
       <ActionLedgerTimeline review={review} />
 
-      <SectionCard title="复利证据" description="本轮预测或 Agent 引用的既有知识，是飞轮复用历史经验的核心信号。">
+      <SectionCard title="既有知识引用" description="展示本轮预测或 Agent 引用的知识；引用发生不等于知识正确或决策改善。">
         {review.referencedKnowledge.length === 0 ? (
           <EmptyState title="本轮未引用既有知识" description="早期周期可能只依赖 onboarding seed，后续闭环会逐步积累引用。" illustrated />
         ) : (
@@ -182,7 +182,7 @@ function ReviewContent({ review }: { review: CycleReview }) {
           )}
         </SectionCard>
 
-        <SectionCard title={`预测与观察 (${review.predictions.length})`} description="每条预测都展示信念、预测、观察、误差类型和准确率。">
+        <SectionCard title={`预测与观察 (${review.predictions.length})`} description="每条预测展示信念、观察与误差；换算分为 1 − predictionError，不是任务正确率。">
           {review.predictions.length === 0 ? (
             <EmptyState title="本轮暂无预测" description="Orchestrator 尚未为本轮生成预测。" />
           ) : (
@@ -193,7 +193,7 @@ function ReviewContent({ review }: { review: CycleReview }) {
                   <article key={prediction.id} className="px-4 py-3" data-testid={`review-prediction-${prediction.id}`}>
                     <div className="flex flex-wrap items-center gap-2">
                       {prediction.errorType ? <StatusBadge meta={metaFor(errorTypeLabels, prediction.errorType)} /> : <StatusBadge meta={{ label: "未分类", tone: "muted" }} />}
-                      <StatusBadge meta={{ label: `acc ${fmtPct(accuracy)}`, tone: accuracy != null && accuracy >= 0.7 ? "success" : "warning" }} />
+                      <StatusBadge meta={{ label: `换算分 ${fmtPct(accuracy)}`, tone: accuracy != null && accuracy >= 0.7 ? "success" : "warning" }} />
                       {prediction.knowledgeRefs.map((ref) => <StatusBadge key={ref} meta={{ label: ref, tone: "primary" }} />)}
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm">

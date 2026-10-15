@@ -2,7 +2,7 @@
 # workspaces 仓库：根目录单次 npm ci；alaya-app 依赖 file:../alaya-core，
 # 必须在根上下文安装与构建（子包单独 npm ci 会产生悬空的 workspace 符号链接）。
 
-FROM node:20-bookworm-slim AS build
+FROM node:24-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY alaya-core/package.json ./alaya-core/
@@ -15,7 +15,7 @@ RUN npm run build
 WORKDIR /app
 RUN npm prune --omit=dev
 
-FROM node:20-bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=5000 \

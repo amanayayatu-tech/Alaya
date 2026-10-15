@@ -15,32 +15,35 @@ export function CompoundingProof({ proof }: CompoundingProofProps) {
   const lowNovelty = proof.principleNoveltyRate < 0.1;
 
   return (
-    <section className={`rounded-md border p-5 ${stalled ? "border-destructive/50 bg-destructive/10" : "border-primary/30 bg-primary/10"}`}>
+    <section className="rounded-md border border-border bg-card p-5">
       <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px_220px]">
         <div>
-          <p className="text-sm font-medium uppercase tracking-normal text-muted-foreground">Compounding Proof</p>
+          <p className="text-sm font-medium tracking-normal text-muted-foreground">知识积累与引用</p>
           <div className="mt-2 text-4xl font-semibold tracking-normal text-foreground">
             +{proof.round1vs4KnowledgeDelta}
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">Round 1 to round 4 knowledge delta.</p>
+          <p className="mt-2 text-sm text-muted-foreground">第 1 轮后累计新增知识条目（截至当前）。</p>
         </div>
         <div className="rounded-md border border-border bg-background/60 p-3">
-          <p className="text-sm text-muted-foreground">Principle novelty</p>
+          <p className="text-sm text-muted-foreground">原则去重比例</p>
           <p className="mt-2 text-2xl font-semibold tracking-normal text-foreground">{percent(proof.principleNoveltyRate)}</p>
+          <p className="mt-2 text-xs text-muted-foreground">按语义标识或标题去重。</p>
         </div>
         <div className="rounded-md border border-border bg-background/60 p-3">
-          <p className="text-sm text-muted-foreground">Injection effectiveness</p>
+          <p className="text-sm text-muted-foreground">已注入知识的引用比例</p>
           <p className="mt-2 text-2xl font-semibold tracking-normal text-foreground">{percent(proof.injectionEffectiveness)}</p>
+          <p className="mt-2 text-xs text-muted-foreground">被引用条目数 / 已注入条目数。</p>
         </div>
       </div>
+      <p className="mt-4 text-sm text-muted-foreground">这些指标只记录条目积累和引用，不衡量正确率、节时或认知增强。</p>
       {stalled ? (
-        <p className="mt-4 rounded-md bg-destructive px-3 py-2 text-sm font-medium text-destructive-foreground">
-          Flywheel has not produced compounding. Check knowledge injection configuration.
+        <p className="mt-4 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+          第 1 轮后尚无新增知识记录，可在周期评审中查看具体记录。
         </p>
       ) : null}
       {!stalled && lowNovelty ? (
         <p className="mt-4 rounded-md bg-warning px-3 py-2 text-sm font-medium text-warning-foreground">
-          Principle novelty is low. Review distiller and librarian merge behavior.
+          原则去重比例较低，可检查知识条目是否重复。
         </p>
       ) : null}
     </section>

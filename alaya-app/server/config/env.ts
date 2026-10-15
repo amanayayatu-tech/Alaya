@@ -1,4 +1,5 @@
 import { SENSOR_RECURRING_COUNT_THRESHOLD, SENSOR_STRUCTURAL_COUNT_THRESHOLD } from "alaya-core/src/core/sensor_filter.js";
+import { resolveModelRoute } from "alaya-core/src/llm/model_router.js";
 
 export type RunMode = "development" | "test" | "shadow" | "staging" | "production";
 
@@ -33,6 +34,18 @@ export function runModeFromEnv(env: NodeJS.ProcessEnv = process.env): RunMode {
   if (env.NODE_ENV === "test") return "test";
   if (env.NODE_ENV === "production") return "production";
   return "development";
+}
+
+export function isScenarioDemoAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  const explicitMode = env.ALAYA_MODE?.trim().toLowerCase();
+  return (!explicitMode || explicitMode === "development") && runModeFromEnv(env) === "development" &&
+    ["orchestrator", "sensor", "builder", "distiller", "librarian"].every((role) => resolveModelRoute(role, env).provider === "mock");
+}
+
+export function assertScenarioDemoAllowed(env: NodeJS.ProcessEnv = process.env): void {
+  if (!isScenarioDemoAllowed(env)) {
+    throw Object.assign(new Error("Scenario demo is only available in development with mock providers for every agent."), { status: 403 });
+  }
 }
 
 export function isProductionLikeMode(mode: RunMode): boolean {
